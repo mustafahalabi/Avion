@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { TaskStatusSelect } from "./task-status-select";
+import { ShieldCheck } from "lucide-react";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -84,6 +85,18 @@ export default async function TaskDetailPage({ params }: Props) {
   });
 
   if (!task) notFound();
+
+  // Quality gate: find latest review and QA for this task
+  const [latestReview, latestQA] = await Promise.all([
+    prisma.review.findFirst({
+      where: { companyId: company.id, entityType: "task", entityId: id },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.qAResult.findFirst({
+      where: { companyId: company.id, entityType: "task", entityId: id },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG["todo"];
   const Icon = cfg.icon;
@@ -179,6 +192,82 @@ export default async function TaskDetailPage({ params }: Props) {
             </DetailCard>
           </div>
         </section>
+
+        {/* Quality gate */}
+        {(latestReview || latestQA) && (
+          <section>
+            <SectionLabel>Quality</SectionLabel>
+            <div className="mt-3 flex flex-col gap-2">
+              {latestReview && (
+                <Link
+                  href={`/work/quality/${latestReview.id}`}
+                  className="group flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3 transition-colors hover:border-neutral-700"
+                >
+                  <ShieldCheck
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0",
+                      latestReview.status === "approved"
+                        ? "text-emerald-400"
+                        : latestReview.status === "changes_requested"
+                        ? "text-amber-400"
+                        : "text-neutral-500"
+                    )}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-neutral-300">
+                      Review: {latestReview.title}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-[11px] font-medium capitalize",
+                        latestReview.status === "approved"
+                          ? "text-emerald-400"
+                          : latestReview.status === "changes_requested"
+                          ? "text-amber-400"
+                          : "text-neutral-600"
+                      )}
+                    >
+                      {latestReview.status.replace(/_/g, " ")}
+                    </p>
+                  </div>
+                </Link>
+              )}
+              {latestQA && (
+                <div className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3">
+                  <CheckCircle2
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0",
+                      latestQA.status === "passed"
+                        ? "text-emerald-400"
+                        : latestQA.status === "failed"
+                        ? "text-red-400"
+                        : "text-neutral-500"
+                    )}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-neutral-300">
+                      QA Result
+                    </p>
+                    <p
+                      className={cn(
+                        "text-[11px] font-medium capitalize",
+                        latestQA.status === "passed"
+                          ? "text-emerald-400"
+                          : latestQA.status === "failed"
+                          ? "text-red-400"
+                          : "text-neutral-600"
+                      )}
+                    >
+                      {latestQA.status}
+                      {latestQA.passedCount + latestQA.failedCount > 0 &&
+                        ` · ${latestQA.passedCount}/${latestQA.passedCount + latestQA.failedCount} checks`}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Subtasks */}
         {task.subtasks.length > 0 && (
