@@ -85,6 +85,7 @@ model Company {
   memories        Memory[]
   runtimeRequests RuntimeRequest[]
   conversations   Conversation[]
+  integrations    Integration[]
 }
 
 model Department {
@@ -486,12 +487,29 @@ model Incident {
 }
 
 model Integration {
-  id          String   @id @default(cuid())
-  name        String
-  provider    String
-  status      String   @default("inactive")
-  config      String   @default("{}")
-  credentials String   @default("{}")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String    @id @default(cuid())
+  companyId    String
+  name         String
+  provider     String
+  status       String    @default("disconnected")
+  config       String    @default("{}")
+  credentials  String    @default("{}")
+  lastSyncAt   DateTime?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company  Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  syncLogs IntegrationSyncLog[]
+}
+
+model IntegrationSyncLog {
+  id            String   @id @default(cuid())
+  integrationId String
+  status        String
+  message       String
+  recordsCount  Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 }

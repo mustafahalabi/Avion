@@ -9,6 +9,7 @@ import {
   BookOpen,
   Inbox,
   MessageSquare,
+  Plug,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,11 @@ const navItems = [
     label: "Chat",
     href: "/chat",
     icon: MessageSquare,
+  },
+  {
+    label: "Integrations",
+    href: "/integrations",
+    icon: Plug,
   },
 ] as const;
 
