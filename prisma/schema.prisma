@@ -399,15 +399,20 @@ model Message {
 }
 
 model Notification {
-  id        String    @id @default(cuid())
-  userId    String
-  title     String
-  body      String?
-  type      String    @default("info")
-  read      Boolean   @default(false)
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  userId      String
+  companyId   String?
+  title       String
+  body        String?
+  type        String    @default("info")
+  priority    String    @default("medium")
+  entityType  String?
+  entityId    String?
+  actionUrl   String?
+  read        Boolean   @default(false)
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 // ─── Timeline / Events ────────────────────────────────────────────────────────

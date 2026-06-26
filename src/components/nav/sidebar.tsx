@@ -10,6 +10,8 @@ import {
   Inbox,
   MessageSquare,
   Plug,
+  Bell,
+  TrendingUp,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -50,9 +52,19 @@ const navItems = [
     href: "/integrations",
     icon: Plug,
   },
+  {
+    label: "Timeline",
+    href: "/timeline",
+    icon: TrendingUp,
+  },
 ] as const;
 
 const bottomNavItems = [
+  {
+    label: "Notifications",
+    href: "/notifications",
+    icon: Bell,
+  },
   {
     label: "Settings",
     href: "/settings",

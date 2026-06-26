@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { notify } from "@/lib/notify";
 
 const REQUEST_TYPES = [
   "feature",
@@ -54,8 +55,11 @@ export async function submitRequest(
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
+  const userId = session.user.id;
+  if (!userId) return { message: "User ID missing." };
+
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: userId },
     select: { id: true },
   });
   if (!company) return { message: "No company found." };
@@ -80,8 +84,21 @@ export async function submitRequest(
     },
   });
 
+  await notify({
+    userId,
+    companyId: company.id,
+    title: `New request: ${request.title}`,
+    body: `Routed to ${request.assignedTo}. Team is reviewing.`,
+    type: "info",
+    priority: "medium",
+    entityType: "request",
+    entityId: request.id,
+    actionUrl: `/inbox/requests/${request.id}`,
+  });
+
   revalidatePath("/inbox");
   revalidatePath("/dashboard");
+  revalidatePath("/notifications");
   return { id: request.id };
 }
 
@@ -92,9 +109,11 @@ export async function advanceRequestStatus(
 ): Promise<void> {
   const session = await auth();
   if (!session?.user) return;
+  const userId = session.user.id;
+  if (!userId) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: userId },
     select: { id: true },
   });
   if (!company) return;
@@ -118,6 +137,46 @@ export async function advanceRequestStatus(
     },
   });
 
+  // Emit notifications for high-signal state transitions
+  if (newStatus === "awaiting_approval") {
+    await notify({
+      userId,
+      companyId: company.id,
+      title: `Decision needed: ${request.title}`,
+      body: "A feature brief is ready for your approval.",
+      type: "decision",
+      priority: "high",
+      entityType: "request",
+      entityId: requestId,
+      actionUrl: `/inbox/requests/${requestId}`,
+    });
+  } else if (newStatus === "blocked") {
+    await notify({
+      userId,
+      companyId: company.id,
+      title: `Blocked: ${request.title}`,
+      body: "This request is blocked and needs your attention.",
+      type: "blocker",
+      priority: "urgent",
+      entityType: "request",
+      entityId: requestId,
+      actionUrl: `/inbox/requests/${requestId}`,
+    });
+  } else if (newStatus === "complete") {
+    await notify({
+      userId,
+      companyId: company.id,
+      title: `Complete: ${request.title}`,
+      body: "This request has been completed.",
+      type: "progress",
+      priority: "low",
+      entityType: "request",
+      entityId: requestId,
+      actionUrl: `/inbox/requests/${requestId}`,
+    });
+  }
+
   revalidatePath("/inbox");
   revalidatePath("/dashboard");
+  revalidatePath("/notifications");
 }
