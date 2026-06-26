@@ -104,6 +104,18 @@ export default async function CompanyPage() {
         </section>
 
         {/* Departments */}
+        {/* Quick links */}
+        <section className="flex flex-wrap gap-2">
+          <Link
+            href="/company/employees"
+            className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-2.5 text-sm text-neutral-300 hover:border-neutral-700 hover:bg-neutral-800 transition-colors"
+          >
+            <Users className="h-4 w-4 text-neutral-500" />
+            View all employees
+          </Link>
+        </section>
+
+        {/* Departments */}
         <section>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-sm font-medium text-neutral-200">
