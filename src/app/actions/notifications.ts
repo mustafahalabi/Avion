@@ -1,15 +1,15 @@
 "use server";
 
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 
 export async function markNotificationRead(notificationId: string): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   await prisma.notification.updateMany({
-    where: { id: notificationId, userId: session.user.id },
+    where: { id: notificationId, userId: user.id },
     data: { read: true, readAt: new Date() },
   });
 
@@ -17,11 +17,11 @@ export async function markNotificationRead(notificationId: string): Promise<void
 }
 
 export async function markAllRead(): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   await prisma.notification.updateMany({
-    where: { userId: session.user.id, read: false },
+    where: { userId: user.id, read: false },
     data: { read: true, readAt: new Date() },
   });
 

@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft, Building2, CheckCircle2, AlertCircle, Clock, Circle } from "lucide-react";
@@ -29,11 +29,11 @@ const REQUEST_TYPES: Record<string, string> = [
 
 export default async function ChatThreadPage({ params }: Props) {
   const { id } = await params;
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getCurrentUser();
+  if (!user) redirect("/sign-in");
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true, name: true },
   });
   if (!company) redirect("/onboarding");

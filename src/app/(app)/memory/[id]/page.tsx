@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft, BookOpen } from "lucide-react";
@@ -58,11 +58,11 @@ const CATEGORY_CONFIG: Record<
 
 export default async function MemoryDetailPage({ params }: Props) {
   const { id } = await params;
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getCurrentUser();
+  if (!user) redirect("/sign-in");
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) redirect("/onboarding");

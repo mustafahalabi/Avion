@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -23,11 +23,11 @@ export type SendMessageState =
   | { conversationId: string };
 
 export async function createConversation(): Promise<{ id: string }> {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getCurrentUser();
+  if (!user) redirect("/sign-in");
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) redirect("/onboarding");
@@ -53,11 +53,11 @@ export async function sendMessage(
   _prev: SendMessageState,
   formData: FormData
 ): Promise<SendMessageState> {
-  const session = await auth();
-  if (!session?.user) return { error: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true, name: true },
   });
   if (!company) return { error: "Company not found." };
@@ -86,7 +86,7 @@ export async function sendMessage(
     await tx.message.create({
       data: {
         conversationId,
-        authorId: session.user!.id,
+        authorId: user.id,
         role: "user",
         type: "text",
         content,
@@ -164,11 +164,11 @@ export async function sendMessage(
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;

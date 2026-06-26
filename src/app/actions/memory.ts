@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -41,8 +41,8 @@ export async function createMemory(
   _prev: CreateMemoryState,
   formData: FormData
 ): Promise<CreateMemoryState> {
-  const session = await auth();
-  if (!session?.user) return { message: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { message: "Not authenticated." };
 
   const parsed = createMemorySchema.safeParse({
     title: formData.get("title"),
@@ -55,7 +55,7 @@ export async function createMemory(
   }
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { message: "No company found." };
@@ -77,8 +77,8 @@ export async function addMemoryRecord(
   _prev: AddRecordState,
   formData: FormData
 ): Promise<AddRecordState> {
-  const session = await auth();
-  if (!session?.user) return { message: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { message: "Not authenticated." };
 
   const parsed = addMemoryRecordSchema.safeParse({
     content: formData.get("content"),
@@ -91,7 +91,7 @@ export async function addMemoryRecord(
   }
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { message: "No company found." };

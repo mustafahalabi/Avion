@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 
 interface OnboardingSettings {
   companyId: string;
@@ -14,11 +14,11 @@ export async function saveOnboardingSettings({
   autonomyLevel,
   cultureProfile,
 }: OnboardingSettings) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthenticated");
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Unauthenticated");
 
   const company = await prisma.company.findFirst({
-    where: { id: companyId, ownerId: session.user.id },
+    where: { id: companyId, ownerId: user.id },
   });
   if (!company) throw new Error("Company not found");
 

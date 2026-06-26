@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 
@@ -40,8 +40,8 @@ export async function addRepository(
   _prev: AddRepositoryState,
   formData: FormData
 ): Promise<AddRepositoryState> {
-  const session = await auth();
-  if (!session?.user) return { message: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { message: "Not authenticated." };
 
   const parsed = addRepositorySchema.safeParse({
     name: formData.get("name"),
@@ -59,7 +59,7 @@ export async function addRepository(
   }
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     include: { workspaces: { select: { id: true } } },
   });
   if (!company || company.workspaces.length === 0) {

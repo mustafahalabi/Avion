@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -30,11 +30,11 @@ export async function createRelease(
   _prev: CreateReleaseState,
   formData: FormData
 ): Promise<CreateReleaseState> {
-  const session = await auth();
-  if (!session?.user) return { error: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { error: "Company not found." };
@@ -67,11 +67,11 @@ export async function updateReleaseChecklist(
   releaseId: string,
   checklist: { id: string; label: string; checked: boolean }[]
 ): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;
@@ -97,11 +97,11 @@ export async function updateReleaseNotes(
   releaseNotes: string,
   rollbackPlan: string
 ): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;
@@ -115,11 +115,11 @@ export async function updateReleaseNotes(
 }
 
 export async function markReleased(releaseId: string): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;

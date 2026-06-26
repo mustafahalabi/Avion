@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 
@@ -19,8 +19,8 @@ export async function createProject(
   _prev: CreateProjectState,
   formData: FormData
 ): Promise<CreateProjectState> {
-  const session = await auth();
-  if (!session?.user) return { message: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { message: "Not authenticated." };
 
   const parsed = createProjectSchema.safeParse({
     name: formData.get("name"),
@@ -33,7 +33,7 @@ export async function createProject(
   }
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     include: { workspaces: { select: { id: true } } },
   });
   if (!company || company.workspaces.length === 0) {
@@ -87,8 +87,8 @@ export async function createTask(
   _prev: CreateTaskState,
   formData: FormData
 ): Promise<CreateTaskState> {
-  const session = await auth();
-  if (!session?.user) return { message: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { message: "Not authenticated." };
 
   const parsed = createTaskSchema.safeParse({
     title: formData.get("title"),
@@ -104,7 +104,7 @@ export async function createTask(
   }
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { message: "No company found." };
@@ -128,11 +128,11 @@ export async function updateTaskStatus(
   taskId: string,
   status: string
 ): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;

@@ -1,12 +1,12 @@
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { NewReleaseForm } from "./new-release-form";
 
 export default async function NewReleasePage() {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getCurrentUser();
+  if (!user) redirect("/sign-in");
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">

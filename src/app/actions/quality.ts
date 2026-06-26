@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -23,13 +23,11 @@ export async function createReview(
   _prev: CreateReviewState,
   formData: FormData
 ): Promise<CreateReviewState> {
-  const session = await auth();
-  if (!session?.user) return { error: "Not authenticated." };
-  const userId = session.user.id;
-  if (!userId) return { error: "User ID missing." };
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: userId },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { error: "Company not found." };
@@ -65,13 +63,13 @@ export async function submitReviewVerdict(
   verdict: SubmitVerdict,
   notes: string
 ): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
-  const userId = session.user.id;
-  if (!userId) return;
+  const user = await getCurrentUser();
+  if (!user) return;
+  
+  
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: userId },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;
@@ -103,7 +101,7 @@ export async function submitReviewVerdict(
     });
 
     await notify({
-      userId,
+      userId: user.id,
       companyId: company.id,
       title: "Changes requested",
       body: `Review for "${review.title}" requires changes: ${notes.slice(0, 80)}`,
@@ -135,13 +133,11 @@ export async function createQAResult(
   _prev: CreateQAState,
   formData: FormData
 ): Promise<CreateQAState> {
-  const session = await auth();
-  if (!session?.user) return { error: "Not authenticated." };
-  const userId = session.user.id;
-  if (!userId) return { error: "User ID missing." };
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: userId },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { error: "Company not found." };
@@ -182,11 +178,11 @@ export async function createQAResult(
 }
 
 export async function updateQAStatus(qaId: string, status: string, notes: string): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;

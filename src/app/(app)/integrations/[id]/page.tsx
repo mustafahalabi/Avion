@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react";
@@ -43,11 +43,11 @@ export default async function IntegrationDetailPage({ params }: Props) {
   const providerDef = INTEGRATION_PROVIDERS.find((p) => p.id === providerId);
   if (!providerDef) notFound();
 
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getCurrentUser();
+  if (!user) redirect("/sign-in");
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) redirect("/onboarding");

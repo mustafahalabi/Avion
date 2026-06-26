@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { notify } from "@/lib/notify";
@@ -42,8 +42,8 @@ export async function submitRequest(
   _prev: SubmitRequestState,
   formData: FormData
 ): Promise<SubmitRequestState> {
-  const session = await auth();
-  if (!session?.user) return { message: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { message: "Not authenticated." };
 
   const parsed = submitRequestSchema.safeParse({
     title: formData.get("title"),
@@ -55,11 +55,8 @@ export async function submitRequest(
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
-  const userId = session.user.id;
-  if (!userId) return { message: "User ID missing." };
-
   const company = await prisma.company.findFirst({
-    where: { ownerId: userId },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { message: "No company found." };
@@ -85,7 +82,7 @@ export async function submitRequest(
   });
 
   await notify({
-    userId,
+    userId: user.id,
     companyId: company.id,
     title: `New request: ${request.title}`,
     body: `Routed to ${request.assignedTo}. Team is reviewing.`,
@@ -107,13 +104,11 @@ export async function advanceRequestStatus(
   newStatus: string,
   description: string
 ): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
-  const userId = session.user.id;
-  if (!userId) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: userId },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;
@@ -137,10 +132,9 @@ export async function advanceRequestStatus(
     },
   });
 
-  // Emit notifications for high-signal state transitions
   if (newStatus === "awaiting_approval") {
     await notify({
-      userId,
+      userId: user.id,
       companyId: company.id,
       title: `Decision needed: ${request.title}`,
       body: "A feature brief is ready for your approval.",
@@ -152,7 +146,7 @@ export async function advanceRequestStatus(
     });
   } else if (newStatus === "blocked") {
     await notify({
-      userId,
+      userId: user.id,
       companyId: company.id,
       title: `Blocked: ${request.title}`,
       body: "This request is blocked and needs your attention.",
@@ -164,7 +158,7 @@ export async function advanceRequestStatus(
     });
   } else if (newStatus === "complete") {
     await notify({
-      userId,
+      userId: user.id,
       companyId: company.id,
       title: `Complete: ${request.title}`,
       body: "This request has been completed.",

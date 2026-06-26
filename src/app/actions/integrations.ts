@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -22,11 +22,11 @@ export async function connectIntegration(
   _prev: ConnectIntegrationState,
   formData: FormData
 ): Promise<ConnectIntegrationState> {
-  const session = await auth();
-  if (!session?.user) return { error: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { error: "Company not found." };
@@ -98,11 +98,11 @@ export async function connectIntegration(
 }
 
 export async function disconnectIntegration(integrationId: string): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return;
@@ -136,11 +136,11 @@ export async function disconnectIntegration(integrationId: string): Promise<void
 }
 
 export async function triggerSync(integrationId: string): Promise<{ message: string }> {
-  const session = await auth();
-  if (!session?.user) return { message: "Not authenticated." };
+  const user = await getCurrentUser();
+  if (!user) return { message: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true },
   });
   if (!company) return { message: "Company not found." };

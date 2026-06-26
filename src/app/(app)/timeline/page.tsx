@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { TrendingUp, Circle, CheckCircle2, AlertCircle, Clock } from "lucide-react";
@@ -42,11 +42,11 @@ function groupByDate(events: TimelineEvent[]): Record<string, TimelineEvent[]> {
 }
 
 export default async function TimelinePage() {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getCurrentUser();
+  if (!user) redirect("/sign-in");
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: session.user.id },
+    where: { ownerId: user.id },
     select: { id: true, name: true },
   });
   if (!company) redirect("/onboarding");

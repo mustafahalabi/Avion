@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { Bell, CheckCircle2, AlertCircle, Info, Zap, ShieldAlert, TrendingUp } from "lucide-react";
@@ -27,11 +27,11 @@ const PRIORITY_DOT: Record<string, string> = {
 };
 
 export default async function NotificationsPage() {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getCurrentUser();
+  if (!user) redirect("/sign-in");
 
   const notifications = await prisma.notification.findMany({
-    where: { userId: session.user.id },
+    where: { userId: user.id },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
