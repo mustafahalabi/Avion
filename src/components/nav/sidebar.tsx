@@ -8,6 +8,7 @@ import {
   Layers,
   BookOpen,
   Inbox,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,14 @@ const navItems = [
     label: "Inbox",
     href: "/inbox",
     icon: Inbox,
+  },
+] as const;
+
+const bottomNavItems = [
+  {
+    label: "Settings",
+    href: "/settings",
+    icon: Settings,
   },
 ] as const;
 
@@ -86,8 +95,38 @@ export function Sidebar() {
         })}
       </nav>
 
+      {/* Bottom nav items */}
+      <nav className="flex flex-col gap-0.5 p-2 border-t border-neutral-800">
+        {bottomNavItems.map(({ label, href, icon: Icon }) => {
+          const isActive = pathname === href || pathname.startsWith(href + "/");
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                isActive
+                  ? "bg-neutral-800 text-neutral-100 font-medium"
+                  : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
+              )}
+            >
+              <Icon
+                className={cn(
+                  "h-4 w-4 shrink-0 transition-colors",
+                  isActive
+                    ? "text-neutral-200"
+                    : "text-neutral-500 group-hover:text-neutral-300"
+                )}
+                aria-hidden="true"
+              />
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
+
       {/* Bottom spacer for user menu */}
-      <div className="h-12 border-t border-neutral-800" />
+      <div className="h-12" />
     </aside>
   );
 }

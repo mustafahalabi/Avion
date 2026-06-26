@@ -3,6 +3,7 @@
 import { signOut } from "next-auth/react";
 import { Avatar } from "@/components/ui/avatar";
 import { LogOut, Settings } from "lucide-react";
+import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 
 interface UserMenuProps {
@@ -58,15 +59,15 @@ export function UserMenu({ user }: UserMenuProps) {
             <p className="text-[11px] text-neutral-500 truncate">{user.email}</p>
           </div>
 
-          <button
+          <Link
             role="menuitem"
-            type="button"
+            href="/settings"
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
             onClick={() => setOpen(false)}
           >
             <Settings className="h-3.5 w-3.5" aria-hidden="true" />
             Settings
-          </button>
+          </Link>
 
           <button
             role="menuitem"

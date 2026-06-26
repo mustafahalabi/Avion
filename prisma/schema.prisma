@@ -20,9 +20,10 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts Account[]
-  sessions Session[]
-  employee Employee?
+  accounts       Account[]
+  sessions       Session[]
+  employee       Employee?
+  ownedCompanies Company[]  @relation("CompanyOwner")
 }
 
 model Account {
@@ -67,6 +68,7 @@ model Company {
   id          String   @id @default(cuid())
   name        String
   slug        String   @unique
+  ownerId     String
   logoUrl     String?
   website     String?
   industry    String?
@@ -74,6 +76,7 @@ model Company {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  owner       User             @relation("CompanyOwner", fields: [ownerId], references: [id])
   departments Department[]
   employees   Employee[]
   settings    CompanySettings?
@@ -130,14 +133,15 @@ model Employee {
 }
 
 model CompanySettings {
-  id        String   @id @default(cuid())
-  companyId String   @unique
-  timezone  String   @default("UTC")
-  currency  String   @default("USD")
-  locale    String   @default("en")
-  features  String   @default("{}")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(cuid())
+  companyId      String   @unique
+  autonomyLevel  String   @default("assist")
+  cultureProfile String   @default("startup")
+  timezone       String   @default("UTC")
+  currency       String   @default("USD")
+  locale         String   @default("en")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

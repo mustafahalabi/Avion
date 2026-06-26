@@ -1,62 +1,49 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useActionState } from "react";
+import { registerUser } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
-function LoginForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-
-    try {
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      });
-
-      if (result?.error) {
-        setError("Invalid email or password.");
-      } else {
-        router.push(callbackUrl);
-        router.refresh();
-      }
-    } catch {
-      setError("Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
+function RegisterForm() {
+  const [state, action, pending] = useActionState(registerUser, undefined);
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form action={action} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="name" className="text-xs font-medium text-neutral-400">
+          Full name
+        </label>
+        <input
+          id="name"
+          name="name"
+          type="text"
+          autoComplete="name"
+          required
+          placeholder="Alex Chen"
+          className="h-9 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-500/20 transition-colors"
+        />
+        {state?.errors?.name && (
+          <p className="text-xs text-red-400">{state.errors.name[0]}</p>
+        )}
+      </div>
+
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-xs font-medium text-neutral-400">
           Email
         </label>
         <input
           id="email"
+          name="email"
           type="email"
           autoComplete="email"
           required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
           placeholder="you@company.com"
           className="h-9 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-500/20 transition-colors"
         />
+        {state?.errors?.email && (
+          <p className="text-xs text-red-400">{state.errors.email[0]}</p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -68,42 +55,44 @@ function LoginForm() {
         </label>
         <input
           id="password"
+          name="password"
           type="password"
-          autoComplete="current-password"
+          autoComplete="new-password"
           required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••"
+          placeholder="Min. 8 characters"
           className="h-9 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-500/20 transition-colors"
         />
+        {state?.errors?.password && (
+          <p className="text-xs text-red-400">{state.errors.password[0]}</p>
+        )}
       </div>
 
-      {error && (
+      {state?.message && (
         <p className="rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">
-          {error}
+          {state.message}
         </p>
       )}
 
       <Button
         type="submit"
         size="lg"
-        loading={loading}
+        loading={pending}
         className="mt-1 w-full bg-white text-neutral-900 hover:bg-neutral-100"
       >
-        Sign in
+        Create account
       </Button>
 
       <p className="text-center text-xs text-neutral-600">
-        No account?{" "}
-        <Link href="/register" className="text-neutral-400 hover:text-neutral-200 transition-colors">
-          Create one
+        Already have an account?{" "}
+        <Link href="/login" className="text-neutral-400 hover:text-neutral-200 transition-colors">
+          Sign in
         </Link>
       </p>
     </form>
   );
 }
 
-export default function LoginPage() {
+export default function RegisterPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-950 px-4">
       <div className="w-full max-w-sm">
@@ -118,14 +107,14 @@ export default function LoginPage() {
 
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-8">
           <h1 className="mb-1 text-lg font-semibold text-neutral-100">
-            Sign in
+            Create your account
           </h1>
           <p className="mb-6 text-sm text-neutral-500">
-            Enter your credentials to continue
+            Your virtual engineering company awaits
           </p>
 
-          <Suspense fallback={<div className="h-40" />}>
-            <LoginForm />
+          <Suspense fallback={<div className="h-56" />}>
+            <RegisterForm />
           </Suspense>
         </div>
 

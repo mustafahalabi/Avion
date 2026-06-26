@@ -44,20 +44,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        // Eagerly load companyId into the token on first sign-in
+        const company = await prisma.company.findFirst({
+          where: { ownerId: user.id },
+          select: { id: true },
+        });
+        token.companyId = company?.id ?? null;
       }
       return token;
     },
     session({ session, token }) {
       if (session.user && token.id) {
         session.user.id = token.id as string;
+        (session.user as typeof session.user & { companyId?: string | null }).companyId =
+          token.companyId as string | null;
       }
       return session;
     },
     authorized({ auth: session }) {
-      // Logged-in users are authorized; unauthenticated are redirected to /login
       return !!session?.user;
     },
   },
