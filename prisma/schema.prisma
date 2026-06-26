@@ -76,13 +76,15 @@ model Company {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  owner       User             @relation("CompanyOwner", fields: [ownerId], references: [id])
-  departments Department[]
-  employees   Employee[]
-  settings    CompanySettings?
-  workspaces  Workspace[]
-  tasks       Task[]
-  memories    Memory[]
+  owner           User             @relation("CompanyOwner", fields: [ownerId], references: [id])
+  departments     Department[]
+  employees       Employee[]
+  settings        CompanySettings?
+  workspaces      Workspace[]
+  tasks           Task[]
+  memories        Memory[]
+  runtimeRequests RuntimeRequest[]
+  conversations   Conversation[]
 }
 
 model Department {
@@ -335,15 +337,47 @@ model KnowledgeRecord {
   knowledge Knowledge @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
 }
 
+// ─── Company Runtime Models ───────────────────────────────────────────────────
+
+model RuntimeRequest {
+  id           String    @id @default(cuid())
+  companyId    String
+  title        String
+  goal         String
+  requestType  String    @default("feature")
+  status       String    @default("intake")
+  assignedTo   String?
+  clarification String?
+  resolution   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  events   RuntimeEvent[]
+}
+
+model RuntimeEvent {
+  id          String   @id @default(cuid())
+  requestId   String
+  type        String
+  description String
+  actor       String?
+  createdAt   DateTime @default(now())
+
+  request RuntimeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
 // ─── Communication / Inbox Models ─────────────────────────────────────────────
 
 model Conversation {
   id        String   @id @default(cuid())
+  companyId String?
   title     String?
   type      String   @default("direct")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  company  Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   messages Message[]
 }
 
@@ -351,6 +385,7 @@ model Message {
   id             String   @id @default(cuid())
   conversationId String
   authorId       String?
+  role           String   @default("user")
   content        String
   type           String   @default("text")
   createdAt      DateTime @default(now())
