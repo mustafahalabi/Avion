@@ -1,0 +1,430 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── NextAuth Required Models ────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          String    @default("member")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+  employee Employee?
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Core Org Models ─────────────────────────────────────────────────────────
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  website     String?
+  industry    String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  departments Department[]
+  employees   Employee[]
+  settings    CompanySettings?
+  workspaces  Workspace[]
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String
+  description String?
+  companyId   String
+  parentId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent    Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  children  Department[] @relation("DepartmentHierarchy")
+  employees Employee[]
+
+  @@unique([companyId, slug])
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String
+  level       Int      @default(0)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employees Employee[]
+}
+
+model Employee {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  companyId    String
+  departmentId String?
+  roleId       String?
+  title        String?
+  bio          String?
+  startDate    DateTime?
+  endDate      DateTime?
+  status       String    @default("active")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id])
+  role       Role?       @relation(fields: [roleId], references: [id])
+}
+
+model CompanySettings {
+  id        String   @id @default(cuid())
+  companyId String   @unique
+  timezone  String   @default("UTC")
+  currency  String   @default("USD")
+  locale    String   @default("en")
+  features  String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String
+  companyId   String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@unique([companyId, slug])
+}
+
+// ─── Engineering Work Models ─────────────────────────────────────────────────
+
+model Repository {
+  id          String   @id @default(cuid())
+  name        String
+  url         String?
+  description String?
+  language    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Project {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String
+  workspaceId String
+  description String?
+  status      String    @default("active")
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  features   Feature[]
+  milestones Milestone[]
+  sprints    Sprint[]
+}
+
+model Feature {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  projectId   String
+  status      String   @default("planned")
+  priority    String   @default("medium")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  featureId   String?
+  sprintId    String?
+  assigneeId  String?
+  status      String   @default("todo")
+  priority    String   @default("medium")
+  estimate    Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  feature  Feature?  @relation(fields: [featureId], references: [id])
+  sprint   Sprint?   @relation(fields: [sprintId], references: [id])
+  subtasks Subtask[]
+}
+
+model Subtask {
+  id        String   @id @default(cuid())
+  title     String
+  taskId    String
+  completed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model Sprint {
+  id        String    @id @default(cuid())
+  name      String
+  projectId String
+  goal      String?
+  status    String    @default("planned")
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+}
+
+model Milestone {
+  id          String    @id @default(cuid())
+  title       String
+  projectId   String
+  description String?
+  status      String    @default("pending")
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ─── Memory / Knowledge Models ────────────────────────────────────────────────
+
+model Memory {
+  id        String   @id @default(cuid())
+  title     String
+  content   String?
+  type      String   @default("general")
+  tags      String   @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  records MemoryRecord[]
+}
+
+model MemoryRecord {
+  id        String   @id @default(cuid())
+  memoryId  String
+  content   String
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memory Memory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+}
+
+model Knowledge {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  category    String?
+  tags        String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  records KnowledgeRecord[]
+}
+
+model KnowledgeRecord {
+  id          String   @id @default(cuid())
+  knowledgeId String
+  content     String
+  format      String   @default("markdown")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  knowledge Knowledge @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
+}
+
+// ─── Communication / Inbox Models ─────────────────────────────────────────────
+
+model Conversation {
+  id        String   @id @default(cuid())
+  title     String?
+  type      String   @default("direct")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  authorId       String?
+  content        String
+  type           String   @default("text")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  body      String?
+  type      String    @default("info")
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// ─── Timeline / Events ────────────────────────────────────────────────────────
+
+model Event {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  type        String   @default("generic")
+  entityType  String?
+  entityId    String?
+  actorId     String?
+  metadata    String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TimelineEntry {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  eventType  String
+  summary    String?
+  actorId    String?
+  metadata   String   @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─── Quality / Releases ───────────────────────────────────────────────────────
+
+model Review {
+  id         String   @id @default(cuid())
+  title      String
+  entityType String?
+  entityId   String?
+  reviewerId String?
+  status     String   @default("pending")
+  verdict    String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model QAResult {
+  id          String   @id @default(cuid())
+  entityType  String?
+  entityId    String?
+  status      String   @default("pending")
+  passedCount Int      @default(0)
+  failedCount Int      @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Release {
+  id          String    @id @default(cuid())
+  version     String
+  title       String?
+  description String?
+  status      String    @default("draft")
+  releasedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Incident {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  severity    String    @default("medium")
+  status      String    @default("open")
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Integration {
+  id          String   @id @default(cuid())
+  name        String
+  provider    String
+  status      String   @default("inactive")
+  config      String   @default("{}")
+  credentials String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
