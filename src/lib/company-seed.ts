@@ -201,4 +201,43 @@ export async function seedCompanyStructure(tx: TxClient, companyId: string) {
       status: "active",
     })),
   });
+
+  const V1_MEMORIES = [
+    {
+      title: "Company Memory",
+      summary: "Strategic context, decisions, and organizational knowledge for this company.",
+      category: "company",
+    },
+    {
+      title: "Architecture Memory",
+      summary: "Architectural decisions, system design choices, and technical direction.",
+      category: "architecture",
+    },
+    {
+      title: "Product Memory",
+      summary: "Product decisions, feature context, and roadmap rationale.",
+      category: "product",
+    },
+    {
+      title: "Security Memory",
+      summary: "Security policies, vulnerability records, and compliance decisions.",
+      category: "security",
+    },
+    {
+      title: "Operations Memory",
+      summary: "Infrastructure decisions, deployment history, and incident learnings.",
+      category: "operations",
+    },
+  ];
+
+  for (const mem of V1_MEMORIES) {
+    await tx.memory.create({
+      data: {
+        companyId,
+        title: mem.title,
+        summary: mem.summary,
+        category: mem.category,
+      },
+    });
+  }
 }

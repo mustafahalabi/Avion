@@ -82,6 +82,7 @@ model Company {
   settings    CompanySettings?
   workspaces  Workspace[]
   tasks       Task[]
+  memories    Memory[]
 }
 
 model Department {
@@ -284,24 +285,29 @@ model Milestone {
 // ─── Memory / Knowledge Models ────────────────────────────────────────────────
 
 model Memory {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  type      String   @default("general")
-  tags      String   @default("[]")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  companyId   String
+  title       String
+  summary     String?
+  category    String   @default("company")
+  ownerType   String?
+  ownerId     String?
+  tags        String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   records MemoryRecord[]
 }
 
 model MemoryRecord {
-  id        String   @id @default(cuid())
-  memoryId  String
-  content   String
-  source    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  memoryId   String
+  content    String
+  source     String?
+  confidence Float    @default(1.0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   memory Memory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
 }
