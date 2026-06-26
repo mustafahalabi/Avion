@@ -160,8 +160,9 @@ model Workspace {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  projects Project[]
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  projects     Project[]
+  repositories Repository[]
 
   @@unique([companyId, slug])
 }
@@ -169,13 +170,23 @@ model Workspace {
 // ─── Engineering Work Models ─────────────────────────────────────────────────
 
 model Repository {
-  id          String   @id @default(cuid())
-  name        String
-  url         String?
-  description String?
-  language    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  workspaceId    String
+  name           String
+  url            String?
+  description    String?
+  primaryLanguage String?
+  techStack      String   @default("[]")
+  frameworks     String   @default("[]")
+  dependencies   String   @default("[]")
+  importantFiles String   @default("[]")
+  fileCount      Int?
+  analysisStatus String   @default("pending")
+  analysisNotes  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model Project {

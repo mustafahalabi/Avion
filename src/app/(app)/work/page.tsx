@@ -138,6 +138,17 @@ export default async function WorkPage() {
           />
         </section>
 
+        {/* Quick links */}
+        <section className="flex flex-wrap gap-2">
+          <Link
+            href="/work/repositories"
+            className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-2.5 text-sm text-neutral-300 hover:border-neutral-700 hover:bg-neutral-800 transition-colors"
+          >
+            <span className="text-neutral-500">⎇</span>
+            Repositories
+          </Link>
+        </section>
+
         {/* Projects */}
         <section>
           <div className="mb-4 flex items-center justify-between">

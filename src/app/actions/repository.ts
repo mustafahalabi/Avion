@@ -1,0 +1,87 @@
+"use server";
+
+import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import { z } from "zod";
+import { redirect } from "next/navigation";
+
+const addRepositorySchema = z.object({
+  name: z.string().min(1).max(200).trim(),
+  url: z.string().url().trim().optional().or(z.literal("")),
+  description: z.string().max(1000).trim().optional(),
+  primaryLanguage: z.string().max(100).trim().optional(),
+  techStack: z.string().max(2000).trim().optional(),
+  frameworks: z.string().max(2000).trim().optional(),
+  dependencies: z.string().max(5000).trim().optional(),
+  importantFiles: z.string().max(2000).trim().optional(),
+});
+
+export type AddRepositoryState =
+  | {
+      errors?: {
+        name?: string[];
+        url?: string[];
+        description?: string[];
+      };
+      message?: string;
+    }
+  | undefined;
+
+function csvToJson(input: string | undefined): string {
+  if (!input?.trim()) return "[]";
+  const items = input
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return JSON.stringify(items);
+}
+
+export async function addRepository(
+  _prev: AddRepositoryState,
+  formData: FormData
+): Promise<AddRepositoryState> {
+  const session = await auth();
+  if (!session?.user) return { message: "Not authenticated." };
+
+  const parsed = addRepositorySchema.safeParse({
+    name: formData.get("name"),
+    url: formData.get("url") || undefined,
+    description: formData.get("description") || undefined,
+    primaryLanguage: formData.get("primaryLanguage") || undefined,
+    techStack: formData.get("techStack") || undefined,
+    frameworks: formData.get("frameworks") || undefined,
+    dependencies: formData.get("dependencies") || undefined,
+    importantFiles: formData.get("importantFiles") || undefined,
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: session.user.id },
+    include: { workspaces: { select: { id: true } } },
+  });
+  if (!company || company.workspaces.length === 0) {
+    return { message: "No workspace found." };
+  }
+
+  const workspaceId = company.workspaces[0].id;
+
+  const repo = await prisma.repository.create({
+    data: {
+      workspaceId,
+      name: parsed.data.name,
+      url: parsed.data.url || null,
+      description: parsed.data.description,
+      primaryLanguage: parsed.data.primaryLanguage,
+      techStack: csvToJson(parsed.data.techStack),
+      frameworks: csvToJson(parsed.data.frameworks),
+      dependencies: csvToJson(parsed.data.dependencies),
+      importantFiles: csvToJson(parsed.data.importantFiles),
+      analysisStatus: "complete",
+    },
+  });
+
+  redirect(`/work/repositories/${repo.id}`);
+}
