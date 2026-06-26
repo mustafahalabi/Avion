@@ -81,6 +81,7 @@ model Company {
   employees   Employee[]
   settings    CompanySettings?
   workspaces  Workspace[]
+  tasks       Task[]
 }
 
 model Department {
@@ -129,10 +130,11 @@ model Employee {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  user       User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  department Department? @relation(fields: [departmentId], references: [id])
-  role       Role?       @relation(fields: [roleId], references: [id])
+  user           User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company        Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  department     Department? @relation(fields: [departmentId], references: [id])
+  role           Role?       @relation(fields: [roleId], references: [id])
+  assignedTasks  Task[]
 }
 
 model CompanySettings {
@@ -212,6 +214,7 @@ model Task {
   id          String   @id @default(cuid())
   title       String
   description String?
+  companyId   String
   featureId   String?
   sprintId    String?
   assigneeId  String?
@@ -221,8 +224,10 @@ model Task {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   feature  Feature?  @relation(fields: [featureId], references: [id])
   sprint   Sprint?   @relation(fields: [sprintId], references: [id])
+  assignee Employee? @relation(fields: [assigneeId], references: [id])
   subtasks Subtask[]
 }
 

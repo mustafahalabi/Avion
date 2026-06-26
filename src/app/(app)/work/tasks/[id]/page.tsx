@@ -1,0 +1,246 @@
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { redirect, notFound } from "next/navigation";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Circle,
+  Clock,
+  AlertCircle,
+} from "lucide-react";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
+import { TaskStatusSelect } from "./task-status-select";
+
+interface Props {
+  params: Promise<{ id: string }>;
+}
+
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; icon: React.ElementType; className: string }
+> = {
+  todo: { label: "To Do", icon: Circle, className: "text-neutral-500" },
+  "in-progress": {
+    label: "In Progress",
+    icon: Clock,
+    className: "text-blue-400",
+  },
+  "in-review": {
+    label: "In Review",
+    icon: AlertCircle,
+    className: "text-amber-400",
+  },
+  done: {
+    label: "Done",
+    icon: CheckCircle2,
+    className: "text-emerald-400",
+  },
+  blocked: {
+    label: "Blocked",
+    icon: AlertCircle,
+    className: "text-red-400",
+  },
+  cancelled: {
+    label: "Cancelled",
+    icon: Circle,
+    className: "text-neutral-600",
+  },
+};
+
+const PRIORITY_COLORS: Record<string, string> = {
+  urgent: "text-red-400",
+  high: "text-orange-400",
+  medium: "text-neutral-400",
+  low: "text-neutral-600",
+};
+
+export default async function TaskDetailPage({ params }: Props) {
+  const { id } = await params;
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: session.user.id },
+    select: { id: true },
+  });
+  if (!company) redirect("/onboarding");
+
+  const task = await prisma.task.findFirst({
+    where: { id, companyId: company.id },
+    include: {
+      assignee: {
+        select: { id: true, name: true, role: { select: { name: true } } },
+      },
+      feature: {
+        select: {
+          id: true,
+          title: true,
+          project: { select: { id: true, name: true } },
+        },
+      },
+      subtasks: { orderBy: { createdAt: "asc" } },
+    },
+  });
+
+  if (!task) notFound();
+
+  const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG["todo"];
+  const Icon = cfg.icon;
+  const subtasksDone = task.subtasks.filter((s) => s.completed).length;
+
+  return (
+    <div className="flex flex-1 flex-col overflow-auto">
+      <header className="flex h-12 items-center gap-3 border-b border-neutral-800 px-6">
+        {task.feature?.project ? (
+          <>
+            <Link
+              href={`/work/projects/${task.feature.project.id}`}
+              className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              {task.feature.project.name}
+            </Link>
+            <span className="text-neutral-700">/</span>
+          </>
+        ) : (
+          <>
+            <Link
+              href="/work"
+              className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Work
+            </Link>
+            <span className="text-neutral-700">/</span>
+          </>
+        )}
+        <h1 className="text-sm font-semibold text-neutral-100 truncate">
+          {task.title}
+        </h1>
+      </header>
+
+      <div className="flex flex-col gap-8 p-6 max-w-2xl">
+        {/* Title + status */}
+        <section className="flex items-start gap-3">
+          <Icon
+            className={cn("mt-0.5 h-4 w-4 shrink-0", cfg.className)}
+          />
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-semibold text-neutral-100">
+              {task.title}
+            </h2>
+            {task.feature && (
+              <p className="mt-0.5 text-xs text-neutral-600">
+                in {task.feature.title}
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* Description */}
+        {task.description && (
+          <section>
+            <SectionLabel>Description</SectionLabel>
+            <p className="mt-2 text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap">
+              {task.description}
+            </p>
+          </section>
+        )}
+
+        {/* Details */}
+        <section>
+          <SectionLabel>Details</SectionLabel>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <DetailCard label="Status">
+              <TaskStatusSelect taskId={task.id} current={task.status} />
+            </DetailCard>
+            <DetailCard label="Priority">
+              <span
+                className={cn(
+                  "text-sm font-medium capitalize",
+                  PRIORITY_COLORS[task.priority] ?? "text-neutral-400"
+                )}
+              >
+                {task.priority}
+              </span>
+            </DetailCard>
+            <DetailCard label="Assignee">
+              {task.assignee ? (
+                <Link
+                  href={`/company/employees/${task.assignee.id}`}
+                  className="text-sm font-medium text-neutral-200 hover:text-neutral-100 transition-colors"
+                >
+                  {task.assignee.name}
+                </Link>
+              ) : (
+                <span className="text-sm text-neutral-600">Unassigned</span>
+              )}
+            </DetailCard>
+          </div>
+        </section>
+
+        {/* Subtasks */}
+        {task.subtasks.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between">
+              <SectionLabel>Subtasks</SectionLabel>
+              <span className="text-xs text-neutral-600">
+                {subtasksDone}/{task.subtasks.length} done
+              </span>
+            </div>
+            <div className="mt-3 flex flex-col gap-1.5">
+              {task.subtasks.map((sub) => (
+                <div
+                  key={sub.id}
+                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5"
+                >
+                  {sub.completed ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                  ) : (
+                    <Circle className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
+                  )}
+                  <span
+                    className={cn(
+                      "text-sm",
+                      sub.completed
+                        ? "text-neutral-600 line-through"
+                        : "text-neutral-300"
+                    )}
+                  >
+                    {sub.title}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+      {children}
+    </h3>
+  );
+}
+
+function DetailCard({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+        {label}
+      </p>
+      <div className="mt-1.5">{children}</div>
+    </div>
+  );
+}
