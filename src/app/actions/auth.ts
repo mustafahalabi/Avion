@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { seedCompanyStructure } from "@/lib/company-seed";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { signIn } from "@/auth";
@@ -70,6 +71,8 @@ export async function registerUser(
         },
       },
     });
+
+    await seedCompanyStructure(tx, company.id);
 
     return { user, company };
   });
