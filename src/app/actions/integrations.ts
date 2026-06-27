@@ -45,7 +45,13 @@ export async function connectIntegration(
   });
 
   let integration;
-  const encryptedCredentials = encryptCredentials(credentials);
+  let encryptedCredentials: string;
+  try {
+    encryptedCredentials = encryptCredentials(credentials);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Encryption configuration error.";
+    return { error: `Credential storage is unavailable: ${msg}` };
+  }
 
   if (existing) {
     integration = await prisma.integration.update({

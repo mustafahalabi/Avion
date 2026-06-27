@@ -58,7 +58,7 @@ export function AddRepositoryForm() {
         id="frameworks"
         name="frameworks"
         label="Frameworks & libraries"
-        placeholder="Next.js, Auth.js, Zod, bcryptjs (comma-separated)"
+        placeholder="Next.js, React, Tailwind CSS, Zod (comma-separated)"
         hint="Separate items with commas"
       />
 
@@ -66,7 +66,7 @@ export function AddRepositoryForm() {
         id="dependencies"
         name="dependencies"
         label="Key dependencies"
-        placeholder="prisma, next-auth, tailwindcss (comma-separated)"
+        placeholder="prisma, clerk, tailwindcss (comma-separated)"
         hint="Separate items with commas"
       />
 

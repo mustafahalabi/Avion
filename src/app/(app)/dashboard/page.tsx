@@ -74,6 +74,7 @@ export default async function DashboardPage() {
                   tasks: { select: { id: true, status: true, title: true, assigneeId: true } },
                 },
               },
+              tasks: { select: { id: true, status: true, title: true, assigneeId: true } },
             },
           },
         },
@@ -98,7 +99,10 @@ export default async function DashboardPage() {
   if (!company) redirect("/onboarding");
 
   const allTasks = company.workspaces.flatMap((w) =>
-    w.projects.flatMap((p) => p.features.flatMap((f) => f.tasks))
+    w.projects.flatMap((p) => [
+      ...p.features.flatMap((f) => f.tasks),
+      ...p.tasks,
+    ])
   );
   const taskStats = {
     total: allTasks.length,

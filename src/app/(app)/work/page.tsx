@@ -65,6 +65,7 @@ export default async function WorkPage() {
                   tasks: { select: { id: true, status: true } },
                 },
               },
+              tasks: { select: { id: true, status: true } },
               _count: { select: { features: true } },
             },
             orderBy: { updatedAt: "desc" },
@@ -94,7 +95,10 @@ export default async function WorkPage() {
   const projects = company.workspaces.flatMap((w) => w.projects);
 
   const allTasks = company.workspaces.flatMap((w) =>
-    w.projects.flatMap((p) => p.features.flatMap((f) => f.tasks))
+    w.projects.flatMap((p) => [
+      ...p.features.flatMap((f) => f.tasks),
+      ...p.tasks,
+    ])
   );
   const taskCounts = {
     total: allTasks.length,
@@ -166,7 +170,10 @@ export default async function WorkPage() {
           ) : (
             <div className="grid gap-2">
               {projects.slice(0, 6).map((project) => {
-                const tasks = project.features.flatMap((f) => f.tasks);
+                const tasks = [
+                  ...project.features.flatMap((f) => f.tasks),
+                  ...project.tasks,
+                ];
                 const done = tasks.filter((t) => t.status === "done").length;
                 const progress =
                   tasks.length > 0

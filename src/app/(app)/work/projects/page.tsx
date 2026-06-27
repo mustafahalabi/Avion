@@ -29,6 +29,7 @@ export default async function ProjectsPage() {
                   tasks: { select: { id: true, status: true } },
                 },
               },
+              tasks: { select: { id: true, status: true } },
             },
             orderBy: { updatedAt: "desc" },
           },
@@ -85,7 +86,10 @@ export default async function ProjectsPage() {
           </div>
         ) : (
           projects.map((project) => {
-            const tasks = project.features.flatMap((f) => f.tasks);
+            const tasks = [
+              ...project.features.flatMap((f) => f.tasks),
+              ...project.tasks,
+            ];
             const done = tasks.filter((t) => t.status === "done").length;
             const progress =
               tasks.length > 0

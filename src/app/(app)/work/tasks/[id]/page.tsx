@@ -80,6 +80,7 @@ export default async function TaskDetailPage({ params }: Props) {
           project: { select: { id: true, name: true } },
         },
       },
+      project: { select: { id: true, name: true } },
       subtasks: { orderBy: { createdAt: "asc" } },
     },
   });
@@ -105,29 +106,35 @@ export default async function TaskDetailPage({ params }: Props) {
   return (
     <div className="flex flex-1 flex-col overflow-auto">
       <header className="flex h-12 items-center gap-3 border-b border-neutral-800 px-6">
-        {task.feature?.project ? (
-          <>
-            <Link
-              href={`/work/projects/${task.feature.project.id}`}
-              className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              {task.feature.project.name}
-            </Link>
-            <span className="text-neutral-700">/</span>
-          </>
-        ) : (
-          <>
-            <Link
-              href="/work"
-              className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Work
-            </Link>
-            <span className="text-neutral-700">/</span>
-          </>
-        )}
+        {(() => {
+          const project = task.feature?.project ?? task.project;
+          if (project) {
+            return (
+              <>
+                <Link
+                  href={`/work/projects/${project.id}`}
+                  className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  {project.name}
+                </Link>
+                <span className="text-neutral-700">/</span>
+              </>
+            );
+          }
+          return (
+            <>
+              <Link
+                href="/work"
+                className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Work
+              </Link>
+              <span className="text-neutral-700">/</span>
+            </>
+          );
+        })()}
         <h1 className="text-sm font-semibold text-neutral-100 truncate">
           {task.title}
         </h1>

@@ -89,22 +89,23 @@ export default async function DepartmentPage({ params }: Props) {
           ) : (
             <div className="grid gap-2">
               {department.employees.map((emp) => (
-                <div
+                <Link
                   key={emp.id}
-                  className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3"
+                  href={`/company/employees/${emp.id}`}
+                  className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
                 >
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-700 text-xs font-medium text-neutral-200">
-                    {emp.title?.[0] ?? "E"}
+                    {emp.name[0]}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-neutral-200">
-                      {emp.title ?? "Unnamed Employee"}
+                      {emp.name}
                     </p>
-                    {emp.role && (
-                      <p className="text-xs text-neutral-500">{emp.role.name}</p>
-                    )}
+                    <p className="text-xs text-neutral-500 truncate">
+                      {emp.role?.name ?? emp.title ?? "—"}
+                    </p>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           )}

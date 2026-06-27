@@ -39,6 +39,15 @@ export async function createReview(
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
 
+  // Validate entity ownership to prevent cross-company injection
+  if (parsed.data.entityType === "task") {
+    const task = await prisma.task.findFirst({
+      where: { id: parsed.data.entityId, companyId: company.id },
+      select: { id: true },
+    });
+    if (!task) return { error: "Task not found or not accessible." };
+  }
+
   const review = await prisma.review.create({
     data: {
       companyId: company.id,
@@ -89,6 +98,20 @@ export async function submitReviewVerdict(
       changeRequestNotes: verdict === "changes_requested" ? notes : null,
     },
   });
+
+  if (verdict === "approved") {
+    // Move the linked task into in-review (approved code review; QA may follow)
+    if (review.entityType === "task") {
+      await prisma.task.updateMany({
+        where: {
+          id: review.entityId,
+          companyId: company.id,
+          status: { notIn: ["done", "cancelled"] },
+        },
+        data: { status: "in-review", updatedAt: new Date() },
+      });
+    }
+  }
 
   if (verdict === "changes_requested") {
     await prisma.changeRequest.create({
@@ -156,6 +179,15 @@ export async function createQAResult(
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
 
+  // Validate entity ownership to prevent cross-company injection
+  if (parsed.data.entityType === "task") {
+    const task = await prisma.task.findFirst({
+      where: { id: parsed.data.entityId, companyId: company.id },
+      select: { id: true },
+    });
+    if (!task) return { error: "Task not found or not accessible." };
+  }
+
   let checksData: { label: string; passed: boolean }[] = [];
   try {
     checksData = JSON.parse(parsed.data.checks);
@@ -194,10 +226,29 @@ export async function updateQAStatus(qaId: string, status: string, notes: string
   });
   if (!company) return;
 
-  await prisma.qAResult.updateMany({
+  const qa = await prisma.qAResult.findFirst({
     where: { id: qaId, companyId: company.id },
+    select: { id: true, entityType: true, entityId: true },
+  });
+  if (!qa) return;
+
+  await prisma.qAResult.update({
+    where: { id: qaId },
     data: { status, notes, updatedAt: new Date() },
   });
+
+  // When QA passes on a task, mark the task done
+  if (status === "passed" && qa.entityType === "task") {
+    await prisma.task.updateMany({
+      where: {
+        id: qa.entityId,
+        companyId: company.id,
+        status: { notIn: ["done", "cancelled"] },
+      },
+      data: { status: "done", updatedAt: new Date() },
+    });
+    revalidatePath(`/work/tasks/${qa.entityId}`);
+  }
 
   revalidatePath("/work/quality");
 }

@@ -67,9 +67,9 @@ export default async function IntegrationsPage() {
         {/* Intro */}
         <section>
           <p className="text-sm text-neutral-500">
-            Connect external tools to keep Engineering OS in sync with your work.
-            Credentials are stored securely and only used to read and write data
-            on your behalf.
+            Store credentials for external tools securely. Credentials are
+            encrypted at rest. Live provider sync is not active in V1 — saving
+            credentials prepares the connection for when sync is enabled.
           </p>
         </section>
 

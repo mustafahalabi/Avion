@@ -43,6 +43,7 @@ export default async function EmployeesPage() {
     include: {
       department: { select: { name: true, slug: true } },
       role: { select: { name: true } },
+      manager: { select: { id: true, name: true } },
     },
     orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
   });
@@ -152,11 +153,22 @@ export default async function EmployeesPage() {
                         <p className="mt-0.5 text-xs text-neutral-500 truncate">
                           {emp.role?.name ?? emp.title ?? "—"}
                         </p>
-                        {emp.reportsTo && (
+                        {emp.manager ? (
+                          <p className="mt-1 text-[11px] text-neutral-600 truncate">
+                            Reports to{" "}
+                            <Link
+                              href={`/company/employees/${emp.manager.id}`}
+                              className="text-neutral-500 hover:text-neutral-300 transition-colors"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {emp.manager.name}
+                            </Link>
+                          </p>
+                        ) : emp.reportsTo ? (
                           <p className="mt-1 text-[11px] text-neutral-600 truncate">
                             Reports to {emp.reportsTo}
                           </p>
-                        )}
+                        ) : null}
                       </div>
                     </Link>
                   ))}

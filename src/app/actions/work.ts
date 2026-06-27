@@ -126,6 +126,15 @@ export async function createTask(
     if (!feature) return { message: "Feature not found." };
   }
 
+  // Validate assignee belongs to this company — prevents cross-company injection
+  if (parsed.data.assigneeId) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: parsed.data.assigneeId, companyId: company.id },
+      select: { id: true },
+    });
+    if (!employee) return { message: "Assignee not found in this company." };
+  }
+
   await prisma.task.create({
     data: {
       title: parsed.data.title,
