@@ -51,6 +51,8 @@ This document does not describe AI orchestration, prompts, or implementation tec
 33. [Retry](#33-retry)
 34. [Runtime Events](#34-runtime-events)
 35. [CEO Interaction Points](#35-ceo-interaction-points)
+36. [Event-Driven Employee Invocation](#36-event-driven-employee-invocation)
+37. [Runtime Ownership Boundaries](#37-runtime-ownership-boundaries)
 
 ---
 
@@ -67,6 +69,8 @@ The runtime has three responsibilities:
 1. **Track active work** — every active Project, Task, Review, QA validation, and Release is tracked with its current owner, status, and SOP phase.
 2. **Track active employees** — every employee's current activity, current assignment, and availability.
 3. **Track pending CEO decisions** — every approval gate that is waiting on CEO input.
+
+The Company Runtime drives this by reacting to events, not by maintaining persistent employee connections. When a task reaches a state where the next employee must act, the runtime emits an event. A dispatcher claims the event. AgentRunner assembles the employee's context and invokes them. The employee produces a structured output. The runtime persists that output and emits the next event. Employees are invoked — they do not listen.
 
 When the CEO opens Engineering OS, the runtime tells them: this is your company, this is what it is doing, and this is what it needs from you.
 
@@ -364,6 +368,7 @@ directly with the relevant engineer for technical accuracy review.
 - Employees respect each other's domain. A Reviewer does not make architecture decisions in review comments. A QA Engineer does not suggest implementation approaches. A Backend Engineer does not impose UI decisions on the Frontend Engineer.
 - Collaboration produces written outputs. Verbal coordination without a written artifact does not exist in the company. Every collaboration that produces a decision creates a record.
 - Collaboration never bypasses ownership. The employee who owns a work item remains accountable even when others contribute.
+- Employees never communicate through hidden model sessions or transient channels. All inter-employee communication takes the form of durable company artifacts — Comments, Reviews, Plans, Decisions, QA Results, Reports, and Timeline Events — that the runtime can route, track, and reference across sessions.
 
 ---
 
@@ -1028,7 +1033,7 @@ Certain operations may be retried when they fail transiently. Retry is distinct 
 
 The Company Runtime produces and consumes the following events that are specific to runtime coordination. (Module-specific events are defined in TECHNICAL_ARCHITECTURE.md.)
 
-**Events produced by the runtime:**
+**Runtime coordination events:**
 
 | Event | Trigger |
 |---|---|
@@ -1042,6 +1047,22 @@ The Company Runtime produces and consumes the following events that are specific
 | `runtime.approval_required` | An autonomy gate requires CEO input |
 | `runtime.approval_received` | CEO acted on an approval gate |
 | `runtime.company_health_changed` | A company health metric changed materially |
+
+**Domain workflow events emitted during the standard feature lifecycle:**
+
+| Event | Emitted After |
+|---|---|
+| `task.ready_for_implementation` | Task created and assigned by Tech Lead |
+| `task.ready_for_review` | Engineer confirms Delivery Readiness |
+| `review.completed` | Reviewer approves with no Blocking findings |
+| `task.ready_for_qa` | Code merged after review approval |
+| `qa.passed` | QA Engineer issues Go recommendation |
+| `qa.failed` | QA Engineer issues No-Go recommendation |
+| `task.blocked` | A work item cannot proceed |
+| `release.ready` | Release Readiness Checklist complete |
+| `release.stable` | Post-deployment monitoring window closes cleanly |
+
+These events are the mechanism by which the Company Runtime advances work through the SOP lifecycle. Employees do not self-advance — the runtime evaluates whether gate conditions are satisfied and emits the next event when they are.
 
 ---
 
@@ -1075,6 +1096,138 @@ These are the company's responsibilities. The CEO's job is to direct where the c
 
 **When the CEO asks about status:**  
 The CEO can ask about status at any time. The company responds with a plain-language summary of where any work item currently is in its lifecycle. The CEO never has to remember where something was last time they checked — the company maintains that context.
+
+---
+
+## 36. Event-Driven Employee Invocation
+
+The Company Runtime does not maintain always-on employee processes. Employees are persistent company roles — not background daemons that continuously listen for work. They are invoked by the runtime when a task, event, or state change requires their attention.
+
+**Invocation sequence:**
+
+```
+Runtime detects task or state change
+  ↓
+Runtime emits a structured domain event (e.g., task.ready_for_review)
+  ↓
+Dispatcher claims the pending event from the event queue
+  ↓
+AgentRunner receives the claimed event
+  ↓
+AgentRunner identifies the responsible employee from the event
+  ↓
+Context Builder assembles the execution context package:
+  - relational data (task, project, feature brief, dependencies)
+  - repository context
+  - company memory (scoped to employee role and task)
+  - employee handbook and responsibilities
+  - runtime state
+  - knowledge records
+  ↓
+AgentRunner invokes the assigned Execution Engine with the context package
+  ↓
+Execution Engine performs the reasoning or code execution step
+  ↓
+Execution Engine returns a Structured Result
+  ↓
+Runtime persists the result as durable company artifacts
+  (Comment, Review, Plan, Decision, QA Result, Memory Record, Report, etc.)
+  ↓
+Runtime updates task and event state
+  ↓
+Runtime evaluates next gate conditions and emits the next event
+```
+
+**Example A: End-to-end feature flow**
+
+```
+CEO goal submitted
+  → Product Manager invoked: produces Feature Brief
+  → CTO invoked: reviews feasibility, approves Feature Brief
+  → CEO approval received (if required by autonomy level)
+  → Tech Lead invoked: decomposes into tasks, assigns engineers
+  → Engineers invoked: implement tasks, confirm Delivery Readiness
+  → Reviewer invoked: reviews code, produces findings
+  → QA Engineer invoked: executes test plan, writes QA Result
+  → Release Manager invoked: assembles Release Readiness Checklist
+  → DevOps Engineer invoked: executes deployment
+  → Monitoring Engineer invoked: observes post-release signals
+  → Tech Lead invoked: writes architectural Decision Record
+  → Product Manager invoked: updates Feature Memory
+  → CEO notified: feature shipped
+```
+
+**Example B: Tech Lead → QA handoff**
+
+```
+Tech Lead creates QA checklist as part of task assignment
+  ↓
+Runtime emits task.ready_for_qa when code is merged
+  ↓
+Dispatcher claims event; AgentRunner identifies QA Engineer
+  ↓
+Context Builder assembles context package:
+  - task definition and acceptance criteria
+  - Feature Brief and its acceptance criteria
+  - QA checklist produced by Tech Lead
+  - prior QA Result history from company memory
+  - repository context relevant to what was implemented
+  ↓
+QA Engineer executes test plan against the assembled context
+  ↓
+QA Engineer writes QA Result (a durable artifact)
+  ↓
+Runtime persists QA Result; updates project state
+  ↓
+  If Go:    Runtime emits qa.passed → routes to Release phase
+  If No-Go: Runtime emits qa.failed → routes defects back to Tech Lead
+```
+
+The Execution Engine that performs the reasoning step is replaceable. Whether the work is done through Claude Code, Codex CLI, Gemini CLI, an API provider, or a local model, the invocation sequence, the context package structure, and the Structured Result contract remain the same. The Company Runtime's behavior does not depend on which execution engine is used.
+
+---
+
+## 37. Runtime Ownership Boundaries
+
+The Company Runtime, employees, and execution engines each own a distinct layer of responsibility. These boundaries must not blur as the system evolves.
+
+**The Company Runtime owns:**
+
+- **Orchestration** — which employee acts, in what order, on what work
+- **Scheduling** — when events are dispatched and when work is eligible to begin
+- **Dispatch** — which worker claims which pending event
+- **Runtime state** — the current phase of every active work item
+- **Retries** — reattempting invocations that fail transiently
+- **Cancellation** — terminating a work item in progress
+- **Escalation routing** — surfacing blocked decisions to the correct authority
+- **Persistence** — writing structured outputs to durable company records
+- **Timeline updates** — recording significant events in company history
+- **Notifications** — routing events to the CEO when their attention is required
+- **Company memory** — accumulating and serving the long-term organizational knowledge
+- **Event routing** — which modules and subscribers receive which events
+
+**Employees own:**
+
+- Role-specific analysis and reasoning
+- Role-specific recommendations following the company's structured communication format
+- Role-specific artifact production — plans, reviews, QA results, decisions, reports, memory records
+- Updates to company state within their domain, such as memory records and comments
+
+**Execution engines own:**
+
+- Performing the actual reasoning, code generation, or file operation step when invoked
+- Operating on the context package delivered by the Context Builder
+- Returning a Structured Result to AgentRunner
+
+Execution engines are replaceable providers. The same employee role — Tech Lead, QA Engineer, Reviewer — can be invoked through different execution engines at different times without changing the organizational behavior. No execution engine is architecturally required. Provider independence is a first-class property of the architecture.
+
+The execution engine is never responsible for:
+- Querying company memory directly
+- Making routing or scheduling decisions
+- Persisting results to company records
+- Emitting events to the event stream
+
+These responsibilities always belong to the Company Runtime.
 
 ---
 

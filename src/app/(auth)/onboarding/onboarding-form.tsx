@@ -56,11 +56,13 @@ const CULTURE_OPTIONS = [
 
 interface Props {
   companyId: string;
+  defaultName: string;
   defaultAutonomy: string;
   defaultCulture: string;
 }
 
-export function OnboardingForm({ companyId, defaultAutonomy, defaultCulture }: Props) {
+export function OnboardingForm({ companyId, defaultName, defaultAutonomy, defaultCulture }: Props) {
+  const [name, setName] = useState(defaultName);
   const [autonomy, setAutonomy] = useState(defaultAutonomy);
   const [culture, setCulture] = useState(defaultCulture);
   const [isPending, startTransition] = useTransition();
@@ -69,13 +71,27 @@ export function OnboardingForm({ companyId, defaultAutonomy, defaultCulture }: P
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      await saveOnboardingSettings({ companyId, autonomyLevel: autonomy, cultureProfile: culture });
+      await saveOnboardingSettings({ companyId, name, autonomyLevel: autonomy, cultureProfile: culture });
       router.push("/dashboard");
     });
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+      <div>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          Company Name
+        </p>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          placeholder="Acme Corp"
+          className="w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-neutral-600 focus:ring-0"
+        />
+      </div>
+
       <div>
         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Autonomy Level

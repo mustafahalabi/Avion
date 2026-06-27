@@ -36,11 +36,15 @@ All implementation decisions must align with this architecture. All future archi
    - [Timeline](#416-timeline-boundary)
    - [Security Boundary](#417-security-boundary)
    - [Integration](#418-integration-boundary)
+   - [AgentRunner](#419-agentrunner)
+   - [Context Builder](#420-context-builder)
+   - [Worker](#421-worker)
 5. [Event Architecture](#5-event-architecture)
 6. [Data Ownership Rules](#6-data-ownership-rules)
 7. [Runtime Boundaries](#7-runtime-boundaries)
 8. [Cross-Module Communication](#8-cross-module-communication)
 9. [Open Questions](#9-open-questions)
+10. [Execution Architecture](#10-execution-architecture)
 
 ---
 
@@ -69,6 +73,9 @@ Every module defines its failure modes and specifies what happens when it fails.
 
 **1.8 Memory is a service, not a side effect.**  
 Memory updates are explicit module operations, not background cleanup. Every workflow phase that produces memory records does so through a defined write contract to the Memory module.
+
+**1.9 The execution layer is provider-independent.**  
+Engineering OS owns orchestration, state, memory, scheduling, and dispatch. Execution engines are replaceable providers that perform the reasoning and code execution step when invoked by AgentRunner. No execution engine is architecturally required. Claude Code, Codex CLI, Gemini CLI, API-based providers, local models, and future engines are all valid adapters. The Company Runtime behavior must remain the same regardless of which execution engine is active.
 
 ---
 
@@ -704,6 +711,55 @@ Own the company's persistent organizational knowledge — memory records across 
 - Memory write fails after a successful Execution: the system must retry; a completed execution without memory records violates the Definition of Done
 - Conflicting memory records exist: surface conflict to the CTO via Notification; do not silently allow contradictions
 
+**Memory Architecture — Three-Layer Model:**
+
+Engineering OS uses a three-layer memory architecture. Each layer is cumulative: the relational spine is always present, the JSONB knowledge layer extends it, and the semantic retrieval layer indexes over it. No layer replaces the one below it.
+
+**Layer 1 — Relational spine (source of truth)**
+
+All company knowledge is grounded in relational records stored in PostgreSQL. The relational spine includes:
+
+- Company, Repository, Project, Task, Decision, Review, QA Result, Incident, Release — the structural work objects
+- Memory Record — discrete facts accumulated by employees after significant events
+- Knowledge Record — curated, authoritative reference material
+
+Plain SQL over the relational spine is the primary retrieval mechanism. It is the most reliable, most precise, and most important retrieval path. Every other layer depends on it.
+
+**Layer 2 — JSONB and graph-like knowledge layer**
+
+Some knowledge is inherently relational and graph-like rather than tabular. This includes:
+- Repository Knowledge Snapshots (code structure, dependency graphs, module relationships)
+- Architecture relationship data (which services call which, which models relate to which)
+- Causality and evidence relationships (which decision caused which outcome)
+
+This data is stored as JSONB within PostgreSQL. It is queryable via SQL and can be traversed by the Context Builder when assembling repository-aware context packages. It does not require a separate graph database.
+
+**Layer 3 — Semantic retrieval layer (V1.5+)**
+
+When structured SQL retrieval cannot surface relevant memory by exact keyword or relational match, semantic similarity search fills the gap. Semantic retrieval is powered by pgvector inside PostgreSQL.
+
+Key principles:
+- Embedding Records are indexes over Memory Records and Knowledge Records — not the primary data store
+- The relational record is always the source of truth; the embedding is re-derivable from it
+- Hybrid queries combine structured SQL filters (company, scope, date, type) with semantic similarity
+- A separate vector database is not needed; pgvector runs inside the same PostgreSQL instance
+
+**V1 memory strategy:** Relational spine only. The schema is designed to support Embedding Records in future. The Context Builder uses structured SQL retrieval and explicit scoping.
+
+**V1.5 memory strategy:** pgvector enabled. The Context Builder adds semantic ranking over candidate memory records. Hybrid retrieval filters by scope and ranks by similarity.
+
+**V2+ memory strategy:** Advanced Knowledge Graph traversal if scale and product needs justify it. Evaluated after V1.5 data shows where structured + semantic retrieval is insufficient.
+
+**Context Builder role in retrieval:**
+
+The Context Builder is the sole retrieval layer between the Company Runtime and execution engines. It is responsible for:
+- Querying the relational spine for directly relevant records
+- Traversing JSONB knowledge structures when repository context is needed
+- Applying semantic ranking (V1.5+) to select the most relevant memory when candidates exceed context capacity
+- Composing the final Context Package
+
+Execution engines do not query memory stores directly. If an execution engine requests additional context during a run, the request is surfaced through the Structured Result and the Context Builder assembles a supplementary package for the next invocation.
+
 **Open Questions:**
 - How does the memory module resolve conflicting records when two employees have written contradictory facts?
 - What is the staleness detection strategy for repository-scope memory?
@@ -1066,6 +1122,143 @@ Own all connections between Engineering OS and external systems.
 
 ---
 
+---
+
+### 4.19 AgentRunner
+
+**Purpose:**  
+Invoke an employee role in response to a dispatched runtime event. AgentRunner is the generic role executor — it handles invocation regardless of which employee or which execution engine is involved.
+
+**Responsibilities:**
+- Receive a claimed runtime event from the Worker/Dispatcher
+- Identify the employee role responsible for the event
+- Coordinate with the Context Builder to assemble the execution context package
+- Select the appropriate Execution Adapter based on company and employee configuration
+- Invoke the Execution Adapter with the assembled context package
+- Receive the Structured Result from the Execution Adapter
+- Return the Structured Result to the runtime for persistence and state update
+- Record an Agent Run for every invocation
+
+**Owned Objects:**
+- Agent Run (the permanent record of one invocation of one employee role)
+
+**Consumed Objects:**
+- Runtime Event (the trigger for invocation)
+- Employee (role definition, handbook, responsibilities, permissions)
+- Context Package (assembled by Context Builder)
+- Execution Adapter registry (to select the correct adapter)
+
+**Produced Objects:**
+- Structured Result (delivered to runtime for persistence)
+- Agent Run record
+
+**Dependencies:**
+- Context Builder (assembles context before invocation)
+- Execution Adapter (performs the actual work)
+- Employee module (role definitions and handbooks)
+- Memory module (contributes context; receives persisted results)
+- Company module (for autonomy level and execution profile)
+
+**Events Published:**
+- `agent_run.started` — AgentRunner began invoking an employee
+- `agent_run.completed` — execution completed; Structured Result ready
+- `agent_run.failed` — execution failed; error routed to runtime
+
+**Failure Scenarios:**
+- Execution Adapter unavailable: surface to runtime; runtime decides whether to retry with another adapter or escalate
+- Context assembly fails: surface to runtime; do not invoke with incomplete context
+- Execution returns malformed result: reject and escalate; never persist a malformed Structured Result
+
+---
+
+### 4.20 Context Builder
+
+**Purpose:**  
+Assemble the curated execution context package delivered to the execution engine before each AgentRunner invocation. The Context Builder ensures the execution engine never needs to query company memory directly.
+
+**Responsibilities:**
+- Retrieve relational data relevant to the current task (task, project, feature brief, dependencies)
+- Retrieve repository context (structure, patterns, dependencies, relevant files)
+- Retrieve company memory records scoped to the employee role and task
+- Retrieve the employee's handbook, responsibilities, and permissions
+- Retrieve relevant knowledge records
+- Apply semantic retrieval ranking when available to select the most relevant memory
+- Compose and finalize the Context Package
+- Track which sources were included (Context References) for traceability
+
+**Owned Objects:**
+- Context Package (the assembled execution context for one Agent Run)
+- Context Reference (a pointer to a specific source within a Context Package)
+
+**Consumed Objects:**
+- Task, Project, Feature Brief (relational data)
+- Memory Records (company, repository, feature, employee scope)
+- Knowledge Records (from Knowledge module)
+- Employee Role definition and handbook
+- Runtime state (current SOP phase, prior invocations in this workflow)
+- Repository analysis outputs (from Repository module)
+
+**Produced Objects:**
+- Context Package (delivered to AgentRunner before invocation)
+
+**Dependencies:**
+- Memory module (reads Memory Records)
+- Knowledge module (reads Knowledge Records)
+- Repository module (reads repository context)
+- Planning and Task modules (reads planning artifacts)
+- Employee module (reads role definitions and handbooks)
+
+**Failure Scenarios:**
+- Memory module unavailable: proceed with partial context; surface degraded-context warning in Agent Run record
+- Repository context stale: include staleness signal in Context Package; employee may surface a gap
+- Context Package exceeds size limits: apply ranking and truncation; never silently drop high-relevance records
+
+**Open Questions:**
+- What is the ranking algorithm for memory record selection when the full set exceeds context capacity?
+- How does the Context Builder handle conflicting memory records within the same context scope?
+
+---
+
+### 4.21 Worker
+
+**Purpose:**  
+A runtime process that claims and processes pending events from the event queue, coordinating invocation through AgentRunner. The Worker is the V1 local execution mechanism.
+
+**Responsibilities:**
+- Poll the runtime event table for pending events (or receive push notifications)
+- Claim a pending event using a Lease mechanism to prevent duplicate processing
+- Invoke AgentRunner with the claimed event
+- Handle transient failures: release the Lease and requeue for retry
+- Report permanent failures back to the runtime for escalation
+- Update event state after successful completion
+
+**Owned Objects:**
+- Worker Lease (the claim record that prevents duplicate processing of an event)
+
+**Consumed Objects:**
+- Runtime Event (the unit of work to process)
+
+**Produced Objects:**
+- Completed event state transitions
+- Worker Lease records (for deduplication and retry tracking)
+
+**Dependencies:**
+- AgentRunner (execution coordinator)
+- Company Runtime (event queue and state)
+
+**Notes:**
+- In V1, the Worker is a local process deployed alongside or independently of the application
+- The Worker polls the runtime event table in the primary database
+- Multiple Worker instances may run concurrently; the Lease mechanism ensures each event is processed at most once
+- Switching execution engines only changes the Execution Adapter registered with AgentRunner; the Worker behavior is unchanged
+- V1.5 will introduce background Workers that run without an active user session
+
+**Failure Scenarios:**
+- Worker crashes mid-invocation: Lease expires after a configurable timeout; another Worker instance may re-claim the event
+- Event permanently fails after retries: escalate to Tech Lead or CTO via Notification; do not silently discard
+
+---
+
 ## 5. Event Architecture
 
 The Event stream is the central integration mechanism. All significant state changes produce Events. All cross-module dependencies are expressed as Event subscriptions, not direct calls.
@@ -1131,6 +1324,10 @@ Every object is owned by exactly one module. Only the owning module may write to
 | Decision, Decision Record | Employee (the decision maker) via Memory |
 | Incident | Execution (incident tracking is a runtime concern) |
 | Comment | The module that owns the subject object |
+| Agent Run | AgentRunner |
+| Context Package, Context Reference | Context Builder |
+| Worker Lease | Worker |
+| Execution Profile | Company (configuration), AgentRunner (enforcement) |
 
 ---
 
@@ -1218,11 +1415,11 @@ The following questions are unresolved at this architecture level and require an
 
 **OQ-ARCH-01:** What is the event ordering guarantee across Companies? Is the Event stream per-Company or shared?
 
-**OQ-ARCH-02:** How is the Memory module's relevance ranking implemented? What signals determine which memory records are most relevant to a given work context?
+**OQ-ARCH-02:** *(Resolved — see Section 4.10)* V1 uses structured SQL retrieval scoped by type, scope, and recency. V1.5 adds pgvector semantic ranking via Embedding Records inside PostgreSQL. The Context Builder is responsible for ranking and selection; the Memory module provides raw retrieval.
 
 **OQ-ARCH-03:** How are long-running SOP executions (multi-day features) persisted across system restarts? Is Execution state derived from the Event log, or maintained independently?
 
-**OQ-ARCH-04:** What is the boundary between the Employee module's "decision-making" and the underlying AI execution layer? This is intentionally not specified in this document to avoid implementation coupling, but the boundary must be defined before implementation.
+**OQ-ARCH-04:** *(Resolved — see Section 10)* The boundary is the Execution Adapter contract. AgentRunner owns context assembly and result handling. The Execution Adapter owns provider-specific invocation. The Structured Result is the handoff object between the execution engine and the Company Runtime.
 
 **OQ-ARCH-05:** How does the system handle concurrent Feature development? If two Features are in progress simultaneously, how does the Execution module track their independent SOP states without collision?
 
@@ -1231,6 +1428,115 @@ The following questions are unresolved at this architecture level and require an
 **OQ-ARCH-07:** How does the Integration module abstract over fundamentally different external systems (version control vs. deployment vs. monitoring)?
 
 **OQ-ARCH-08:** What is the system's behavior when the CEO changes autonomy level while a SOP execution is in progress mid-phase?
+
+---
+
+---
+
+## 10. Execution Architecture
+
+This section defines the execution layer — the mechanism by which the Company Runtime invokes employee roles and delivers work to execution engines. It supplements the module definitions in Section 4 with a unified view of how invocation, context assembly, and result handling work together.
+
+### 10.1 Architecture Overview
+
+```
+Company Runtime
+  ↓ emits domain event (e.g., task.ready_for_review)
+Event Queue (DB-backed runtime event table)
+  ↓ Worker claims event via Lease
+AgentRunner
+  ↓ requests context
+Context Builder ← Memory Module, Knowledge Module, Repository Module, Employee Module
+  ↓ returns Context Package
+AgentRunner
+  ↓ invokes via Execution Adapter
+Execution Engine
+  (Claude Code / Codex CLI / Gemini CLI / API provider / local model / future engine)
+  ↓ returns
+Structured Result
+  ↓ persisted by Company Runtime
+Durable Artifacts (Tasks, Plans, Reviews, QA Results, Memory Records, Comments, etc.)
+  ↓
+Runtime updates state → emits next domain event
+```
+
+### 10.2 Execution Adapters
+
+An Execution Adapter is the interface between AgentRunner and a specific execution engine. Each adapter implements a common contract:
+
+- Accept a Context Package as input
+- Invoke the specific execution engine with the appropriate configuration
+- Translate engine-specific output into a Structured Result
+- Handle engine-specific error modes and surface them as standard failure types to AgentRunner
+
+**Supported execution engines (as adapters):**
+- Claude Code (interactive and background modes)
+- Codex CLI
+- Gemini CLI
+- API-based providers (any provider that accepts text and context input)
+- Local models
+- Future engines (any engine that can be wrapped by an Execution Adapter)
+
+No execution engine is part of the core architecture. If a specific engine becomes unavailable, a different adapter is selected. The Company Runtime behavior and organizational model do not change.
+
+Provider-specific flags and configuration (such as permission modes, tool-use settings, or API credentials) are adapter-level concerns, not runtime-level concepts.
+
+### 10.3 Execution Profiles and Policies
+
+An Execution Profile defines how an employee role is invoked. Profiles are configured per-company and optionally per-employee.
+
+**Abstract execution policies (engine-agnostic):**
+
+| Policy | Description |
+|---|---|
+| `interactive_supervised` | Execution runs in a visible session; output is observable in real time |
+| `background_automation` | Execution runs without an active user session |
+| `ask_before_running` | Execution pauses before executing file writes or external commands |
+| `read_only` | Execution may only read; no file writes or command execution |
+| `full_access` | Execution operates with maximum permissions; appropriate for trusted background contexts |
+
+Execution Adapters translate these abstract policies into engine-specific configuration at invocation time.
+
+### 10.4 Structured Result
+
+Every execution engine returns a Structured Result through its Execution Adapter. The Structured Result is the contract that allows the Company Runtime to process employee outputs consistently, regardless of which engine produced them.
+
+**Structured Result fields:**
+
+| Field | Description |
+|---|---|
+| `status` | `success` / `partial` / `failure` |
+| `artifact_type` | What kind of output was produced (plan / review / qa_result / comment / decision / memory_record / code_change / report) |
+| `content` | The primary output content |
+| `tool_actions` | A list of tool operations performed (file reads, writes, command executions) |
+| `memory_writes` | Proposed Memory Records for the runtime to persist |
+| `next_state` | The employee's recommendation for the next event to emit |
+| `confidence` | The employee's stated confidence in the output |
+
+The Company Runtime is authoritative over `next_state`. The execution engine's recommendation is considered, but the runtime evaluates gate conditions and determines the actual next event.
+
+### 10.5 Local Worker Model (V1)
+
+V1 uses a local worker model. No external workflow framework (LangGraph, Temporal, or equivalent) is required.
+
+**V1 execution stack:**
+- Engineering OS runs as a Next.js full-stack application with a PostgreSQL database
+- The runtime event table in PostgreSQL is the durable event queue
+- A Worker process (local or server-deployed) polls the event table for pending events
+- The Worker claims events using a database-level Lease (row-level lock or status + claimed_by field)
+- AgentRunner assembles context via the Context Builder and invokes the selected Execution Adapter
+- The Execution Adapter calls the execution engine (e.g., Claude Code as a subprocess)
+- Results are written back to the database by the runtime
+- The Worker updates event state and the runtime emits the next domain event
+
+**V1.5 additions (planned):**
+- Background execution workers that run without an active user session
+- Execution Adapter registry with per-company and per-employee configuration
+- Improved runtime dispatch with retry policies and backoff
+
+**V2 evaluation (deferred):**
+- Durable workflow engine (e.g., Temporal) if scale or complexity justifies it
+- Graph-based reasoning integration if product needs require it
 
 ---
 

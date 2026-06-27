@@ -26,14 +26,15 @@ This roadmap builds on the approved PRODUCT_REQUIREMENTS.md and aligns with the 
 10. [Dependencies](#10-dependencies)
 11. [Scope](#11-scope)
 12. [Explicit Non-Goals](#12-explicit-non-goals)
-13. [Technical Risks](#13-technical-risks)
-14. [Product Risks](#14-product-risks)
-15. [Validation Strategy](#15-validation-strategy)
-16. [Release Strategy](#16-release-strategy)
-17. [What Ships in V1](#17-what-ships-in-v1)
-18. [What Moves to V2](#18-what-moves-to-v2)
-19. [What Is Intentionally Postponed](#19-what-is-intentionally-postponed)
-20. [Recommended Implementation Order](#20-recommended-implementation-order)
+13. [Technology Strategy and Phasing](#13-technology-strategy-and-phasing)
+14. [Technical Risks](#14-technical-risks)
+15. [Product Risks](#15-product-risks)
+16. [Validation Strategy](#16-validation-strategy)
+17. [Release Strategy](#17-release-strategy)
+18. [What Ships in V1](#18-what-ships-in-v1)
+19. [What Moves to V2](#19-what-moves-to-v2)
+20. [What Is Intentionally Postponed](#20-what-is-intentionally-postponed)
+21. [Recommended Implementation Order](#21-recommended-implementation-order)
 
 ---
 
@@ -498,9 +499,78 @@ These are explicitly not in scope for V1. Scope pressure should not cause these 
 
 **Employee promotions and seniority progression.** V2 — requires performance tracking over time.
 
+**LangGraph as the core runtime.** Engineering OS owns its own Company Runtime backed by a database event table and a local Worker model. LangGraph is not required and would create an avoidable third-party dependency on the core orchestration path. Do not scope in for V1; evaluate only if product needs later justify it.
+
+**Temporal as the core runtime.** Same reasoning as LangGraph. The V1 Worker + event table model is sufficient. Temporal adds operational complexity without commensurate V1 benefit.
+
+**Separate backend service.** V1 is a Next.js full-stack application. A separate backend service is not required and would increase deployment complexity without V1 benefit. Introduce only if implementation demonstrates a genuine need.
+
+**Separate vector database.** V1 memory is structured PostgreSQL. Pinecone, Weaviate, Qdrant, and similar products are not required. pgvector inside PostgreSQL is the designated path for semantic retrieval when it becomes necessary in V1.5.
+
+**Hard dependency on Claude Code.** Execution engines are replaceable adapters. V1 may launch with Claude Code as the primary adapter, but the architecture must not assume it. Provider-specific flags (e.g., `--permission-mode bypassPermissions`) must live in the adapter layer, not the Company Runtime.
+
+**Always-running autonomous employee processes.** Employees are invoked by the Company Runtime through AgentRunner; they do not run continuously. V1 does not include persistent background agents that independently poll for work.
+
+**`claude -p` as free or always available.** V1 execution costs are real and provider-specific. The architecture does not assume `claude -p` usage is covered by a consumer subscription or always available. Execution cost is an adapter-level concern, not a runtime assumption.
+
 ---
 
-## 13. Technical Risks
+## 13. Technology Strategy and Phasing
+
+This section documents the agreed implementation strategy for the Engineering OS platform. It exists to prevent premature adoption of complex infrastructure and to protect V1 scope.
+
+### V1 Technology Stack
+
+| Component | Decision |
+|---|---|
+| Application framework | Next.js (full-stack) |
+| Authentication | Clerk |
+| Primary database | PostgreSQL |
+| ORM | Prisma |
+| Runtime event queue | DB-backed event table in PostgreSQL |
+| Execution model | Local Worker process |
+| Execution engines | Provider-independent adapters (Claude Code as initial adapter) |
+| Memory | Structured relational records; PostgreSQL |
+| Semantic retrieval | Not in V1; schema designed to support it |
+| Workflow engine | None required; Company Runtime owns orchestration |
+
+### V1 Scope: What Is Required
+
+- Company Runtime (orchestration, scheduling, dispatch, state, retry, cancellation, escalation, persistence, notifications, memory, event routing)
+- AgentRunner (generic employee invocation)
+- Context Builder (context assembly before each invocation)
+- Local Worker model (polls DB event table, claims events, delegates to AgentRunner)
+- Execution Adapter interface (provider-independent contract)
+- Interactive execution mode (user can observe execution in real time)
+- Structured memory records (relational, PostgreSQL)
+- Employee handbook and role definitions used in context assembly
+
+### V1.5 Additions (Planned)
+
+- Background execution workers (run without active user session)
+- Execution Adapter registry with per-company and per-employee configuration
+- Improved runtime dispatch with retry policies and backoff
+- Provider configuration UI per company
+- First semantic retrieval experiments with pgvector
+
+### V2 Additions (Deferred)
+
+- pgvector production semantic recall (hybrid relational + semantic retrieval)
+- Deeper repository Knowledge Graph traversal
+- Advanced automation modes
+- Durable workflow engine evaluation if product scale justifies it (Temporal or equivalent)
+- Graph-based reasoning evaluation if product needs require it
+
+### Deferred Indefinitely (Until Justified)
+
+- Separate backend service (unless Next.js full-stack demonstrates a concrete limitation)
+- Separate vector database (pgvector inside PostgreSQL is the correct path)
+- LangGraph or equivalent as the core runtime (Company Runtime owns orchestration)
+- Temporal or equivalent as the core runtime (Worker + event table is the V1 model)
+
+---
+
+## 14. Technical Risks  
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
@@ -514,7 +584,7 @@ These are explicitly not in scope for V1. Scope pressure should not cause these 
 
 ---
 
-## 14. Product Risks
+## 15. Product Risks
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
@@ -527,7 +597,7 @@ These are explicitly not in scope for V1. Scope pressure should not cause these 
 
 ---
 
-## 15. Validation Strategy
+## 16. Validation Strategy
 
 ### Pre-Ship Validation
 
@@ -582,7 +652,7 @@ The following metrics are monitored after V1 ships:
 
 ---
 
-## 16. Release Strategy
+## 17. Release Strategy
 
 ### V1 Release Approach
 
@@ -613,7 +683,7 @@ After the beta success gate is cleared, V1 is released to general access with:
 
 ---
 
-## 17. What Ships in V1
+## 18. What Ships in V1
 
 This is the complete list of what V1 includes.
 
@@ -648,7 +718,7 @@ This is the complete list of what V1 includes.
 
 ---
 
-## 18. What Moves to V2
+## 19. What Moves to V2
 
 These are confirmed directions for V2. They are not deferred due to uncertainty — they are deferred due to scope discipline.
 
@@ -668,7 +738,7 @@ These are confirmed directions for V2. They are not deferred due to uncertainty 
 
 ---
 
-## 19. What Is Intentionally Postponed
+## 20. What Is Intentionally Postponed
 
 Some items are not V2 commitments — they are genuinely open questions that will be resolved based on what V1 teaches.
 
@@ -689,7 +759,7 @@ The Monitoring Engineer can detect and create work items automatically. V1 imple
 
 ---
 
-## 20. Recommended Implementation Order
+## 21. Recommended Implementation Order
 
 This is the recommended build sequence within V1. It optimizes for demonstrating value as early as possible and de-risking the most uncertain components first.
 

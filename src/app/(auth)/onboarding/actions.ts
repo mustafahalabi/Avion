@@ -5,12 +5,14 @@ import { getCurrentUser } from "@/lib/current-user";
 
 interface OnboardingSettings {
   companyId: string;
+  name: string;
   autonomyLevel: string;
   cultureProfile: string;
 }
 
 export async function saveOnboardingSettings({
   companyId,
+  name,
   autonomyLevel,
   cultureProfile,
 }: OnboardingSettings) {
@@ -22,9 +24,12 @@ export async function saveOnboardingSettings({
   });
   if (!company) throw new Error("Company not found");
 
-  await prisma.companySettings.upsert({
-    where: { companyId },
-    update: { autonomyLevel, cultureProfile },
-    create: { companyId, autonomyLevel, cultureProfile },
-  });
+  await Promise.all([
+    prisma.company.update({ where: { id: companyId }, data: { name } }),
+    prisma.companySettings.upsert({
+      where: { companyId },
+      update: { autonomyLevel, cultureProfile },
+      create: { companyId, autonomyLevel, cultureProfile },
+    }),
+  ]);
 }

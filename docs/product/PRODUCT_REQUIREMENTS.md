@@ -221,6 +221,21 @@ Engineering OS occupies a category that does not currently exist. The following 
 | Structured quality gates (review, QA, security) | ✗ | Partial | ✗ | ✗ | ✗ | ✓ |
 | Company culture configuration | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | CEO experience (outcome-only interface) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Provider-independent execution engines | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Work history survives model/provider changes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Interactive and background execution modes | ✗ | ✗ | ✗ | ✗ | Partial | ✓ |
+
+**Positioning clarification:**
+
+Engineering OS is not:
+- A Claude Code wrapper
+- A Codex wrapper
+- A LangGraph application
+- A generic AI chat interface
+- A simple issue tracker
+- A vector-search knowledge base
+
+Engineering OS is the company runtime, organizational memory system, task and workflow layer, and CEO experience. Execution engines are the workers it directs — not the product itself.
 
 ---
 
@@ -282,6 +297,14 @@ Every employee has a defined domain and enforces the boundaries of that domain. 
 ### 7. The Experience Should Feel Alive Without Being Theatrical
 
 The company behaves professionally, precisely, and constructively. Employees communicate with appropriate confidence. The product does not overclaim, add unnecessary ceremony, or personify employees beyond what adds value.
+
+### 8. Execution Engines Are Configurable Infrastructure, Not the Product
+
+Engineering OS is the company runtime, memory system, task and workflow layer, and CEO experience. Execution engines — Claude Code, Codex CLI, Gemini CLI, API providers, local models — are replaceable infrastructure that perform work when the Company Runtime invokes them.
+
+This distinction is a product principle, not just an architecture preference. Users choose their execution engines based on cost, quality, privacy, and workflow needs. The company — its memory, employees, organizational history, and standards — persists regardless of which engine is in use. Work history survives model and provider changes because it is stored as durable company artifacts, not inside any AI model's session.
+
+Provider independence is a competitive advantage and a trust property. A user who has built six months of company memory should never lose it because a model provider changes pricing, availability, or terms.
 
 ---
 
@@ -661,7 +684,7 @@ The user's next interaction: "Add dark mode."
 
 ### F-09: Standard Operating Procedures (SOPs) Engine
 
-**What it is:** The internal workflow engine that executes the predefined SOPs for every category of work.
+**What it is:** The internal workflow engine that executes the predefined SOPs for every category of work. The SOP engine is provider-independent — it drives work through phases and gates regardless of which execution engine performs the underlying reasoning.
 
 **SOPs in V1:**
 - New Feature (SOP-001)
@@ -671,14 +694,20 @@ The user's next interaction: "Add dark mode."
 - Release (SOP-005)
 - Rollback (SOP-006)
 
+**Execution modes supported:**
+- **Interactive supervised** — the CEO can observe execution in real time; the execution engine runs in a visible session
+- **Background automation** — work proceeds without an active CEO session; the CEO receives notifications at approval gates and on completion
+
 **Acceptance criteria:**
 - Work items progress through SOP phases automatically
 - Gates between phases enforce required outputs before proceeding
 - Escalations surface to the correct employee and, when required, to the CEO
 - SOP phase is always visible on the work item
 - Deviations from SOPs are flagged, not silently absorbed
+- Execution mode is configurable per-company (interactive or background)
+- Switching execution engines does not require re-configuring or re-running SOPs
 
-**Why it matters:** The SOPs are the organizational backbone. They encode the company's standards into every workflow. Without them, the company degrades into a collection of individual AI outputs.
+**Why it matters:** The SOPs are the organizational backbone. They encode the company's standards into every workflow. Provider independence means those standards persist regardless of which AI model is used.
 
 ---
 
@@ -864,6 +893,12 @@ The six V1 SOPs are a starting point. As the company learns from shipped feature
 | **QA Go/No-Go** | A written recommendation from the QA Engineer that gates every release. A No-Go stops the release; only CTO-level override can proceed past it. |
 | **Release Readiness Checklist** | A formal checklist owned by the Release Manager that must be fully satisfied before any deployment proceeds. |
 | **Company Health** | A set of organizational metrics — architecture health, security score, documentation coverage, deployment stability, technical debt — that measure the overall quality of the company's engineering output. |
+| **Execution Engine** | The software that performs actual reasoning, code generation, and file operations when an employee role is invoked. Examples include Claude Code, Codex CLI, Gemini CLI, API providers, and local models. Execution engines are replaceable adapters; they are not the product. |
+| **Execution Adapter** | The interface layer that connects AgentRunner to a specific execution engine. Adapters translate a Context Package into engine-specific input and translate engine-specific output into a Structured Result. |
+| **Interactive Execution** | An execution mode in which the CEO can observe the execution engine working in real time. Appropriate for high-trust, supervised use. |
+| **Background Execution** | An execution mode in which work proceeds without an active CEO session. The CEO receives notifications at approval gates and on completion. Available in V1.5. |
+| **Company Memory** | The persistent organizational knowledge base that spans all projects. Stored in PostgreSQL as relational records. The primary source of truth for everything the company has learned. Not tied to any AI model or provider. |
+| **Provider Independence** | The architectural property that allows Engineering OS to operate with different execution engines without loss of company state, organizational memory, or workflow continuity. A core product principle and competitive advantage. |
 
 ---
 

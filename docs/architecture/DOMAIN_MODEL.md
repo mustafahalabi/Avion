@@ -76,6 +76,19 @@ This document is intentionally implementation-neutral. It does not specify stora
   - [Repository Status](#repository-status)
 - [Runtime Objects](#runtime-objects)
   - [Company Runtime](#company-runtime)
+- [Execution and Context Objects](#execution-and-context-objects)
+  - [Runtime Event](#runtime-event)
+  - [Agent Run](#agent-run)
+  - [Context Package](#context-package)
+  - [Context Reference](#context-reference)
+  - [Structured Result](#structured-result)
+  - [Execution Adapter](#execution-adapter)
+  - [Execution Profile](#execution-profile)
+  - [Worker](#worker)
+  - [Worker Lease](#worker-lease)
+- [Semantic Retrieval Objects](#semantic-retrieval-objects)
+  - [Embedding Record](#embedding-record)
+  - [Knowledge Graph Snapshot](#knowledge-graph-snapshot)
 - [Cardinality Reference](#cardinality-reference)
 
 ---
@@ -130,7 +143,13 @@ User (1)
     ├── Plan (many)
     ├── Execution (many)
     ├── Integration (many)
-    └── Company Runtime (1)
+    ├── Company Runtime (1)
+    ├── Runtime Event (many)
+    │   └── Agent Run (1, when processed)
+    │       ├── Context Package (1)
+    │       │   └── Context Reference (many)
+    │       └── Structured Result (1)
+    └── Embedding Record (many, optional — over Memory and Knowledge Records)
 ```
 
 ---
@@ -1871,6 +1890,359 @@ Status objects define the allowed lifecycle states for domain objects. They are 
 
 ---
 
+---
+
+## Execution and Context Objects
+
+These objects represent the runtime execution layer — the mechanism by which the Company Runtime invokes employee roles and tracks the results. They are distinct from the organizational domain objects above: they concern how work is performed, not what work is performed.
+
+A key invariant: **Employees are persistent company roles, not authenticated users.** Agent Runs are records of employee execution, not the employee itself. The Employee object persists; Agent Runs accumulate over the Employee's lifetime.
+
+---
+
+### Runtime Event
+
+**Purpose:** A durable, mutable record of a pending or completed execution trigger.
+
+**Description:** Runtime Events are the queue entries that the Worker processes. Each Runtime Event represents the intention to invoke a specific employee role in response to a work item state change. Unlike the immutable Event objects in the audit log, Runtime Events are mutable — their status changes as they move from pending to claimed to completed or failed. The set of pending Runtime Events is the Company Runtime's task queue.
+
+**Owner:** Company Runtime
+
+**Relationships:**
+- Belongs to: one Company
+- References: one work item (Task, Review, QA Result, Release, etc.)
+- Triggers: one Agent Run (when claimed and processed)
+
+**Required Fields:**
+- id
+- company_id
+- type (the domain event type, e.g., `task.ready_for_review`)
+- subject_type
+- subject_id
+- status (pending / claimed / completed / failed / retrying)
+- created_at
+- scheduled_for (when the event becomes eligible for processing)
+
+**Optional Fields:**
+- claimed_by (worker_id, set when a Worker claims the event)
+- claimed_at
+- completed_at
+- retry_count
+- error_detail (for failed events)
+
+**Invariants:**
+- A Runtime Event cannot be processed by more than one Worker at a time (enforced by the Worker Lease)
+- A completed Runtime Event is retained for audit purposes; it is not deleted
+- A failed Runtime Event is retried up to a configurable limit before being escalated
+
+---
+
+### Agent Run
+
+**Purpose:** A permanent record of one invocation of one employee role.
+
+**Description:** An Agent Run is created each time AgentRunner invokes an employee. It records which employee was invoked, which Runtime Event triggered the invocation, which Context Package was assembled, which Execution Adapter was used, and what Structured Result was produced. Agent Runs are the audit trail of execution and the source of truth for "what the company did."
+
+**Owner:** AgentRunner
+
+**Relationships:**
+- Belongs to: one Company
+- Triggered by: one Runtime Event
+- Executes: one Employee (role)
+- Consumes: one Context Package
+- Uses: one Execution Adapter
+- Produces: one Structured Result
+- Produces: one or more Artifacts (the durable outputs)
+
+**Required Fields:**
+- id
+- company_id
+- runtime_event_id
+- employee_id
+- context_package_id
+- execution_adapter_id
+- status (started / completed / failed)
+- started_at
+- created_at
+
+**Optional Fields:**
+- completed_at
+- structured_result_id
+- error_detail (for failed runs)
+- retry_of (agent_run_id of the run being retried, if applicable)
+
+**Invariants:**
+- An Agent Run record is never deleted
+- A completed Agent Run always has an associated Structured Result
+- Agent Runs accumulate over the Employee's lifetime; the Employee object itself is not modified
+
+---
+
+### Context Package
+
+**Purpose:** The assembled execution context delivered to an execution engine for one Agent Run.
+
+**Description:** A Context Package is the curated set of information that the Context Builder assembles before an Agent Run. It includes the task definition, relevant memory records, the employee's handbook and responsibilities, repository context, and runtime state. Context Packages are traceable — they record which sources were included via Context References. An execution engine must never query company memory directly; it always receives a Context Package.
+
+**Owner:** Context Builder
+
+**Relationships:**
+- Belongs to: one Agent Run
+- References: many Context References (each pointing to a specific source)
+- Consumes: Memory Records, Knowledge Records, repository context, Employee handbook, runtime state
+
+**Required Fields:**
+- id
+- agent_run_id
+- employee_id
+- created_at
+- source_count (the number of sources included)
+
+**Optional Fields:**
+- token_estimate (the estimated size of the package)
+- truncated (boolean — whether any sources were excluded due to size limits)
+- truncation_strategy (what was excluded and why)
+
+**Invariants:**
+- A Context Package is immutable once delivered to AgentRunner
+- Every Agent Run has exactly one Context Package
+
+---
+
+### Context Reference
+
+**Purpose:** A traceable pointer from a Context Package to a specific source of information.
+
+**Description:** A Context Reference records exactly which memory record, knowledge record, file, or runtime object was included in a Context Package. This makes context assembly auditable and allows the company to trace why an employee made a specific decision.
+
+**Owner:** Context Builder
+
+**Relationships:**
+- Belongs to: one Context Package
+- References: one source (Memory Record, Knowledge Record, Document, or runtime object)
+
+**Required Fields:**
+- id
+- context_package_id
+- source_type (memory_record / knowledge_record / document / repository_file / runtime_state)
+- source_id
+- relevance_score (how the ranking algorithm scored this source)
+- created_at
+
+---
+
+### Structured Result
+
+**Purpose:** The standardized output produced by an execution engine after completing an Agent Run.
+
+**Description:** A Structured Result is the contract object that every Execution Adapter must produce. It allows the Company Runtime to process employee outputs consistently, regardless of which execution engine produced them. The Structured Result carries the primary output, any tool actions taken, proposed memory writes, and the employee's next-state recommendation.
+
+**Owner:** AgentRunner (receives from Execution Adapter; persists to Company Runtime)
+
+**Relationships:**
+- Belongs to: one Agent Run
+- Proposes: many Memory Record writes (which the runtime persists)
+- Produces: one or more Artifacts (code changes, plans, reviews, etc.)
+
+**Required Fields:**
+- id
+- agent_run_id
+- status (success / partial / failure)
+- artifact_type (plan / review / qa_result / comment / decision / memory_record / code_change / report)
+- content
+- created_at
+
+**Optional Fields:**
+- tool_actions (list of tool operations performed)
+- memory_writes (proposed Memory Records)
+- next_state_recommendation (the employee's suggested next domain event)
+- confidence (the employee's stated confidence in the output)
+
+**Invariants:**
+- A Structured Result is immutable once created
+- The Company Runtime is authoritative over the next domain event; the `next_state_recommendation` is advisory only
+- A Structured Result with status `failure` triggers the runtime's recovery sequence
+
+---
+
+### Execution Adapter
+
+**Purpose:** The interface implementation that connects AgentRunner to a specific execution engine.
+
+**Description:** An Execution Adapter translates a Context Package into engine-specific input and translates engine-specific output into a Structured Result. Adapters are registered in a per-company Execution Adapter registry and are selected at Agent Run time based on the Execution Profile. Adapters are the only place where provider-specific knowledge lives.
+
+**Owner:** Company (configuration), AgentRunner (runtime selection)
+
+**Relationships:**
+- Belongs to: one Company (via registry)
+- Used by: many Agent Runs
+- Wraps: one Execution Engine (Claude Code / Codex CLI / Gemini CLI / API provider / local model)
+
+**Required Fields:**
+- id
+- company_id
+- provider (claude_code / codex_cli / gemini_cli / api / local_model / other)
+- status (active / inactive / errored)
+- created_at
+
+**Optional Fields:**
+- credentials_reference (encrypted; never stored in plaintext)
+- engine_version
+- configuration (engine-specific settings, stored as JSONB)
+
+**Invariants:**
+- Credentials are never stored in plaintext
+- At least one active Execution Adapter must be registered per Company for execution to proceed
+- Adapter configuration is never exposed to the execution engine's output; it is input-only
+
+---
+
+### Execution Profile
+
+**Purpose:** The configured behavior policy for invoking a specific employee role.
+
+**Description:** An Execution Profile bundles the preferred Execution Adapter, the execution policy (interactive / background / read-only / etc.), and any engine-specific configuration overrides. Profiles are set at the company level and can be overridden per-employee. The Execution Profile allows different employees to use different engines or different permission policies within the same company.
+
+**Owner:** Company Settings (company-level defaults), Employee (employee-level overrides)
+
+**Relationships:**
+- Belongs to: one Company
+- Referenced by: many Agent Runs
+- Selects: one Execution Adapter
+
+**Required Fields:**
+- id
+- company_id
+- policy (interactive_supervised / background_automation / ask_before_running / read_only / full_access)
+- preferred_adapter_id
+- created_at
+
+**Optional Fields:**
+- employee_id (if this is an employee-level override; null for company-level defaults)
+
+---
+
+### Worker
+
+**Purpose:** A runtime process that claims and processes pending Runtime Events.
+
+**Description:** The Worker is the V1 execution mechanism. It polls the runtime event table for pending events, claims them via a Lease, and delegates processing to AgentRunner. Multiple Worker instances may run concurrently; the Lease mechanism ensures each event is processed at most once. The Worker is provider-independent: switching execution engines only changes the Execution Adapter, not the Worker.
+
+**Owner:** System (infrastructure-level)
+
+**Relationships:**
+- Claims: Runtime Events (one at a time per Worker instance)
+- Invokes: AgentRunner
+- Holds: Worker Leases
+
+**Required Fields:**
+- id
+- status (idle / active / errored)
+- started_at
+- last_heartbeat_at
+
+---
+
+### Worker Lease
+
+**Purpose:** A claim record that prevents duplicate processing of a Runtime Event.
+
+**Description:** When a Worker claims a Runtime Event, it creates a Worker Lease. The Lease is held while the event is being processed. If the Worker crashes or loses connection, the Lease expires after a configurable timeout and the event becomes re-claimable. Worker Leases are the mechanism that allows multiple Workers to run safely without double-processing.
+
+**Owner:** Worker
+
+**Relationships:**
+- Belongs to: one Worker
+- Claims: one Runtime Event
+
+**Required Fields:**
+- id
+- worker_id
+- runtime_event_id
+- claimed_at
+- expires_at
+- status (active / completed / expired)
+
+**Invariants:**
+- Only one active Worker Lease may exist per Runtime Event at a time
+- An expired Lease releases the event for re-claiming by any Worker
+
+---
+
+## Semantic Retrieval Objects
+
+These objects support future semantic retrieval over company memory and knowledge. They are indexes, not primary data stores. The relational records in the Memory and Knowledge modules are always the source of truth.
+
+---
+
+### Embedding Record
+
+**Purpose:** A vector embedding of a Memory Record or Knowledge Record, used for semantic similarity search.
+
+**Description:** An Embedding Record stores the vector representation of a Memory or Knowledge record. Embedding Records are created alongside their parent records when semantic retrieval is enabled. They are queried by the Context Builder to rank and select relevant memory based on semantic similarity to the current task. Embedding Records are never the source of truth for content — if an Embedding Record is deleted or corrupted, the parent Memory or Knowledge Record is unaffected.
+
+**Owner:** Memory module (for Memory Record embeddings), Knowledge module (for Knowledge Record embeddings)
+
+**Relationships:**
+- Belongs to: one Company
+- References: one Memory Record or one Knowledge Record (the parent)
+- Used by: Context Builder (for semantic ranking)
+
+**Required Fields:**
+- id
+- company_id
+- parent_type (memory_record / knowledge_record)
+- parent_id
+- embedding_model (the model that produced the embedding)
+- vector (the embedding vector; stored using pgvector in Postgres)
+- created_at
+
+**Optional Fields:**
+- dimension_count
+- last_updated_at (embeddings may be regenerated if the model changes)
+
+**Invariants:**
+- An Embedding Record is never the source of truth for content
+- Embedding Records may be deleted and regenerated without loss of company knowledge
+- The primary data store is PostgreSQL; pgvector is used as an extension within the same database
+
+**V1 status:** Embedding Records are not required for V1. The schema should be designed to support them. V1.5 will enable pgvector-based semantic retrieval.
+
+---
+
+### Knowledge Graph Snapshot
+
+**Purpose:** A point-in-time snapshot of the conceptual relationships within a repository.
+
+**Description:** A Knowledge Graph Snapshot captures the dependency relationships, architectural relationships, and code structure relationships present in a repository at a given point in time. It is produced during repository analysis and updated when significant repository changes are detected. The snapshot is referenced by the Context Builder when assembling context for repository-aware employees (Tech Lead, Backend Engineer, etc.).
+
+**Owner:** Repository module (production), Knowledge module (curation)
+
+**Relationships:**
+- Belongs to: one Company
+- References: one Repository
+- Produced by: CTO and Tech Lead during repository analysis
+- Consumed by: Context Builder
+
+**Required Fields:**
+- id
+- company_id
+- repository_id
+- snapshot_type (architecture / dependency / code_structure)
+- content (the graph data, stored as JSONB)
+- produced_at
+- status (current / stale / superseded)
+
+**Optional Fields:**
+- superseded_by_snapshot_id
+- analysis_version
+
+**Invariants:**
+- A Knowledge Graph Snapshot is never deleted — only marked stale or superseded
+- Stale snapshots are used with a warning in the Context Package; they are not discarded until a new snapshot is produced
+
+---
+
 ## Cardinality Reference
 
 | Relationship | Cardinality |
@@ -1909,3 +2281,13 @@ Status objects define the allowed lifecycle states for domain objects. They are 
 | Artifact → Attachment | 1:N |
 | Event → Timeline Entry | N:1 (multiple Events can produce one entry) |
 | Plan → Execution | 1:1 |
+| Company → Runtime Event | 1:N |
+| Runtime Event → Agent Run | 1:1 (when processed) |
+| Agent Run → Context Package | 1:1 |
+| Context Package → Context Reference | 1:N |
+| Agent Run → Structured Result | 1:1 |
+| Memory Record → Embedding Record | 1:0..1 (optional; V1.5+) |
+| Knowledge Record → Embedding Record | 1:0..1 (optional; V1.5+) |
+| Repository → Knowledge Graph Snapshot | 1:N |
+| Worker → Worker Lease | 1:N (one active at a time) |
+| Worker Lease → Runtime Event | 1:1 |
