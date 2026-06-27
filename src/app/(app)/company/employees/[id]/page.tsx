@@ -40,6 +40,7 @@ export default async function EmployeeDetailPage({ params }: Props) {
     include: {
       department: { select: { id: true, name: true, slug: true } },
       role: { select: { name: true, level: true } },
+      manager: { select: { id: true, name: true } },
     },
   });
 
@@ -106,13 +107,28 @@ export default async function EmployeeDetailPage({ params }: Props) {
             <p className="mt-0.5 text-sm text-neutral-400">
               {employee.role?.name ?? employee.title ?? "No role assigned"}
             </p>
-            {employee.reportsTo && (
+            {employee.manager ? (
+              <p className="mt-1 text-xs text-neutral-600">
+                Reports to{" "}
+                <Link
+                  href={`/company/employees/${employee.manager.id}`}
+                  className="text-neutral-400 hover:text-neutral-200 transition-colors"
+                >
+                  {employee.manager.name}
+                </Link>
+              </p>
+            ) : employee.reportsTo ? (
               <p className="mt-1 text-xs text-neutral-600">
                 Reports to {employee.reportsTo}
               </p>
-            )}
+            ) : null}
           </div>
         </section>
+
+        {/* Workload badge */}
+        {employee.workload && employee.workload !== "normal" && (
+          <WorkloadBadge workload={employee.workload} />
+        )}
 
         {/* Mission */}
         {employee.mission && (
@@ -120,6 +136,16 @@ export default async function EmployeeDetailPage({ params }: Props) {
             <SectionLabel>Mission</SectionLabel>
             <p className="mt-2 text-sm text-neutral-300 leading-relaxed">
               {employee.mission}
+            </p>
+          </section>
+        )}
+
+        {/* Responsibilities */}
+        {employee.responsibilities && (
+          <section>
+            <SectionLabel>Responsibilities</SectionLabel>
+            <p className="mt-2 text-sm text-neutral-400 leading-relaxed">
+              {employee.responsibilities}
             </p>
           </section>
         )}
@@ -153,7 +179,8 @@ export default async function EmployeeDetailPage({ params }: Props) {
             <DetailCard
               icon={<Users className="h-3.5 w-3.5" />}
               label="Reports To"
-              value={employee.reportsTo ?? "—"}
+              value={employee.manager?.name ?? employee.reportsTo ?? "—"}
+              href={employee.manager ? `/company/employees/${employee.manager.id}` : undefined}
             />
           </div>
         </section>
@@ -200,10 +227,12 @@ function DetailCard({
   icon,
   label,
   value,
+  href,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  href?: string;
 }) {
   return (
     <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3">
@@ -213,9 +242,31 @@ function DetailCard({
           {label}
         </span>
       </div>
-      <p className="mt-1.5 text-sm font-medium text-neutral-200 truncate">
-        {value}
-      </p>
+      {href ? (
+        <Link href={href} className="mt-1.5 block text-sm font-medium text-neutral-200 truncate hover:text-neutral-100 transition-colors">
+          {value}
+        </Link>
+      ) : (
+        <p className="mt-1.5 text-sm font-medium text-neutral-200 truncate">
+          {value}
+        </p>
+      )}
     </div>
+  );
+}
+
+const WORKLOAD_CONFIG: Record<string, { label: string; className: string }> = {
+  light: { label: "Light workload", className: "bg-blue-950 text-blue-400 border-blue-900" },
+  heavy: { label: "Heavy workload", className: "bg-amber-950 text-amber-400 border-amber-900" },
+  overloaded: { label: "Overloaded", className: "bg-red-950 text-red-400 border-red-900" },
+};
+
+function WorkloadBadge({ workload }: { workload: string }) {
+  const cfg = WORKLOAD_CONFIG[workload];
+  if (!cfg) return null;
+  return (
+    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium", cfg.className)}>
+      {cfg.label}
+    </span>
   );
 }

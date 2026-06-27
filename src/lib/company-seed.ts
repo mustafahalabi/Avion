@@ -63,6 +63,8 @@ const V1_EMPLOYEES = [
     reportsTo: null,
     mission:
       "Own the technical direction of the company and ensure engineering operates as a coherent, high-quality organization.",
+    responsibilities:
+      "Set technical strategy. Make final architecture decisions. Unblock the engineering team. Hire and develop senior engineers. Represent engineering to stakeholders.",
   },
   {
     name: "Product Manager",
@@ -71,6 +73,8 @@ const V1_EMPLOYEES = [
     reportsTo: "CTO",
     mission:
       "Transform business objectives into executable engineering work and keep the product roadmap aligned with company goals.",
+    responsibilities:
+      "Write and maintain product requirements. Prioritize the backlog. Coordinate with engineering on scope. Accept completed features. Communicate roadmap status.",
   },
   {
     name: "Technical Writer",
@@ -79,6 +83,8 @@ const V1_EMPLOYEES = [
     reportsTo: "Product Manager",
     mission:
       "Ensure all company knowledge is captured, accurate, and accessible to every employee.",
+    responsibilities:
+      "Document APIs, architecture decisions, and runbooks. Keep the memory system up to date. Review documentation PRs. Write release notes.",
   },
   {
     name: "Tech Lead",
@@ -87,6 +93,8 @@ const V1_EMPLOYEES = [
     reportsTo: "CTO",
     mission:
       "Break approved work into tasks, assign them to the right engineers, and drive them to done at high quality.",
+    responsibilities:
+      "Decompose features into tasks. Assign and track engineering work. Conduct code reviews. Resolve technical blockers. Report progress to the CTO.",
   },
   {
     name: "Frontend Engineer",
@@ -95,6 +103,8 @@ const V1_EMPLOYEES = [
     reportsTo: "Tech Lead",
     mission:
       "Build user interfaces and client-side systems that meet the product specification and quality standards.",
+    responsibilities:
+      "Implement UI components and pages. Ensure accessibility and responsive design. Write frontend tests. Fix visual regressions.",
   },
   {
     name: "Backend Engineer",
@@ -103,6 +113,8 @@ const V1_EMPLOYEES = [
     reportsTo: "Tech Lead",
     mission:
       "Design and implement the server-side systems, APIs, and data models that power the product.",
+    responsibilities:
+      "Build and maintain REST/GraphQL APIs. Design database schemas. Write integration tests. Optimize query performance.",
   },
   {
     name: "AI Engineer",
@@ -111,6 +123,8 @@ const V1_EMPLOYEES = [
     reportsTo: "Tech Lead",
     mission:
       "Integrate AI capabilities into the product and ensure they operate reliably and safely.",
+    responsibilities:
+      "Integrate LLM and AI APIs. Design prompt strategies. Monitor AI reliability and cost. Implement safety guardrails.",
   },
   {
     name: "Infrastructure Engineer",
@@ -119,6 +133,8 @@ const V1_EMPLOYEES = [
     reportsTo: "Tech Lead",
     mission:
       "Design and maintain the infrastructure that supports reliable, scalable, and secure system operation.",
+    responsibilities:
+      "Manage cloud infrastructure. Implement IaC. Ensure uptime SLAs. Optimize resource costs. Support deployment pipelines.",
   },
   {
     name: "Reviewer",
@@ -127,6 +143,8 @@ const V1_EMPLOYEES = [
     reportsTo: "Tech Lead",
     mission:
       "Ensure every code change is correct, complete, safe, and consistent with company standards before it reaches QA.",
+    responsibilities:
+      "Review all PRs. Check correctness, security, and style. Request changes or approve. Enforce coding standards.",
   },
   {
     name: "QA Engineer",
@@ -135,6 +153,8 @@ const V1_EMPLOYEES = [
     reportsTo: "Tech Lead",
     mission:
       "Validate that every deliverable works correctly, is free of regressions, and meets acceptance criteria.",
+    responsibilities:
+      "Write and execute test plans. Identify and report defects. Verify bug fixes. Sign off on release readiness.",
   },
   {
     name: "Security Engineer",
@@ -143,6 +163,8 @@ const V1_EMPLOYEES = [
     reportsTo: "CTO",
     mission:
       "Protect the company, its systems, and its users from security risks across the entire engineering lifecycle.",
+    responsibilities:
+      "Conduct security reviews. Identify vulnerabilities. Define security policies. Respond to incidents. Maintain compliance posture.",
   },
   {
     name: "DevOps Engineer",
@@ -151,6 +173,8 @@ const V1_EMPLOYEES = [
     reportsTo: "CTO",
     mission:
       "Own the deployment pipeline, CI/CD infrastructure, and the operational tooling that keeps the system running.",
+    responsibilities:
+      "Build and maintain CI/CD pipelines. Manage deployment environments. Automate operational tasks. Support on-call runbooks.",
   },
   {
     name: "Release Manager",
@@ -159,6 +183,8 @@ const V1_EMPLOYEES = [
     reportsTo: "CTO",
     mission:
       "Own the release process and ensure every deployment is coordinated, verified, and safe.",
+    responsibilities:
+      "Coordinate release schedules. Run release readiness reviews. Gate deployments. Communicate release status to stakeholders.",
   },
   {
     name: "Monitoring Engineer",
@@ -167,6 +193,8 @@ const V1_EMPLOYEES = [
     reportsTo: "Release Manager",
     mission:
       "Maintain complete operational visibility and trigger response when system health degrades.",
+    responsibilities:
+      "Configure and maintain monitoring dashboards. Set alerting thresholds. Triage incidents. Produce operational health reports.",
   },
 ] as const;
 
@@ -195,12 +223,33 @@ export async function seedCompanyStructure(tx: TxClient, companyId: string) {
       companyId,
       name: e.name,
       mission: e.mission,
+      responsibilities: e.responsibilities,
       reportsTo: e.reportsTo,
       departmentId: deptBySlug[e.departmentSlug],
       roleId: roleByName[e.roleName],
       status: "active",
     })),
   });
+
+  // Wire managerId relations now that all employees exist
+  const allEmployees = await tx.employee.findMany({
+    where: { companyId },
+    select: { id: true, name: true },
+  });
+  const employeeByName = Object.fromEntries(allEmployees.map((e) => [e.name, e.id]));
+
+  for (const emp of V1_EMPLOYEES) {
+    if (emp.reportsTo) {
+      const managerId = employeeByName[emp.reportsTo];
+      const employeeId = employeeByName[emp.name];
+      if (managerId && employeeId) {
+        await tx.employee.update({
+          where: { id: employeeId },
+          data: { managerId },
+        });
+      }
+    }
+  }
 
   const V1_MEMORIES = [
     {
@@ -237,6 +286,8 @@ export async function seedCompanyStructure(tx: TxClient, companyId: string) {
         title: mem.title,
         summary: mem.summary,
         category: mem.category,
+        ownerType: "company",
+        ownerId: companyId,
       },
     });
   }
