@@ -42,9 +42,16 @@ model Company {
   employees       Employee[]
   settings        CompanySettings?
   workspaces      Workspace[]
+  projects        Project[]
+  features        Feature[]
   tasks           Task[]
   memories        Memory[]
   runtimeRequests RuntimeRequest[]
+  outcomes        Outcome[]
+  planningDrafts  PlanningDraft[]
+  reviews         Review[]
+  qaResults       QAResult[]
+  releases        Release[]
   conversations   Conversation[]
   integrations    Integration[]
 }
@@ -98,13 +105,15 @@ model Employee {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  user           User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company        Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  department     Department? @relation(fields: [departmentId], references: [id])
-  role           Role?       @relation(fields: [roleId], references: [id])
-  manager        Employee?   @relation("EmployeeReporting", fields: [managerId], references: [id])
-  reports        Employee[]  @relation("EmployeeReporting")
-  assignedTasks  Task[]
+  user          User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  department    Department? @relation(fields: [departmentId], references: [id])
+  role          Role?       @relation(fields: [roleId], references: [id])
+  manager       Employee?   @relation("EmployeeReporting", fields: [managerId], references: [id])
+  reports       Employee[]  @relation("EmployeeReporting")
+  assignedTasks Task[]
+
+  @@unique([companyId, id])
 }
 
 model CompanySettings {
@@ -135,84 +144,113 @@ model Workspace {
   repositories Repository[]
 
   @@unique([companyId, slug])
+  @@unique([companyId, id])
 }
 
 // ─── Engineering Work Models ─────────────────────────────────────────────────
 
 model Repository {
-  id             String   @id @default(cuid())
-  workspaceId    String
-  name           String
-  url            String?
-  description    String?
+  id              String   @id @default(cuid())
+  workspaceId     String
+  name            String
+  url             String?
+  description     String?
   primaryLanguage String?
-  techStack      String   @default("[]")
-  frameworks     String   @default("[]")
-  dependencies   String   @default("[]")
-  importantFiles String   @default("[]")
-  fileCount      Int?
-  analysisStatus String   @default("pending")
-  analysisNotes  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  techStack       String   @default("[]")
+  frameworks      String   @default("[]")
+  dependencies    String   @default("[]")
+  importantFiles  String   @default("[]")
+  fileCount       Int?
+  analysisStatus  String   @default("pending")
+  analysisNotes   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model Project {
-  id          String    @id @default(cuid())
-  name        String
-  slug        String
-  workspaceId String
-  description String?
-  status      String    @default("active")
-  startDate   DateTime?
-  endDate     DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  name            String
+  slug            String
+  companyId       String
+  workspaceId     String
+  outcomeId       String?
+  planningDraftId String?
+  planItemId      String?
+  description     String?
+  status          String    @default("active")
+  startDate       DateTime?
+  endDate         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  features   Feature[]
-  milestones Milestone[]
-  sprints    Sprint[]
-  tasks      Task[]
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workspace     Workspace      @relation(fields: [companyId, workspaceId], references: [companyId, id], onDelete: Cascade)
+  outcome       Outcome?       @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
+  features      Feature[]
+  milestones    Milestone[]
+  sprints       Sprint[]
+  tasks         Task[]
+
+  @@unique([companyId, id])
+  @@unique([planningDraftId, planItemId])
 }
 
 model Feature {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  projectId   String
-  status      String   @default("planned")
-  priority    String   @default("medium")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  companyId       String
+  projectId       String
+  outcomeId       String?
+  planningDraftId String?
+  planItemId      String?
+  status          String   @default("planned")
+  priority        String   @default("medium")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tasks   Task[]
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project        @relation(fields: [companyId, projectId], references: [companyId, id], onDelete: Cascade)
+  outcome       Outcome?       @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
+  tasks         Task[]
+
+  @@unique([companyId, id])
+  @@unique([planningDraftId, planItemId])
 }
 
 model Task {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  companyId   String
-  projectId   String?
-  featureId   String?
-  sprintId    String?
-  assigneeId  String?
-  status      String   @default("todo")
-  priority    String   @default("medium")
-  estimate    Float?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  companyId       String
+  projectId       String?
+  featureId       String?
+  sprintId        String?
+  assigneeId      String?
+  outcomeId       String?
+  planningDraftId String?
+  planItemId      String?
+  status          String   @default("todo")
+  priority        String   @default("medium")
+  estimate        Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project  Project?  @relation(fields: [projectId], references: [id])
-  feature  Feature?  @relation(fields: [featureId], references: [id])
-  sprint   Sprint?   @relation(fields: [sprintId], references: [id])
-  assignee Employee? @relation(fields: [assigneeId], references: [id])
-  subtasks Subtask[]
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project?       @relation(fields: [companyId, projectId], references: [companyId, id], onDelete: Restrict)
+  feature       Feature?       @relation(fields: [companyId, featureId], references: [companyId, id], onDelete: Restrict)
+  sprint        Sprint?        @relation(fields: [sprintId], references: [id])
+  assignee      Employee?      @relation(fields: [companyId, assigneeId], references: [companyId, id], onDelete: Restrict)
+  outcome       Outcome?       @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
+  subtasks      Subtask[]
+
+  @@unique([companyId, id])
+  @@unique([planningDraftId, planItemId])
 }
 
 model Subtask {
@@ -257,16 +295,16 @@ model Milestone {
 // ─── Memory / Knowledge Models ────────────────────────────────────────────────
 
 model Memory {
-  id          String   @id @default(cuid())
-  companyId   String
-  title       String
-  summary     String?
-  category    String   @default("company")
-  ownerType   String?
-  ownerId     String?
-  tags        String   @default("[]")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  companyId String
+  title     String
+  summary   String?
+  category  String   @default("company")
+  ownerType String?
+  ownerId   String?
+  tags      String   @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   records MemoryRecord[]
@@ -310,21 +348,24 @@ model KnowledgeRecord {
 // ─── Company Runtime Models ───────────────────────────────────────────────────
 
 model RuntimeRequest {
-  id           String    @id @default(cuid())
-  companyId    String
-  title        String
-  goal         String
-  requestType  String    @default("feature")
-  status       String    @default("intake")
-  assignedTo   String?
+  id            String   @id @default(cuid())
+  companyId     String
+  title         String
+  goal          String
+  requestType   String   @default("feature")
+  status        String   @default("intake")
+  assignedTo    String?
   clarification String?
-  resolution   String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  resolution    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   events   RuntimeEvent[]
   messages Message[]
+  outcome  Outcome?
+
+  @@unique([companyId, id])
 }
 
 model RuntimeEvent {
@@ -336,6 +377,87 @@ model RuntimeEvent {
   createdAt   DateTime @default(now())
 
   request RuntimeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+// ─── Outcome Planning Models ──────────────────────────────────────────────────
+
+model Outcome {
+  id               String    @id @default(cuid())
+  companyId        String
+  runtimeRequestId String?   @unique
+  title            String
+  rawRequest       String
+  brief            String?
+  businessValue    String?
+  successCriteria  String    @default("[]")
+  constraints      String    @default("[]")
+  status           String    @default("proposed")
+  priority         String    @default("medium")
+  ownerRole        String?
+  failureReason    String?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  runtimeRequest RuntimeRequest? @relation(fields: [companyId, runtimeRequestId], references: [companyId, id], onDelete: Restrict)
+  planningDrafts PlanningDraft[]
+  projects       Project[]
+  features       Feature[]
+  tasks          Task[]
+  reviews        Review[]
+  qaResults      QAResult[]
+  releases       Release[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, runtimeRequestId])
+}
+
+model PlanningDraft {
+  id                     String    @id @default(cuid())
+  companyId              String
+  outcomeId              String
+  title                  String
+  summary                String?
+  status                 String    @default("draft")
+  version                Int       @default(1)
+  scope                  String    @default("[]")
+  nonScope               String    @default("[]")
+  assumptions            String    @default("[]")
+  risks                  String    @default("[]")
+  dependencies           String    @default("[]")
+  recommendedAssignments String    @default("[]")
+  generatedProjects      String    @default("[]")
+  generatedFeatures      String    @default("[]")
+  generatedTasks         String    @default("[]")
+  reviewPlan             String    @default("{}")
+  qaPlan                 String    @default("{}")
+  releasePlan            String    @default("{}")
+  approvalNotes          String?
+  rejectionReason        String?
+  generationError        String?
+  applicationError       String?
+  approvedAt             DateTime?
+  approvedById           String?
+  rejectedAt             DateTime?
+  rejectedById           String?
+  appliedAt              DateTime?
+  appliedById            String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  outcome   Outcome    @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Cascade)
+  projects  Project[]
+  features  Feature[]
+  tasks     Task[]
+  reviews   Review[]
+  qaResults QAResult[]
+  releases  Release[]
+
+  @@unique([outcomeId, version])
+  @@unique([companyId, id])
+  @@unique([companyId, outcomeId, version])
 }
 
 // ─── Communication / Inbox Models ─────────────────────────────────────────────
@@ -368,20 +490,20 @@ model Message {
 }
 
 model Notification {
-  id          String    @id @default(cuid())
-  userId      String
-  companyId   String?
-  title       String
-  body        String?
-  type        String    @default("info")
-  priority    String    @default("medium")
-  entityType  String?
-  entityId    String?
-  actionUrl   String?
-  read        Boolean   @default(false)
-  readAt      DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  userId     String
+  companyId  String?
+  title      String
+  body       String?
+  type       String    @default("info")
+  priority   String    @default("medium")
+  entityType String?
+  entityId   String?
+  actionUrl  String?
+  read       Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 // ─── Timeline / Events ────────────────────────────────────────────────────────
@@ -414,34 +536,51 @@ model TimelineEntry {
 // ─── Quality / Releases ───────────────────────────────────────────────────────
 
 model Review {
-  id                  String   @id @default(cuid())
-  companyId           String
-  title               String
-  entityType          String   @default("task")
-  entityId            String
-  reviewerId          String?
-  status              String   @default("pending")
-  verdict             String?
-  notes               String?
-  changeRequestNotes  String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  companyId          String
+  title              String
+  entityType         String   @default("task")
+  entityId           String
+  reviewerId         String?
+  outcomeId          String?
+  planningDraftId    String?
+  planItemId         String?
+  status             String   @default("pending")
+  verdict            String?
+  notes              String?
+  changeRequestNotes String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  outcome        Outcome?        @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft  PlanningDraft?  @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
   changeRequests ChangeRequest[]
+
+  @@unique([planningDraftId, planItemId])
 }
 
 model QAResult {
-  id          String   @id @default(cuid())
-  companyId   String
-  entityType  String   @default("task")
-  entityId    String
-  status      String   @default("pending")
-  passedCount Int      @default(0)
-  failedCount Int      @default(0)
-  notes       String?
-  checks      String   @default("[]")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  companyId       String
+  entityType      String   @default("task")
+  entityId        String
+  outcomeId       String?
+  planningDraftId String?
+  planItemId      String?
+  status          String   @default("pending")
+  passedCount     Int      @default(0)
+  failedCount     Int      @default(0)
+  notes           String?
+  checks          String   @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  outcome       Outcome?       @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
+
+  @@unique([planningDraftId, planItemId])
 }
 
 model ChangeRequest {
@@ -458,21 +597,30 @@ model ChangeRequest {
 }
 
 model Release {
-  id                String    @id @default(cuid())
-  companyId         String
-  version           String
-  title             String?
-  description       String?
-  releaseNotes      String?
-  status            String    @default("draft")
-  deploymentStatus  String    @default("not_started")
-  checklist         String    @default("[]")
-  taskIds           String    @default("[]")
-  rollbackPlan      String?
-  postReleaseNotes  String?
-  releasedAt        DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  companyId        String
+  outcomeId        String?
+  planningDraftId  String?
+  planItemId       String?
+  version          String
+  title            String?
+  description      String?
+  releaseNotes     String?
+  status           String    @default("draft")
+  deploymentStatus String    @default("not_started")
+  checklist        String    @default("[]")
+  taskIds          String    @default("[]")
+  rollbackPlan     String?
+  postReleaseNotes String?
+  releasedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  outcome       Outcome?       @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
+
+  @@unique([planningDraftId, planItemId])
 }
 
 model Incident {
@@ -499,7 +647,7 @@ model Integration {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  company  Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company  Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   syncLogs IntegrationSyncLog[]
 }
 

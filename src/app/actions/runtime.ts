@@ -6,6 +6,8 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { notify } from "@/lib/notify";
 import { REQUEST_ROUTING } from "@/lib/request-routing";
+import { buildOutcomeCreateData } from "@/lib/outcome-planning";
+import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
 
 const REQUEST_TYPES = [
   "feature",
@@ -51,24 +53,54 @@ export async function submitRequest(
   });
   if (!company) return { message: "No company found." };
 
-  const request = await prisma.runtimeRequest.create({
-    data: {
-      companyId: company.id,
-      title: parsed.data.title,
-      goal: parsed.data.goal,
-      requestType: parsed.data.requestType,
-      status: "intake",
-      assignedTo: REQUEST_ROUTING[parsed.data.requestType] ?? "Company",
-    },
+  const { request, outcome } = await prisma.$transaction(async (tx) => {
+    const runtimeRequest = await tx.runtimeRequest.create({
+      data: {
+        companyId: company.id,
+        title: parsed.data.title,
+        goal: parsed.data.goal,
+        requestType: parsed.data.requestType,
+        status: "intake",
+        assignedTo: REQUEST_ROUTING[parsed.data.requestType] ?? "Company",
+      },
+    });
+
+    const createdOutcome = await tx.outcome.upsert({
+      where: {
+        companyId_runtimeRequestId: {
+          companyId: company.id,
+          runtimeRequestId: runtimeRequest.id,
+        },
+      },
+      create: buildOutcomeCreateData({
+        companyId: company.id,
+        runtimeRequestId: runtimeRequest.id,
+        title: runtimeRequest.title,
+        rawRequest: runtimeRequest.goal,
+      }),
+      update: {
+        title: runtimeRequest.title,
+        rawRequest: runtimeRequest.goal,
+      },
+      select: { id: true },
+    });
+
+    await tx.runtimeEvent.create({
+      data: {
+        requestId: runtimeRequest.id,
+        type: "intake",
+        description: `Request received and routed to ${runtimeRequest.assignedTo}.`,
+        actor: "System",
+      },
+    });
+
+    return { request: runtimeRequest, outcome: createdOutcome };
   });
 
-  await prisma.runtimeEvent.create({
-    data: {
-      requestId: request.id,
-      type: "intake",
-      description: `Request received and routed to ${request.assignedTo}.`,
-      actor: "System",
-    },
+  await createOrUpdatePlanningDraftForOutcome({
+    companyId: company.id,
+    outcomeId: outcome.id,
+    actorId: user.id,
   });
 
   await notify({

@@ -41,7 +41,7 @@ Items are grouped by theme and approximately ordered by dependency and strategic
 | V2-A-001 | LLM integration for AI-powered responses | Wire Anthropic Claude to chat and runtime flows |
 | V2-A-002 | Memory retrieval (semantic search) | AI-powered retrieval from memory banks |
 | V2-A-003 | Knowledge base AI retrieval | Surface `Knowledge` records to the AI context |
-| V2-A-004 | Automated task planning from RuntimeRequest | LLM breaks a request goal into tasks automatically |
+| V2-A-004 | Automated task planning from Outcome | MUS-140 adds deterministic PlanningDraft generation; external AI generation remains deferred |
 | V2-A-005 | Repository intelligence — automated analysis | Scan repos and populate tech stack, summary, important files |
 | V2-A-006 | Code review AI suggestions | LLM-powered suggestions in the Review flow |
 | V2-A-007 | QA check generation | LLM generates QA checklist from task description |
@@ -86,6 +86,7 @@ Items are grouped by theme and approximately ordered by dependency and strategic
 | V2-W-005 | Recurring tasks | Templates and scheduled task creation |
 | V2-W-006 | Bulk task operations | Select multiple tasks for bulk status/priority updates |
 | V2-W-007 | Advanced task search and filtering | Filter by assignee, priority, status, date range |
+| V2-W-008 | Apply approved PlanningDraft into work records | Future MUS ticket; must call the approved-plan guard and upsert by `(planningDraftId, planItemId)` source keys |
 
 ---
 

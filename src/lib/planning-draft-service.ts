@@ -1,0 +1,441 @@
+import { prisma } from "@/lib/prisma";
+import {
+  generateDeterministicPlanningDraft,
+  parseJsonStringArray,
+  type DeterministicPlanningDraft,
+  type PlanningGenerationFailure,
+  type PlanningGenerationResult,
+  type PlanningRepositoryContext,
+} from "@/lib/planning-generator";
+import type { PlanningDraftStatus } from "@/lib/outcome-planning";
+
+const INITIAL_DRAFT_VERSION = 1;
+
+export interface PlanningDraftGenerationInput {
+  readonly companyId: string;
+  readonly outcomeId: string;
+  readonly actorId: string | null;
+}
+
+export interface PlanningDraftGenerationResponse {
+  readonly outcomeId: string;
+  readonly planningDraftId: string;
+  readonly status: PlanningDraftStatus;
+  readonly message: string;
+}
+
+interface OutcomeForPlanning {
+  readonly id: string;
+  readonly companyId: string;
+  readonly runtimeRequestId: string | null;
+  readonly title: string;
+  readonly rawRequest: string;
+  readonly brief: string | null;
+  readonly businessValue: string | null;
+  readonly successCriteria: string;
+  readonly constraints: string;
+}
+
+/**
+ * Generates or finds the deterministic planning draft for a company-owned outcome.
+ *
+ * @param input - Company, outcome, and optional actor context for ownership and events.
+ * @example
+ * ```ts
+ * await createOrUpdatePlanningDraftForOutcome({
+ *   companyId: "company_123",
+ *   outcomeId: "outcome_123",
+ *   actorId: "user_123",
+ * });
+ * ```
+ * @returns The persisted planning draft identity and lifecycle status.
+ * @throws Error when the outcome is not owned by the supplied company.
+ */
+export async function createOrUpdatePlanningDraftForOutcome(
+  input: PlanningDraftGenerationInput
+): Promise<PlanningDraftGenerationResponse> {
+  const existingDraft = await prisma.planningDraft.findFirst({
+    where: {
+      companyId: input.companyId,
+      outcomeId: input.outcomeId,
+      version: INITIAL_DRAFT_VERSION,
+      status: { not: "failed" },
+    },
+    select: { id: true, outcomeId: true, status: true },
+  });
+
+  if (existingDraft) {
+    return {
+      outcomeId: existingDraft.outcomeId,
+      planningDraftId: existingDraft.id,
+      status: existingDraft.status as PlanningDraftStatus,
+      message: "Planning draft already exists for this outcome.",
+    };
+  }
+
+  const outcome = await prisma.outcome.findFirst({
+    where: { id: input.outcomeId, companyId: input.companyId },
+    select: {
+      id: true,
+      companyId: true,
+      runtimeRequestId: true,
+      title: true,
+      rawRequest: true,
+      brief: true,
+      businessValue: true,
+      successCriteria: true,
+      constraints: true,
+    },
+  });
+
+  if (!outcome) {
+    throw new Error("Outcome not found for this company.");
+  }
+
+  const [employees, repositories] = await Promise.all([
+    prisma.employee.findMany({
+      where: { companyId: input.companyId, status: "active" },
+      select: {
+        id: true,
+        name: true,
+        title: true,
+        responsibilities: true,
+        role: { select: { name: true } },
+      },
+      orderBy: [{ name: "asc" }],
+    }),
+    prisma.repository.findMany({
+      where: { workspace: { companyId: input.companyId } },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        primaryLanguage: true,
+        techStack: true,
+        frameworks: true,
+        dependencies: true,
+        importantFiles: true,
+        analysisStatus: true,
+        analysisNotes: true,
+      },
+      orderBy: [{ name: "asc" }],
+    }),
+  ]);
+
+  const generation = generateDeterministicPlanningDraft({
+    companyId: outcome.companyId,
+    outcomeId: outcome.id,
+    title: outcome.title,
+    rawRequest: outcome.rawRequest,
+    brief: outcome.brief,
+    businessValue: outcome.businessValue,
+    successCriteria: parseJsonStringArray(outcome.successCriteria),
+    constraints: parseJsonStringArray(outcome.constraints),
+    employees: employees.map((employee) => ({
+      id: employee.id,
+      name: employee.name,
+      title: employee.title,
+      roleName: employee.role?.name ?? null,
+      responsibilities: employee.responsibilities,
+    })),
+    repositories: repositories.map(toPlanningRepositoryContext),
+  });
+
+  return persistPlanningGeneration({
+    actorId: input.actorId,
+    generation,
+    outcome,
+  });
+}
+
+/**
+ * Converts persisted repository rows into pure generator context.
+ *
+ * @param repository - Repository row selected for planning context.
+ * @example
+ * ```ts
+ * const context = toPlanningRepositoryContext(repository);
+ * ```
+ * @returns Repository context with parsed JSON metadata arrays.
+ */
+function toPlanningRepositoryContext(repository: {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly primaryLanguage: string | null;
+  readonly techStack: string;
+  readonly frameworks: string;
+  readonly dependencies: string;
+  readonly importantFiles: string;
+  readonly analysisStatus: string;
+  readonly analysisNotes: string | null;
+}): PlanningRepositoryContext {
+  return {
+    id: repository.id,
+    name: repository.name,
+    description: repository.description,
+    primaryLanguage: repository.primaryLanguage,
+    techStack: parseJsonStringArray(repository.techStack),
+    frameworks: parseJsonStringArray(repository.frameworks),
+    dependencies: parseJsonStringArray(repository.dependencies),
+    importantFiles: parseJsonStringArray(repository.importantFiles),
+    analysisStatus: repository.analysisStatus,
+    analysisNotes: repository.analysisNotes,
+  };
+}
+
+/**
+ * Persists a successful or failed planning generation result.
+ *
+ * @param input - Outcome, generation result, and optional actor metadata.
+ * @example
+ * ```ts
+ * await persistPlanningGeneration({ outcome, generation, actorId: "user_123" });
+ * ```
+ * @returns The persisted draft status and identity.
+ */
+async function persistPlanningGeneration(input: {
+  readonly outcome: OutcomeForPlanning;
+  readonly generation: PlanningGenerationResult;
+  readonly actorId: string | null;
+}): Promise<PlanningDraftGenerationResponse> {
+  if (input.generation.status === "success") {
+    return persistSuccessfulGeneration(input.outcome, input.generation.draft, input.actorId);
+  }
+
+  return persistFailedGeneration(input.outcome, input.generation, input.actorId);
+}
+
+/**
+ * Persists a successful deterministic planning draft and records events.
+ *
+ * @param outcome - Company-owned outcome row.
+ * @param draft - Generated planning draft payload.
+ * @param actorId - Optional user ID for timeline attribution.
+ * @returns The persisted draft status and identity.
+ */
+async function persistSuccessfulGeneration(
+  outcome: OutcomeForPlanning,
+  draft: DeterministicPlanningDraft,
+  actorId: string | null
+): Promise<PlanningDraftGenerationResponse> {
+  const planningDraft = await prisma.$transaction(async (tx) => {
+    const persistedDraft = await tx.planningDraft.upsert({
+      where: {
+        companyId_outcomeId_version: {
+          companyId: outcome.companyId,
+          outcomeId: outcome.id,
+          version: INITIAL_DRAFT_VERSION,
+        },
+      },
+      create: {
+        companyId: outcome.companyId,
+        outcomeId: outcome.id,
+        title: draft.title,
+        summary: draft.summary,
+        status: draft.status,
+        version: INITIAL_DRAFT_VERSION,
+        scope: JSON.stringify(draft.scope),
+        nonScope: JSON.stringify(draft.nonScope),
+        assumptions: JSON.stringify(draft.assumptions),
+        risks: JSON.stringify(draft.risks),
+        dependencies: JSON.stringify(draft.dependencies),
+        recommendedAssignments: JSON.stringify(draft.recommendedAssignments),
+        generatedProjects: JSON.stringify(draft.generatedProjects),
+        generatedFeatures: JSON.stringify(draft.generatedFeatures),
+        generatedTasks: JSON.stringify(draft.generatedTasks),
+        reviewPlan: JSON.stringify(draft.reviewPlan),
+        qaPlan: JSON.stringify(draft.qaPlan),
+        releasePlan: JSON.stringify(draft.releasePlan),
+      },
+      update: {
+        title: draft.title,
+        summary: draft.summary,
+        status: draft.status,
+        scope: JSON.stringify(draft.scope),
+        nonScope: JSON.stringify(draft.nonScope),
+        assumptions: JSON.stringify(draft.assumptions),
+        risks: JSON.stringify(draft.risks),
+        dependencies: JSON.stringify(draft.dependencies),
+        recommendedAssignments: JSON.stringify(draft.recommendedAssignments),
+        generatedProjects: JSON.stringify(draft.generatedProjects),
+        generatedFeatures: JSON.stringify(draft.generatedFeatures),
+        generatedTasks: JSON.stringify(draft.generatedTasks),
+        reviewPlan: JSON.stringify(draft.reviewPlan),
+        qaPlan: JSON.stringify(draft.qaPlan),
+        releasePlan: JSON.stringify(draft.releasePlan),
+        generationError: null,
+      },
+      select: { id: true, status: true },
+    });
+
+    await tx.outcome.updateMany({
+      where: { id: outcome.id, companyId: outcome.companyId },
+      data: {
+        status: "planned",
+        failureReason: null,
+        successCriteria: JSON.stringify(draft.acceptanceCriteria),
+        constraints: JSON.stringify(draft.openCeoQuestions),
+      },
+    });
+
+    if (outcome.runtimeRequestId) {
+      await tx.runtimeRequest.updateMany({
+        where: { id: outcome.runtimeRequestId, companyId: outcome.companyId },
+        data: {
+          status: "planning",
+          clarification: null,
+          resolution: "A deterministic planning draft has been generated and is ready for CEO review.",
+        },
+      });
+
+      await tx.runtimeEvent.create({
+        data: {
+          requestId: outcome.runtimeRequestId,
+          type: "outcome.plan_created",
+          description: `Planning draft generated for outcome "${outcome.title}". No work records were created.`,
+          actor: "System",
+        },
+      });
+    }
+
+    await tx.timelineEntry.create({
+      data: {
+        entityType: "outcome",
+        entityId: outcome.id,
+        eventType: "outcome.plan_created",
+        summary: `Planning draft generated for "${outcome.title}".`,
+        actorId,
+        metadata: JSON.stringify({
+          planningDraftId: persistedDraft.id,
+          generatorVersion: draft.generatorVersion,
+          createdWorkRecords: false,
+        }),
+      },
+    });
+
+    return persistedDraft;
+  });
+
+  return {
+    outcomeId: outcome.id,
+    planningDraftId: planningDraft.id,
+    status: planningDraft.status as PlanningDraftStatus,
+    message: "Planning draft generated.",
+  };
+}
+
+/**
+ * Persists a failed deterministic planning attempt and records events.
+ *
+ * @param outcome - Company-owned outcome row.
+ * @param failure - Deterministic generation failure details.
+ * @param actorId - Optional user ID for timeline attribution.
+ * @returns The persisted failed draft status and identity.
+ */
+async function persistFailedGeneration(
+  outcome: OutcomeForPlanning,
+  failure: PlanningGenerationFailure,
+  actorId: string | null
+): Promise<PlanningDraftGenerationResponse> {
+  const planningDraft = await prisma.$transaction(async (tx) => {
+    const persistedDraft = await tx.planningDraft.upsert({
+      where: {
+        companyId_outcomeId_version: {
+          companyId: outcome.companyId,
+          outcomeId: outcome.id,
+          version: INITIAL_DRAFT_VERSION,
+        },
+      },
+      create: {
+        companyId: outcome.companyId,
+        outcomeId: outcome.id,
+        title: `${outcome.title} Planning Draft`,
+        summary: failure.reason,
+        status: "failed",
+        version: INITIAL_DRAFT_VERSION,
+        scope: "[]",
+        nonScope: JSON.stringify(COMMON_FAILED_NON_SCOPE),
+        assumptions: "[]",
+        risks: "[]",
+        dependencies: "[]",
+        recommendedAssignments: "[]",
+        generatedProjects: "[]",
+        generatedFeatures: "[]",
+        generatedTasks: "[]",
+        reviewPlan: "{}",
+        qaPlan: "{}",
+        releasePlan: "{}",
+        generationError: JSON.stringify({
+          reason: failure.reason,
+          openCeoQuestions: failure.openCeoQuestions,
+        }),
+      },
+      update: {
+        summary: failure.reason,
+        status: "failed",
+        generationError: JSON.stringify({
+          reason: failure.reason,
+          openCeoQuestions: failure.openCeoQuestions,
+        }),
+      },
+      select: { id: true, status: true },
+    });
+
+    await tx.outcome.updateMany({
+      where: { id: outcome.id, companyId: outcome.companyId },
+      data: {
+        status: "needs_clarification",
+        failureReason: failure.reason,
+      },
+    });
+
+    if (outcome.runtimeRequestId) {
+      await tx.runtimeRequest.updateMany({
+        where: { id: outcome.runtimeRequestId, companyId: outcome.companyId },
+        data: {
+          status: "blocked",
+          clarification: failure.openCeoQuestions.join("\n"),
+        },
+      });
+
+      await tx.runtimeEvent.create({
+        data: {
+          requestId: outcome.runtimeRequestId,
+          type: "outcome.plan_failed",
+          description: `Planning draft generation failed for outcome "${outcome.title}": ${failure.reason}`,
+          actor: "System",
+        },
+      });
+    }
+
+    await tx.timelineEntry.create({
+      data: {
+        entityType: "outcome",
+        entityId: outcome.id,
+        eventType: "outcome.plan_failed",
+        summary: failure.reason,
+        actorId,
+        metadata: JSON.stringify({
+          planningDraftId: persistedDraft.id,
+          openCeoQuestions: failure.openCeoQuestions,
+          createdWorkRecords: false,
+        }),
+      },
+    });
+
+    return persistedDraft;
+  });
+
+  return {
+    outcomeId: outcome.id,
+    planningDraftId: planningDraft.id,
+    status: planningDraft.status as PlanningDraftStatus,
+    message: failure.reason,
+  };
+}
+
+const COMMON_FAILED_NON_SCOPE = [
+  "Do not create work records from a failed planning draft.",
+  "Ask the CEO focused clarification questions before retrying generation.",
+] as const;

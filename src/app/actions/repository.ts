@@ -62,11 +62,17 @@ export async function addRepository(
     where: { ownerId: user.id },
     include: { workspaces: { select: { id: true } } },
   });
-  if (!company || company.workspaces.length === 0) {
-    return { message: "No workspace found." };
-  }
+  if (!company) return { message: "No company found." };
 
-  const workspaceId = company.workspaces[0].id;
+  let workspaceId: string;
+  if (company.workspaces.length > 0) {
+    workspaceId = company.workspaces[0].id;
+  } else {
+    const workspace = await prisma.workspace.create({
+      data: { companyId: company.id, name: "Default", slug: "default" },
+    });
+    workspaceId = workspace.id;
+  }
 
   const repo = await prisma.repository.create({
     data: {

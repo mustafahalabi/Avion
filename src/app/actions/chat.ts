@@ -6,6 +6,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 import { REQUEST_ROUTING } from "@/lib/request-routing";
+import { buildOutcomeCreateData } from "@/lib/outcome-planning";
+import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
 
 export type SendMessageState =
   | undefined
@@ -71,7 +73,7 @@ export async function sendMessage(
 
   const isFirstMessage = conv._count.messages === 0;
 
-  await prisma.$transaction(async (tx) => {
+  const planningTarget = await prisma.$transaction(async (tx) => {
     // User message
     await tx.message.create({
       data: {
@@ -100,6 +102,26 @@ export async function sendMessage(
         },
       });
 
+      const outcome = await tx.outcome.upsert({
+        where: {
+          companyId_runtimeRequestId: {
+            companyId: company.id,
+            runtimeRequestId: request.id,
+          },
+        },
+        create: buildOutcomeCreateData({
+          companyId: company.id,
+          runtimeRequestId: request.id,
+          title: request.title,
+          rawRequest: request.goal,
+        }),
+        update: {
+          title: request.title,
+          rawRequest: request.goal,
+        },
+        select: { id: true },
+      });
+
       // Set conversation title to the request title
       await tx.conversation.update({
         where: { id: conversationId },
@@ -126,6 +148,8 @@ export async function sendMessage(
           actor: "System",
         },
       });
+
+      return { outcomeId: outcome.id };
     } else {
       // Update conversation timestamp
       await tx.conversation.update({
@@ -142,8 +166,18 @@ export async function sendMessage(
           content: `Message noted. The team will factor this into ongoing work. Check the **Inbox** to track or advance any active requests.`,
         },
       });
+
+      return null;
     }
   });
+
+  if (planningTarget) {
+    await createOrUpdatePlanningDraftForOutcome({
+      companyId: company.id,
+      outcomeId: planningTarget.outcomeId,
+      actorId: user.id,
+    });
+  }
 
   revalidatePath(`/chat/${conversationId}`);
   revalidatePath("/chat");
