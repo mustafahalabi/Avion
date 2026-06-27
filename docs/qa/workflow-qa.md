@@ -7,20 +7,20 @@
 
 ## 1. Review Entity Ownership Validation
 
-**Problem:** `createReview` accepted arbitrary `entityId`/`entityType` with no ownership check, allowing cross-company task injection.
+**V1 scope:** `createReview` accepts only `entityType: "task"`. The schema uses `z.literal("task")` — any other value (`"project"`, `"feature"`, `"release"`, arbitrary strings) is rejected at validation time with a schema error before any database operation occurs.
 
-**Fix:** `src/app/actions/quality.ts:createReview` — when `entityType === "task"`, validates the task exists with `companyId === company.id` before creating the review:
+**Ownership check:** After schema validation, `createReview` validates the task exists with `companyId === company.id` before creating the review:
 ```ts
-if (parsed.data.entityType === "task") {
-  const task = await prisma.task.findFirst({
-    where: { id: parsed.data.entityId, companyId: company.id },
-    select: { id: true },
-  });
-  if (!task) return { error: "Task not found or not accessible." };
-}
+const task = await prisma.task.findFirst({
+  where: { id: parsed.data.entityId, companyId: company.id },
+  select: { id: true },
+});
+if (!task) return { error: "Task not found or not accessible." };
 ```
 
-**Cross-company behavior:** Submitting a `entityId` from another company's task returns `{ error: "Task not found or not accessible." }` — no record is created.
+**Cross-company behavior:** Submitting an `entityId` from another company's task returns `{ error: "Task not found or not accessible." }` — no record is created.
+
+**Non-task entityType behavior:** Submitting any `entityType` other than `"task"` is rejected by Zod schema validation — the ownership check is never reached.
 
 **Status: FIXED ✓**
 
@@ -28,9 +28,11 @@ if (parsed.data.entityType === "task") {
 
 ## 2. QA Result Entity Ownership Validation
 
-**Problem:** `createQAResult` had the same cross-company vulnerability.
+**V1 scope:** `createQAResult` accepts only `entityType: "task"`. The schema uses `z.literal("task")` — any other value (`"project"`, `"feature"`, `"release"`, arbitrary strings) is rejected at validation time before any database operation occurs.
 
-**Fix:** `src/app/actions/quality.ts:createQAResult` — same ownership check as above applied before creating the QA record.
+**Ownership check:** After schema validation, `createQAResult` validates the task exists with `companyId === company.id` before creating the QA record. Cross-company `entityId` values return `{ error: "Task not found or not accessible." }`.
+
+**Non-task entityType behavior:** Submitting any `entityType` other than `"task"` is rejected by Zod schema validation — the ownership check is never reached.
 
 **Status: FIXED ✓**
 

@@ -13,7 +13,7 @@ export type CreateReviewState =
 
 const createReviewSchema = z.object({
   entityId: z.string().min(1),
-  entityType: z.string().default("task"),
+  entityType: z.literal("task"),
   title: z.string().min(1).max(300),
   reviewerId: z.string().optional(),
 });
@@ -39,14 +39,12 @@ export async function createReview(
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
 
-  // Validate entity ownership to prevent cross-company injection
-  if (parsed.data.entityType === "task") {
-    const task = await prisma.task.findFirst({
-      where: { id: parsed.data.entityId, companyId: company.id },
-      select: { id: true },
-    });
-    if (!task) return { error: "Task not found or not accessible." };
-  }
+  // Validate task ownership to prevent cross-company injection
+  const task = await prisma.task.findFirst({
+    where: { id: parsed.data.entityId, companyId: company.id },
+    select: { id: true },
+  });
+  if (!task) return { error: "Task not found or not accessible." };
 
   const review = await prisma.review.create({
     data: {
@@ -155,7 +153,7 @@ export type CreateQAState =
 
 const createQASchema = z.object({
   entityId: z.string().min(1),
-  entityType: z.string().default("task"),
+  entityType: z.literal("task"),
   checks: z.string().default("[]"),
 });
 
@@ -179,14 +177,12 @@ export async function createQAResult(
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
 
-  // Validate entity ownership to prevent cross-company injection
-  if (parsed.data.entityType === "task") {
-    const task = await prisma.task.findFirst({
-      where: { id: parsed.data.entityId, companyId: company.id },
-      select: { id: true },
-    });
-    if (!task) return { error: "Task not found or not accessible." };
-  }
+  // Validate task ownership to prevent cross-company injection
+  const qaTask = await prisma.task.findFirst({
+    where: { id: parsed.data.entityId, companyId: company.id },
+    select: { id: true },
+  });
+  if (!qaTask) return { error: "Task not found or not accessible." };
 
   let checksData: { label: string; passed: boolean }[] = [];
   try {
