@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { saveOnboardingSettings } from "@/app/(auth)/onboarding/actions";
+import { saveCompanySettings } from "@/app/(auth)/onboarding/actions";
 
 const AUTONOMY_OPTIONS = [
   { value: "manual", label: "Manual" },
@@ -35,7 +35,7 @@ export function SettingsForm({ companyId, companyName, autonomyLevel: initialAut
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      await saveOnboardingSettings({ companyId, autonomyLevel: autonomy, cultureProfile: culture });
+      await saveCompanySettings({ companyId, autonomyLevel: autonomy, cultureProfile: culture });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     });

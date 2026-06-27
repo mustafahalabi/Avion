@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { ReleaseChecklist } from "./release-checklist";
 import { ReleaseNotesForm } from "./release-notes-form";
 import { ReleaseButton } from "./release-button";
+import { ReleaseTasksSection } from "./release-tasks-section";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -54,6 +55,29 @@ export default async function ReleaseDetailPage({ params }: Props) {
     where: { id, companyId: company.id },
   });
   if (!release) notFound();
+
+  let releaseTaskIds: string[] = [];
+  try { releaseTaskIds = JSON.parse(release.taskIds); } catch { releaseTaskIds = []; }
+
+  const [releasedTasks, availableTasks] = await Promise.all([
+    releaseTaskIds.length > 0
+      ? prisma.task.findMany({
+          where: { id: { in: releaseTaskIds }, companyId: company.id },
+          select: { id: true, title: true, status: true, priority: true },
+          orderBy: { createdAt: "asc" },
+        })
+      : Promise.resolve([]),
+    prisma.task.findMany({
+      where: {
+        companyId: company.id,
+        id: { notIn: releaseTaskIds },
+        status: { in: ["done", "in-review"] },
+      },
+      select: { id: true, title: true, status: true, priority: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+  ]);
 
   const cfg = STATUS_CONFIG[release.status] ?? STATUS_CONFIG["draft"];
   const StatusIcon = cfg.icon;
@@ -160,6 +184,30 @@ export default async function ReleaseDetailPage({ params }: Props) {
             </div>
           )}
         </section>
+
+        {/* Tasks in this release */}
+        {!isReleased && (
+          <section>
+            <ReleaseTasksSection
+              releaseId={release.id}
+              releasedTasks={releasedTasks}
+              availableTasks={availableTasks}
+            />
+          </section>
+        )}
+        {isReleased && releasedTasks.length > 0 && (
+          <section>
+            <SectionLabel>Tasks Included</SectionLabel>
+            <div className="mt-2 flex flex-col gap-1">
+              {releasedTasks.map((t) => (
+                <div key={t.id} className="flex items-center gap-2.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-2.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                  <span className="flex-1 text-sm text-neutral-300 truncate">{t.title}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Release notes */}
         <section>

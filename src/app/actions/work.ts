@@ -105,9 +105,26 @@ export async function createTask(
 
   const company = await prisma.company.findFirst({
     where: { ownerId: user.id },
-    select: { id: true },
+    include: { workspaces: { select: { id: true } } },
   });
   if (!company) return { message: "No company found." };
+
+  // Validate the project belongs to this user's workspace
+  const workspaceIds = company.workspaces.map((w) => w.id);
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, workspaceId: { in: workspaceIds } },
+    select: { id: true },
+  });
+  if (!project) return { message: "Project not found." };
+
+  // If a featureId is provided, verify it belongs to this project
+  if (parsed.data.featureId) {
+    const feature = await prisma.feature.findFirst({
+      where: { id: parsed.data.featureId, projectId: project.id },
+      select: { id: true },
+    });
+    if (!feature) return { message: "Feature not found." };
+  }
 
   await prisma.task.create({
     data: {
@@ -118,6 +135,7 @@ export async function createTask(
       featureId: parsed.data.featureId,
       status: parsed.data.status,
       companyId: company.id,
+      projectId: project.id,
     },
   });
 

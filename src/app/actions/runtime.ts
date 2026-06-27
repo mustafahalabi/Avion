@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { notify } from "@/lib/notify";
+import { REQUEST_ROUTING } from "@/lib/request-routing";
 
 const REQUEST_TYPES = [
   "feature",
@@ -16,17 +17,6 @@ const REQUEST_TYPES = [
   "performance",
   "question",
 ] as const;
-
-const ROUTING: Record<string, string> = {
-  feature: "Product Manager",
-  bug: "Tech Lead",
-  architecture: "CTO",
-  security: "Security Engineer",
-  documentation: "Technical Writer",
-  configuration: "CTO",
-  performance: "Monitoring Engineer",
-  question: "CTO",
-};
 
 const submitRequestSchema = z.object({
   title: z.string().min(1).max(300).trim(),
@@ -68,7 +58,7 @@ export async function submitRequest(
       goal: parsed.data.goal,
       requestType: parsed.data.requestType,
       status: "intake",
-      assignedTo: ROUTING[parsed.data.requestType] ?? "CTO",
+      assignedTo: REQUEST_ROUTING[parsed.data.requestType] ?? "Company",
     },
   });
 

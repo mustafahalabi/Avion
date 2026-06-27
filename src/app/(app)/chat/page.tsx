@@ -1,7 +1,7 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { MessageSquare, Plus, ChevronRight } from "lucide-react";
+import { MessageSquare, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { NewConversationButton } from "./new-conversation-button";
 

@@ -89,24 +89,22 @@ export default async function ProjectDetailPage({ params }: Props) {
             },
             orderBy: { createdAt: "asc" },
           },
+          tasks: {
+            where: { featureId: null },
+            include: {
+              assignee: { select: { id: true, name: true } },
+              subtasks: { select: { id: true, completed: true } },
+            },
+            orderBy: { createdAt: "asc" },
+          },
         },
       })
     : null;
 
   if (!project) notFound();
 
-  const allTasks = project.features.flatMap((f) => f.tasks);
-  const standaloneTasks = await prisma.task.findMany({
-    where: {
-      companyId: company.id,
-      featureId: null,
-    },
-    include: {
-      assignee: { select: { id: true, name: true } },
-      subtasks: { select: { id: true, completed: true } },
-    },
-    orderBy: { createdAt: "asc" },
-  });
+  const featureTasks = project.features.flatMap((f) => f.tasks);
+  const allTasks = [...featureTasks, ...project.tasks];
 
   const tasksDone = allTasks.filter((t) => t.status === "done").length;
   const progress =
@@ -170,7 +168,7 @@ export default async function ProjectDetailPage({ params }: Props) {
             <h3 className="text-sm font-medium text-neutral-200">Tasks</h3>
           </div>
 
-          {allTasks.length === 0 && standaloneTasks.length === 0 ? (
+          {allTasks.length === 0 ? (
             <div className="rounded-lg border border-dashed border-neutral-800 py-8 text-center">
               <p className="text-sm text-neutral-500">No tasks yet</p>
               <p className="mt-0.5 text-xs text-neutral-700">

@@ -1,7 +1,7 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { Bell, CheckCircle2, AlertCircle, Info, Zap, ShieldAlert, TrendingUp } from "lucide-react";
+import { Bell, AlertCircle, Info, Zap, ShieldAlert, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { MarkAllReadButton } from "./mark-all-read-button";

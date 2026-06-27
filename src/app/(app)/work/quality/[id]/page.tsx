@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Clock,
-  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";

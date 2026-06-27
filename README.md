@@ -1,17 +1,44 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
+## Setup
 
-First, run the development server:
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure environment variables
+
+Copy the example file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Required variables:
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | SQLite connection string (e.g. `file:./dev.db`) |
+| `CREDENTIALS_ENCRYPTION_KEY` | 64-char hex string for AES-256-GCM credential encryption — generate with `node -e "require('crypto').randomBytes(32).toString('hex')"` |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk publishable key from [dashboard.clerk.com](https://dashboard.clerk.com) |
+| `CLERK_SECRET_KEY` | Clerk secret key — **never commit this value** |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Sign-in path (e.g. `/sign-in`) |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | Sign-up path (e.g. `/sign-up`) |
+| `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` | Redirect after sign-in (e.g. `/dashboard`) |
+| `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL` | Redirect after sign-up (e.g. `/onboarding`) |
+
+### 3. Initialise the database
+
+```bash
+npx prisma migrate dev
+```
+
+### 4. Run the development server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

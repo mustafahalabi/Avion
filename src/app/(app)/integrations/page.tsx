@@ -1,7 +1,7 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { Plug, CheckCircle2, AlertCircle, Circle, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { INTEGRATION_PROVIDERS } from "@/lib/integrations";

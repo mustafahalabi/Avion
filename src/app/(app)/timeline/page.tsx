@@ -1,7 +1,7 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { TrendingUp, Circle, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 

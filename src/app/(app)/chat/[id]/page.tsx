@@ -22,11 +22,6 @@ const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; icon:
   cancelled: { label: "Cancelled", color: "text-neutral-500", icon: Circle },
 };
 
-const REQUEST_TYPES: Record<string, string> = [
-  "feature", "bug", "architecture", "security",
-  "documentation", "configuration", "performance", "question",
-].reduce<Record<string, string>>((acc, t) => ({ ...acc, [t]: t }), {});
-
 export default async function ChatThreadPage({ params }: Props) {
   const { id } = await params;
   const user = await getCurrentUser();

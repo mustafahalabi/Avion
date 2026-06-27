@@ -79,7 +79,7 @@ export async function addRepository(
       frameworks: csvToJson(parsed.data.frameworks),
       dependencies: csvToJson(parsed.data.dependencies),
       importantFiles: csvToJson(parsed.data.importantFiles),
-      analysisStatus: "complete",
+      analysisStatus: "pending",
     },
   });
 

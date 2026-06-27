@@ -2,16 +2,9 @@
 
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { z } from "zod/v4";
 import { INTEGRATION_PROVIDERS } from "@/lib/integrations";
-
-const connectSchema = z.object({
-  provider: z.string().min(1),
-  credentials: z.string().min(1),
-  config: z.string().default("{}"),
-});
+import { encryptCredentials } from "@/lib/credentials-crypto";
 
 export type ConnectIntegrationState =
   | undefined
@@ -52,11 +45,13 @@ export async function connectIntegration(
   });
 
   let integration;
+  const encryptedCredentials = encryptCredentials(credentials);
+
   if (existing) {
     integration = await prisma.integration.update({
       where: { id: existing.id },
       data: {
-        credentials: JSON.stringify(credentials),
+        credentials: encryptedCredentials,
         status: "connected",
         errorMessage: null,
         updatedAt: new Date(),
@@ -66,7 +61,7 @@ export async function connectIntegration(
     await prisma.integrationSyncLog.create({
       data: {
         integrationId: existing.id,
-        status: "success",
+        status: "info",
         message: `Credentials updated for ${providerDef.name}.`,
         recordsCount: 0,
       },
@@ -77,7 +72,7 @@ export async function connectIntegration(
         companyId: company.id,
         name: providerDef.name,
         provider,
-        credentials: JSON.stringify(credentials),
+        credentials: encryptedCredentials,
         status: "connected",
         config: "{}",
       },
@@ -86,8 +81,8 @@ export async function connectIntegration(
     await prisma.integrationSyncLog.create({
       data: {
         integrationId: integration.id,
-        status: "success",
-        message: `${providerDef.name} integration connected.`,
+        status: "info",
+        message: `${providerDef.name} credentials saved. Provider sync is not yet active.`,
         recordsCount: 0,
       },
     });
@@ -151,21 +146,15 @@ export async function triggerSync(integrationId: string): Promise<{ message: str
   if (!integration) return { message: "Integration not found." };
   if (integration.status !== "connected") return { message: "Integration is not connected." };
 
-  // Mark as syncing and log
-  await prisma.integration.update({
-    where: { id: integrationId },
-    data: { lastSyncAt: new Date() },
-  });
-
   await prisma.integrationSyncLog.create({
     data: {
       integrationId,
-      status: "success",
-      message: `Manual sync triggered for ${integration.name}. Data is up to date.`,
+      status: "info",
+      message: `Sync requested for ${integration.name}. Live provider sync is not yet implemented — credentials are stored but no data has been fetched from the provider.`,
       recordsCount: 0,
     },
   });
 
   revalidatePath(`/integrations/${integrationId}`);
-  return { message: "Sync completed." };
+  return { message: "Sync request logged." };
 }

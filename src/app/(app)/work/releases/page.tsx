@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import {
   Rocket,
   CheckCircle2,
-  Clock,
   AlertCircle,
   Circle,
   ChevronRight,

@@ -2,7 +2,6 @@
 
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 
@@ -137,4 +136,67 @@ export async function markReleased(releaseId: string): Promise<void> {
   revalidatePath(`/work/releases/${releaseId}`);
   revalidatePath("/work/releases");
   revalidatePath("/dashboard");
+}
+
+export async function addTaskToRelease(releaseId: string, taskId: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) return;
+
+  const release = await prisma.release.findFirst({
+    where: { id: releaseId, companyId: company.id },
+    select: { id: true, taskIds: true },
+  });
+  if (!release) return;
+
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, companyId: company.id },
+    select: { id: true },
+  });
+  if (!task) return;
+
+  let ids: string[] = [];
+  try { ids = JSON.parse(release.taskIds); } catch { ids = []; }
+  if (!ids.includes(taskId)) {
+    ids.push(taskId);
+    await prisma.release.update({
+      where: { id: releaseId },
+      data: { taskIds: JSON.stringify(ids), updatedAt: new Date() },
+    });
+  }
+
+  revalidatePath(`/work/releases/${releaseId}`);
+}
+
+export async function removeTaskFromRelease(releaseId: string, taskId: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) return;
+
+  const release = await prisma.release.findFirst({
+    where: { id: releaseId, companyId: company.id },
+    select: { id: true, taskIds: true },
+  });
+  if (!release) return;
+
+  let ids: string[] = [];
+  try { ids = JSON.parse(release.taskIds); } catch { ids = []; }
+  ids = ids.filter((id) => id !== taskId);
+
+  await prisma.release.update({
+    where: { id: releaseId },
+    data: { taskIds: JSON.stringify(ids), updatedAt: new Date() },
+  });
+
+  revalidatePath(`/work/releases/${releaseId}`);
 }

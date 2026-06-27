@@ -55,7 +55,7 @@ export function ConnectForm({ provider }: { provider: ProviderConfig }) {
       </button>
 
       <p className="text-[11px] text-neutral-700">
-        Credentials are stored encrypted and never exposed to other users.
+        Credentials are encrypted at rest (AES-256-GCM) and never exposed to other users. Live provider sync is coming in a future release.
       </p>
     </form>
   );

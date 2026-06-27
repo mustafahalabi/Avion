@@ -3,6 +3,7 @@
 import { useActionState, useEffect } from "react";
 import { createRelease } from "@/app/actions/releases";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export function NewReleaseForm() {
   const [state, action, pending] = useActionState(createRelease, undefined);
@@ -65,12 +66,12 @@ export function NewReleaseForm() {
         >
           {pending ? "Creating…" : "Create release"}
         </button>
-        <a
+        <Link
           href="/work/releases"
           className="rounded-lg border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-400 hover:bg-neutral-800 transition-colors"
         >
           Cancel
-        </a>
+        </Link>
       </div>
     </form>
   );

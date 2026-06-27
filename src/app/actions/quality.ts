@@ -2,7 +2,6 @@
 
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 import { notify } from "@/lib/notify";
@@ -99,6 +98,14 @@ export async function submitReviewVerdict(
         requestedBy: "Reviewer",
       },
     });
+
+    // Send the linked entity back into revision state
+    if (review.entityType === "task") {
+      await prisma.task.updateMany({
+        where: { id: review.entityId, companyId: company.id },
+        data: { status: "in-progress", updatedAt: new Date() },
+      });
+    }
 
     await notify({
       userId: user.id,

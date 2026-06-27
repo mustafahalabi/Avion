@@ -33,3 +33,29 @@ export async function saveOnboardingSettings({
     }),
   ]);
 }
+
+interface CompanySettings {
+  companyId: string;
+  autonomyLevel: string;
+  cultureProfile: string;
+}
+
+export async function saveCompanySettings({
+  companyId,
+  autonomyLevel,
+  cultureProfile,
+}: CompanySettings) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Unauthenticated");
+
+  const company = await prisma.company.findFirst({
+    where: { id: companyId, ownerId: user.id },
+  });
+  if (!company) throw new Error("Company not found");
+
+  await prisma.companySettings.upsert({
+    where: { companyId },
+    update: { autonomyLevel, cultureProfile },
+    create: { companyId, autonomyLevel, cultureProfile },
+  });
+}

@@ -66,6 +66,8 @@ export async function createMemory(
       title: parsed.data.title,
       summary: parsed.data.summary,
       category: parsed.data.category,
+      ownerType: "company",
+      ownerId: company.id,
     },
   });
 

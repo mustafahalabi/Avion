@@ -5,17 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
-
-const REQUEST_ROUTING: Record<string, string> = {
-  feature: "Product Manager",
-  bug: "Tech Lead",
-  architecture: "CTO",
-  security: "Security Lead",
-  documentation: "Technical Writer",
-  configuration: "DevOps Lead",
-  performance: "Tech Lead",
-  question: "Company",
-};
+import { REQUEST_ROUTING } from "@/lib/request-routing";
 
 export type SendMessageState =
   | undefined
