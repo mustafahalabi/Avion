@@ -1127,7 +1127,9 @@ describe("analyzeRepositoryImpact — purity guarantees", () => {
     if (!isResult(result)) return;
     expect(result.overallImpactLevel).toBe("high");
     expect(result.evidence).toContain("Next.js config changed: next.config.ts");
-    expect(result.limitations).toEqual([]);
+    expect(result.limitations.some((l) => l.includes("Partial comparison data was normalized"))).toBe(
+      true,
+    );
   });
 
   it("missing change arrays do not throw and produce none when no evidence exists", () => {
@@ -1145,5 +1147,62 @@ describe("analyzeRepositoryImpact — purity guarantees", () => {
     if (!isResult(result)) return;
     expect(result.overallImpactLevel).toBe("none");
     expect(result.impactItems).toEqual([]);
+    expect(result.limitations.some((l) => l.includes("Partial comparison data was normalized"))).toBe(
+      true,
+    );
+  });
+
+  it("does not throw when fileSummary exists but categoryChanges is missing", () => {
+    const partialComparison = {
+      ...makeComparisonResult({
+        hasChanges: true,
+        affectedAreas: ["files"],
+      }),
+      fileSummary: {
+        totalFilesOld: 10,
+        totalFilesNew: 11,
+        totalFilesDelta: 1,
+        totalDirsOld: 3,
+        totalDirsNew: 3,
+      },
+    } as unknown as SnapshotComparisonResult;
+
+    const result = analyzeRepositoryImpact(partialComparison, FIXED_AT);
+    expect(isResult(result)).toBe(true);
+    if (!isResult(result)) return;
+    expect(result.overallImpactLevel).toBe("none");
+    expect(result.impactItems).toEqual([]);
+    expect(result.limitations.some((l) => l.includes("fileSummary.categoryChanges"))).toBe(true);
+  });
+
+  it("returns truthful impacts when nested comparison sections are partially missing", () => {
+    const partialComparison = {
+      ...makeComparisonResult({
+        hasChanges: true,
+        affectedAreas: ["apiRoutes", "dependencies", "scripts", "tests", "risks"],
+      }),
+      apiRouteChanges: { added: ["src/app/api/users/route.ts"] },
+      dependencyChanges: { addedDev: ["vitest"] },
+      scriptChanges: { removed: [{ name: "test", value: "vitest run" }] },
+      testChanges: { oldCount: 4, newCount: 4 },
+      riskChanges: {
+        new: [{ severity: "high", category: "stability", description: "Missing retry policy." }],
+      },
+    } as unknown as SnapshotComparisonResult;
+
+    const result = analyzeRepositoryImpact(partialComparison, FIXED_AT);
+    expect(isResult(result)).toBe(true);
+    if (!isResult(result)) return;
+    expect(result.overallImpactLevel).toBe("high");
+    expect(result.evidence).toContain("API route added: src/app/api/users/route.ts");
+    expect(result.evidence).toContain("Dev dependency added: vitest");
+    expect(result.evidence).toContain("Script removed: test (was: vitest run)");
+    expect(result.evidence).toContain("New risk (high/stability): Missing retry policy.");
+    expect(result.evidence.some((e) => e.startsWith("Test file"))).toBe(false);
+    expect(
+      result.limitations.some(
+        (l) => l.includes("apiRouteChanges.removed") && l.includes("riskChanges.resolved"),
+      ),
+    ).toBe(true);
   });
 });

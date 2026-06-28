@@ -243,15 +243,90 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
+function normalizeArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function normalizeNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeRecord<T>(value: unknown): Record<string, T> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, T>)
+    : {};
+}
+
+function isMissingNestedField(value: unknown, field: string): boolean {
+  return !value || typeof value !== "object" || !(field in value);
+}
+
 function normalizeSnapshotComparisonResult(
   comparisonResult: SnapshotComparisonResult,
 ): SnapshotComparisonResult {
   const partial = comparisonResult as Partial<SnapshotComparisonResult>;
-  const routeChanges = partial.routeChanges ?? { added: [], removed: [], changed: [] };
-  const dependencyChanges = partial.dependencyChanges ?? { added: [], removed: [], addedDev: [], removedDev: [] };
-  const scriptChanges = partial.scriptChanges ?? { added: [], removed: [], changed: [] };
-  const testChanges = partial.testChanges ?? { added: [], removed: [], oldCount: 0, newCount: 0 };
-  const riskChanges = partial.riskChanges ?? { new: [], resolved: [] };
+  const routeChanges = (partial.routeChanges ?? {}) as Partial<SnapshotComparisonResult["routeChanges"]>;
+  const apiRouteChanges = (partial.apiRouteChanges ?? {}) as Partial<SnapshotComparisonResult["apiRouteChanges"]>;
+  const serverActionChanges = (partial.serverActionChanges ?? {}) as Partial<SnapshotComparisonResult["serverActionChanges"]>;
+  const prismaModelChanges = (partial.prismaModelChanges ?? {}) as Partial<SnapshotComparisonResult["prismaModelChanges"]>;
+  const dependencyChanges = (partial.dependencyChanges ?? {}) as Partial<SnapshotComparisonResult["dependencyChanges"]>;
+  const scriptChanges = (partial.scriptChanges ?? {}) as Partial<SnapshotComparisonResult["scriptChanges"]>;
+  const testChanges = (partial.testChanges ?? {}) as Partial<SnapshotComparisonResult["testChanges"]>;
+  const riskChanges = (partial.riskChanges ?? {}) as Partial<SnapshotComparisonResult["riskChanges"]>;
+  const fileSummary = (partial.fileSummary ?? {}) as Partial<SnapshotComparisonResult["fileSummary"]>;
+
+  const normalizedLimitations = normalizeStringArray(partial.limitations);
+  const normalizedMissingPaths = [
+    ["changeCounts", partial.changeCounts],
+    ["fileSummary", partial.fileSummary],
+    ["fileSummary.categoryChanges", partial.fileSummary?.categoryChanges],
+    ["addedFiles", partial.addedFiles],
+    ["removedFiles", partial.removedFiles],
+    ["changedFiles", partial.changedFiles],
+    ["routeChanges", partial.routeChanges],
+    ["routeChanges.added", partial.routeChanges?.added],
+    ["routeChanges.removed", partial.routeChanges?.removed],
+    ["routeChanges.changed", partial.routeChanges?.changed],
+    ["apiRouteChanges", partial.apiRouteChanges],
+    ["apiRouteChanges.added", partial.apiRouteChanges?.added],
+    ["apiRouteChanges.removed", partial.apiRouteChanges?.removed],
+    ["serverActionChanges", partial.serverActionChanges],
+    ["serverActionChanges.added", partial.serverActionChanges?.added],
+    ["serverActionChanges.removed", partial.serverActionChanges?.removed],
+    ["prismaModelChanges", partial.prismaModelChanges],
+    ["prismaModelChanges.added", partial.prismaModelChanges?.added],
+    ["prismaModelChanges.removed", partial.prismaModelChanges?.removed],
+    ["dependencyChanges", partial.dependencyChanges],
+    ["dependencyChanges.added", partial.dependencyChanges?.added],
+    ["dependencyChanges.removed", partial.dependencyChanges?.removed],
+    ["dependencyChanges.addedDev", partial.dependencyChanges?.addedDev],
+    ["dependencyChanges.removedDev", partial.dependencyChanges?.removedDev],
+    ["scriptChanges", partial.scriptChanges],
+    ["scriptChanges.added", partial.scriptChanges?.added],
+    ["scriptChanges.removed", partial.scriptChanges?.removed],
+    ["scriptChanges.changed", partial.scriptChanges?.changed],
+    ["testChanges", partial.testChanges],
+    ["testChanges.added", partial.testChanges?.added],
+    ["testChanges.removed", partial.testChanges?.removed],
+    ["testChanges.oldCount", isMissingNestedField(partial.testChanges, "oldCount") ? undefined : partial.testChanges?.oldCount],
+    ["testChanges.newCount", isMissingNestedField(partial.testChanges, "newCount") ? undefined : partial.testChanges?.newCount],
+    ["riskChanges", partial.riskChanges],
+    ["riskChanges.new", partial.riskChanges?.new],
+    ["riskChanges.resolved", partial.riskChanges?.resolved],
+    ["affectedAreas", partial.affectedAreas],
+    ["evidence", partial.evidence],
+    ["limitations", partial.limitations],
+  ]
+    .filter(([, value]) => value === undefined)
+    .map(([path]) => path);
+
+  const limitations =
+    normalizedMissingPaths.length > 0
+      ? [
+          ...normalizedLimitations,
+          `Partial comparison data was normalized with safe empty defaults for missing field(s): ${normalizedMissingPaths.join(", ")}. Impact may be understated for areas without comparison data.`,
+        ]
+      : normalizedLimitations;
 
   return {
     oldSnapshotId: partial.oldSnapshotId ?? "",
@@ -283,59 +358,59 @@ function normalizeSnapshotComparisonResult(
       newRisks: 0,
       resolvedRisks: 0,
     },
-    fileSummary: partial.fileSummary ?? {
-      totalFilesOld: 0,
-      totalFilesNew: 0,
-      totalFilesDelta: 0,
-      totalDirsOld: 0,
-      totalDirsNew: 0,
-      categoryChanges: {},
+    fileSummary: {
+      totalFilesOld: normalizeNumber(fileSummary.totalFilesOld),
+      totalFilesNew: normalizeNumber(fileSummary.totalFilesNew),
+      totalFilesDelta: normalizeNumber(fileSummary.totalFilesDelta),
+      totalDirsOld: normalizeNumber(fileSummary.totalDirsOld),
+      totalDirsNew: normalizeNumber(fileSummary.totalDirsNew),
+      categoryChanges: normalizeRecord(fileSummary.categoryChanges),
     },
     addedFiles: normalizeStringArray(partial.addedFiles),
     removedFiles: normalizeStringArray(partial.removedFiles),
     changedFiles: normalizeStringArray(partial.changedFiles),
     routeChanges: {
-      added: routeChanges.added ?? [],
-      removed: routeChanges.removed ?? [],
-      changed: routeChanges.changed ?? [],
+      added: normalizeArray(routeChanges.added),
+      removed: normalizeArray(routeChanges.removed),
+      changed: normalizeArray(routeChanges.changed),
     },
     apiRouteChanges: {
-      added: partial.apiRouteChanges?.added ?? [],
-      removed: partial.apiRouteChanges?.removed ?? [],
+      added: normalizeStringArray(apiRouteChanges.added),
+      removed: normalizeStringArray(apiRouteChanges.removed),
     },
     serverActionChanges: {
-      added: partial.serverActionChanges?.added ?? [],
-      removed: partial.serverActionChanges?.removed ?? [],
+      added: normalizeStringArray(serverActionChanges.added),
+      removed: normalizeStringArray(serverActionChanges.removed),
     },
     prismaModelChanges: {
-      added: partial.prismaModelChanges?.added ?? [],
-      removed: partial.prismaModelChanges?.removed ?? [],
+      added: normalizeStringArray(prismaModelChanges.added),
+      removed: normalizeStringArray(prismaModelChanges.removed),
     },
     dependencyChanges: {
-      added: dependencyChanges.added ?? [],
-      removed: dependencyChanges.removed ?? [],
-      addedDev: dependencyChanges.addedDev ?? [],
-      removedDev: dependencyChanges.removedDev ?? [],
+      added: normalizeStringArray(dependencyChanges.added),
+      removed: normalizeStringArray(dependencyChanges.removed),
+      addedDev: normalizeStringArray(dependencyChanges.addedDev),
+      removedDev: normalizeStringArray(dependencyChanges.removedDev),
     },
     scriptChanges: {
-      added: scriptChanges.added ?? [],
-      removed: scriptChanges.removed ?? [],
-      changed: scriptChanges.changed ?? [],
+      added: normalizeArray(scriptChanges.added),
+      removed: normalizeArray(scriptChanges.removed),
+      changed: normalizeArray(scriptChanges.changed),
     },
     testChanges: {
-      added: testChanges.added ?? [],
-      removed: testChanges.removed ?? [],
-      oldCount: testChanges.oldCount ?? 0,
-      newCount: testChanges.newCount ?? 0,
+      added: normalizeStringArray(testChanges.added),
+      removed: normalizeStringArray(testChanges.removed),
+      oldCount: normalizeNumber(testChanges.oldCount),
+      newCount: normalizeNumber(testChanges.newCount),
     },
     riskChanges: {
-      new: riskChanges.new ?? [],
-      resolved: riskChanges.resolved ?? [],
+      new: normalizeArray(riskChanges.new),
+      resolved: normalizeArray(riskChanges.resolved),
     },
-    affectedAreas: partial.affectedAreas ?? [],
-    evidence: partial.evidence ?? [],
+    affectedAreas: normalizeStringArray(partial.affectedAreas),
+    evidence: normalizeArray(partial.evidence),
     summary: partial.summary ?? "",
-    limitations: partial.limitations ?? [],
+    limitations,
   };
 }
 

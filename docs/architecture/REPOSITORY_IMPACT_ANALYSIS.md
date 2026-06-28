@@ -265,7 +265,7 @@ Items with no evidence are excluded from `recommendedActions`.
 | `SnapshotComparisonError` | Returns `ImpactAnalysisError` with original reason |
 | `hasChanges: false` | Returns `none` impact, empty items |
 | Documentation-only changes | Returns `low` impact via fast path |
-| Missing comparison fields | Defaults nested change groups, arrays, file summary, affected areas, evidence, and limitations to empty values (safe fallback) |
+| Missing comparison fields | Defaults top-level and nested change groups, arrays, `fileSummary.categoryChanges`, affected areas, evidence, and limitations to empty values (safe fallback). Appends a limitation noting which partial fields were normalized, because impact may be understated for areas without comparison data. |
 | Version mismatch in comparison | Passed through to limitations; confidence set to `medium` |
 
 ---
@@ -285,6 +285,7 @@ Additional impact analysis limitations:
 - Auth path detection is pattern-based. Paths that do not follow naming conventions may be misclassified.
 - Auth library detection covers known packages only. Custom auth implementations are not detected.
 - Documentation-only detection requires all changes to be in the `doc` category with no functional changes. Mixed changes are classified functionally.
+- Partial comparison inputs are accepted defensively. Missing nested sections are treated as empty and reported in `limitations`, so the analyzer stays available but may understate impact for omitted sections.
 
 ---
 
