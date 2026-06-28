@@ -217,6 +217,22 @@ export default async function DashboardPage() {
           </p>
         </section>
 
+        {/* Recommended next action — surfaced early as the primary CEO signal */}
+        {primaryAction && (
+          <section>
+            <SectionHeader
+              label="Recommended Next Action"
+              icon={<Zap className="h-3.5 w-3.5 text-violet-400" />}
+            />
+            <div className="flex flex-col gap-2">
+              <NextActionCard action={primaryAction} primary />
+              {secondaryActions.map((action) => (
+                <NextActionCard key={action.id} action={action} />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* New company getting started */}
         {isNewCompany && (
           <section className="rounded-lg border border-dashed border-neutral-700 bg-neutral-900/50 px-6 py-8">
@@ -606,21 +622,6 @@ export default async function DashboardPage() {
           </section>
         )}
 
-        {/* Recommended next action */}
-        {primaryAction && (
-          <section>
-            <SectionHeader
-              label="Recommended Next Action"
-              icon={<Zap className="h-3.5 w-3.5 text-neutral-400" />}
-            />
-            <div className="flex flex-col gap-2">
-              <NextActionCard action={primaryAction} primary />
-              {secondaryActions.map((action) => (
-                <NextActionCard key={action.id} action={action} />
-              ))}
-            </div>
-          </section>
-        )}
       </div>
     </div>
   );

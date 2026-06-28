@@ -9,6 +9,11 @@ import {
   AlertCircle,
   Plus,
   ChevronRight,
+  Target,
+  GitBranch,
+  ShieldCheck,
+  PackageCheck,
+  ClipboardList,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -143,14 +148,47 @@ export default async function WorkPage() {
         </section>
 
         {/* Quick links */}
-        <section className="flex flex-wrap gap-2">
-          <Link
-            href="/work/repositories"
-            className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-2.5 text-sm text-neutral-300 hover:border-neutral-700 hover:bg-neutral-800 transition-colors"
-          >
-            <span className="text-neutral-500">⎇</span>
-            Repositories
-          </Link>
+        <section>
+          <h2 className="mb-3 text-sm font-medium text-neutral-200">
+            Sections
+          </h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <QuickLink
+              href="/work/outcomes"
+              icon={Target}
+              label="Outcomes"
+              description="CEO goals and plans"
+              accent="violet"
+            />
+            <QuickLink
+              href="/work/projects"
+              icon={ClipboardList}
+              label="Projects"
+              description="Active work streams"
+              accent="blue"
+            />
+            <QuickLink
+              href="/work/quality"
+              icon={ShieldCheck}
+              label="Reviews & QA"
+              description="Review and QA sessions"
+              accent="amber"
+            />
+            <QuickLink
+              href="/work/releases"
+              icon={PackageCheck}
+              label="Releases"
+              description="Release candidates"
+              accent="emerald"
+            />
+            <QuickLink
+              href="/work/repositories"
+              icon={GitBranch}
+              label="Repositories"
+              description="Connected repositories"
+              accent="neutral"
+            />
+          </div>
         </section>
 
         {/* Projects */}
@@ -324,5 +362,70 @@ function EmptyProjects() {
         Create your first project
       </Link>
     </div>
+  );
+}
+
+const QUICK_LINK_ACCENT: Record<
+  string,
+  { icon: string; border: string; bg: string }
+> = {
+  violet: {
+    icon: "text-violet-400",
+    border: "border-violet-900/40 hover:border-violet-800/60",
+    bg: "hover:bg-violet-950/10",
+  },
+  blue: {
+    icon: "text-blue-400",
+    border: "border-blue-900/40 hover:border-blue-800/60",
+    bg: "hover:bg-blue-950/10",
+  },
+  amber: {
+    icon: "text-amber-400",
+    border: "border-amber-900/40 hover:border-amber-800/60",
+    bg: "hover:bg-amber-950/10",
+  },
+  emerald: {
+    icon: "text-emerald-400",
+    border: "border-emerald-900/40 hover:border-emerald-800/60",
+    bg: "hover:bg-emerald-950/10",
+  },
+  neutral: {
+    icon: "text-neutral-400",
+    border: "border-neutral-800 hover:border-neutral-700",
+    bg: "hover:bg-neutral-900",
+  },
+};
+
+function QuickLink({
+  href,
+  icon: Icon,
+  label,
+  description,
+  accent = "neutral",
+}: {
+  href: string;
+  icon: React.ElementType;
+  label: string;
+  description: string;
+  accent?: keyof typeof QUICK_LINK_ACCENT;
+}) {
+  const colors = QUICK_LINK_ACCENT[accent] ?? QUICK_LINK_ACCENT["neutral"];
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "flex items-start gap-3 rounded-lg border bg-neutral-900 px-3.5 py-3 transition-colors",
+        colors.border,
+        colors.bg
+      )}
+    >
+      <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", colors.icon)} />
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-neutral-200">{label}</p>
+        <p className="mt-0.5 text-[11px] text-neutral-500 truncate">
+          {description}
+        </p>
+      </div>
+    </Link>
   );
 }
