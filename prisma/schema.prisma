@@ -173,6 +173,7 @@ model Repository {
   workspace         Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   analysisSnapshots RepositoryAnalysisSnapshot[]
   executionSessions ExecutionSession[]
+  outcomes          Outcome[]
 }
 
 model RepositoryAnalysisSnapshot {
@@ -425,6 +426,7 @@ model Outcome {
   id               String    @id @default(cuid())
   companyId        String
   runtimeRequestId String?   @unique
+  repositoryId     String? // Optional repository this outcome is scoped to
   title            String
   rawRequest       String
   brief            String?
@@ -441,6 +443,7 @@ model Outcome {
 
   company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   runtimeRequest RuntimeRequest? @relation(fields: [companyId, runtimeRequestId], references: [companyId, id], onDelete: Restrict)
+  repository     Repository?     @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
   planningDrafts PlanningDraft[]
   projects       Project[]
   features       Feature[]
