@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { ExecutionSession } from "@/generated/prisma/client";
-import { deriveBranchName } from "@/lib/implementation-brief";
+import { deriveBranchName, isProtectedBranch } from "@/lib/implementation-brief";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -34,22 +34,7 @@ export type MergeStatus = (typeof MERGE_STATUSES)[number];
  * Generates a deterministic branch name from a task ID and title.
  * Delegates to the canonical derivation in implementation-brief.
  */
-export { deriveBranchName as generateBranchName };
-
-/**
- * Returns true when the given branch name matches a protected pattern.
- *
- * Protected branches cannot be used as the implementation branch in an
- * execution session unless the session is explicitly marked as a hotfix.
- *
- * Protected patterns: main, master, release/*, v<digit>*
- */
-export function isProtectedBranch(name: string): boolean {
-  if (name === "main" || name === "master") return true;
-  if (/^release\//.test(name)) return true;
-  if (/^v\d/.test(name)) return true;
-  return false;
-}
+export { deriveBranchName as generateBranchName, isProtectedBranch };
 
 // ─── Input / Output Interfaces ────────────────────────────────────────────────
 

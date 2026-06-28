@@ -119,6 +119,26 @@ export function deriveBranchName(taskId: string, taskTitle: string): string {
   return `feature/${taskId}-${slug}`;
 }
 
+/**
+ * Returns true when the given branch name matches a protected pattern.
+ *
+ * Protected branches cannot be used as an implementation branch without an
+ * explicit hotfix override.
+ *
+ * Protected patterns: main, master, release/*, v<digit>*
+ *
+ * @example
+ * isProtectedBranch("main") // true
+ * isProtectedBranch("release/v1") // true
+ * isProtectedBranch("feature/MUS-152-foo") // false
+ */
+export function isProtectedBranch(name: string): boolean {
+  if (name === "main" || name === "master") return true;
+  if (/^release\//.test(name)) return true;
+  if (/^v\d/.test(name)) return true;
+  return false;
+}
+
 // ─── Planning Task Lookup ──────────────────────────────────────────────────────
 
 /**
