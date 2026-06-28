@@ -70,6 +70,7 @@ beforeAll(async () => {
     CREATE TABLE IF NOT EXISTS "Outcome" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "companyId" TEXT NOT NULL,
+      "repositoryId" TEXT,
       "runtimeRequestId" TEXT,
       "repositoryId" TEXT,
       "title" TEXT NOT NULL,
@@ -481,6 +482,68 @@ describe("approvePlanningDraft", () => {
 
     const outcome = await prisma.outcome.findFirst({ where: { id: "outcome-1" } });
     expect(outcome?.status).toBe("approved");
+  });
+});
+
+// ─── rejectPlanningDraft ──────────────────────────────────────────────────────
+
+describe("rejectPlanningDraft", () => {
+  it("moves a draft-status plan to rejected", async () => {
+    await prisma.planningDraft.create({ data: makeDraftData() });
+
+    const result = await service.rejectPlanningDraft({
+      companyId: "company-1",
+      planningDraftId: "draft-1",
+      actorId: "user-1",
+      reason: "Scope is too broad",
+    });
+
+    expect(result.status).toBe("rejected");
+
+    const updated = await prisma.planningDraft.findFirst({ where: { id: "draft-1" } });
+    expect(updated?.status).toBe("rejected");
+    expect(updated?.rejectionReason).toBe("Scope is too broad");
+    expect(updated?.rejectedAt).not.toBeNull();
+  });
+
+  it("updates the outcome status to rejected", async () => {
+    await prisma.planningDraft.create({ data: makeDraftData() });
+
+    await service.rejectPlanningDraft({
+      companyId: "company-1",
+      planningDraftId: "draft-1",
+      actorId: "user-1",
+      reason: "Not aligned with current priorities",
+    });
+
+    const outcome = await prisma.outcome.findFirst({ where: { id: "outcome-1" } });
+    expect(outcome?.status).toBe("rejected");
+  });
+
+  it("requires a rejection reason", async () => {
+    await prisma.planningDraft.create({ data: makeDraftData() });
+
+    await expect(
+      service.rejectPlanningDraft({
+        companyId: "company-1",
+        planningDraftId: "draft-1",
+        actorId: "user-1",
+        reason: "   ",
+      })
+    ).rejects.toThrow("Rejection reason is required.");
+  });
+
+  it("cannot reject an approved draft", async () => {
+    await seedApprovedDraft();
+
+    await expect(
+      service.rejectPlanningDraft({
+        companyId: "company-1",
+        planningDraftId: "draft-1",
+        actorId: "user-1",
+        reason: "Too late",
+      })
+    ).rejects.toThrow("Cannot reject an approved planning draft.");
   });
 });
 
