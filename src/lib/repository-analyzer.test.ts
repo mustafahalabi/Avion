@@ -5,9 +5,13 @@ import { tmpdir } from "node:os";
 
 import {
   analyzeRepositoryPath,
+  buildApiSurfaceSummary,
   detectDatabaseLayer,
   detectPrismaModels,
+  detectRoutes,
+  mapNextJsAppRouterFileToUrlPath,
   parsePrismaModelOwnershipFields,
+  type FileEntry,
 } from "./repository-analyzer";
 
 const tempDirs: string[] = [];
@@ -47,7 +51,7 @@ model Subtask {
  * @returns Absolute path to the created fixture directory.
  */
 function createFixtureRoot(name = "repo"): string {
-  const root = mkdtempSync(join(tmpdir(), `engineering-os-database-${name}-`));
+  const root = mkdtempSync(join(tmpdir(), `engineering-os-analyzer-${name}-`));
   tempDirs.push(root);
   return root;
 }
@@ -112,6 +116,17 @@ describe("detectDatabaseLayer", () => {
   });
 });
 
+describe("mapNextJsAppRouterFileToUrlPath", () => {
+  it("maps grouped App Router pages and API routes to URL paths", () => {
+    expect(mapNextJsAppRouterFileToUrlPath("src/app/(app)/work/page.tsx", "src/app", "page")).toBe("/work");
+    expect(mapNextJsAppRouterFileToUrlPath("src/app/(app)/work/tasks/[id]/page.tsx", "src/app", "page")).toBe(
+      "/work/tasks/[id]"
+    );
+    expect(mapNextJsAppRouterFileToUrlPath("src/app/api/health/route.ts", "src/app", "api")).toBe("/api/health");
+    expect(mapNextJsAppRouterFileToUrlPath("src/app/layout.tsx", "src/app", "layout")).toBe("/");
+  });
+});
+
 describe("analyzeRepositoryPath — Engineering OS schema", () => {
   it("includes database layer output in repository intelligence summary", () => {
     const root = createFixtureRoot("analysis");
@@ -140,5 +155,96 @@ describe("analyzeRepositoryPath — Engineering OS schema", () => {
     expect(outcome.prismaModels.some((model) => model.name === "Project")).toBe(true);
     expect(outcome.intelligenceSummary).toContain("Prisma schema with");
     expect(outcome.intelligenceSummary).toContain("Database ownership risks");
+  });
+});
+
+describe("analyzeRepositoryPath — framework, routes, and API surface", () => {
+  it("detects Engineering OS-style Next.js App Router structure", () => {
+    const root = createFixtureRoot("engineering-os");
+    writeFixtureFile(root, "package-lock.json", "{}");
+    writeFixtureFile(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "engineering-os",
+        private: true,
+        dependencies: { next: "^16.0.0", react: "^19.0.0", "@prisma/client": "^7.0.0" },
+        devDependencies: { typescript: "^5.0.0", vitest: "^4.0.0" },
+      })
+    );
+    writeFixtureFile(root, "src/app/layout.tsx", "export default function RootLayout() { return null; }\n");
+    writeFixtureFile(root, "src/app/(app)/dashboard/page.tsx", "export default function DashboardPage() { return null; }\n");
+    writeFixtureFile(root, "src/app/(app)/work/tasks/[id]/page.tsx", "export default function TaskPage() { return null; }\n");
+    writeFixtureFile(root, "src/app/api/health/route.ts", "export async function GET() { return Response.json({ ok: true }); }\n");
+    writeFixtureFile(
+      root,
+      "src/app/actions/planning.ts",
+      `"use server";\nexport async function generatePlanningDraft() { return { ok: true }; }\n`
+    );
+    writeFixtureFile(root, "src/proxy.ts", "export function proxy() {}\n");
+
+    const outcome = analyzeRepositoryPath(root);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(outcome.frameworks.some((framework) => framework.name.includes("Next.js (App Router)"))).toBe(true);
+    expect(outcome.frameworks[0]?.confidence).toBe("high");
+    expect(outcome.frameworks[0]?.evidence).toContain("src/app or app directory found");
+
+    const dashboardPage = outcome.routes.find((route) => route.path.endsWith("dashboard/page.tsx"));
+    expect(dashboardPage?.urlPath).toBe("/dashboard");
+    expect(outcome.apiSurface.pages.length).toBeGreaterThanOrEqual(2);
+    expect(outcome.apiSurface.apiRoutes.some((route) => route.urlPath === "/api/health")).toBe(true);
+    expect(outcome.serverActions).toContain("src/app/actions/planning.ts");
+    expect(outcome.apiSurface.serverActionModules).toContain("src/app/actions/planning.ts");
+    expect(outcome.apiSurface.middleware.some((route) => route.path.endsWith("src/proxy.ts"))).toBe(true);
+    expect(outcome.intelligenceSummary).toContain("API route(s) detected");
+    expect(outcome.intelligenceSummary).toContain("server action module(s) detected");
+  });
+
+  it("records explicit routing unknowns when Next.js is declared without route files", () => {
+    const root = createFixtureRoot("next-unknown");
+    writeFixtureFile(
+      root,
+      "package.json",
+      JSON.stringify({ name: "demo", private: true, dependencies: { next: "^16.0.0" } })
+    );
+    writeFixtureFile(root, "src/index.ts", "export {};\n");
+
+    const outcome = analyzeRepositoryPath(root);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(outcome.frameworks[0]?.confidence).toBe("medium");
+    expect(outcome.apiSurface.unknowns.length).toBeGreaterThan(0);
+    expect(outcome.intelligenceSummary).toContain("Routing unknowns:");
+  });
+
+  it("buildApiSurfaceSummary groups route artifacts with evidence paths", () => {
+    const routes = detectRoutes(process.cwd(), [
+      {
+        path: "src/app/(app)/dashboard/page.tsx",
+        type: "file",
+        extension: ".tsx",
+        size: 10,
+        category: "source",
+        purposeGuess: "App Router page",
+      },
+    ] satisfies FileEntry[]);
+
+    const summary = buildApiSurfaceSummary(routes, ["src/app/actions/planning.ts"], [
+      {
+        name: "Next.js (App Router)",
+        version: "16.0.0",
+        confidence: "high",
+        evidence: ["src/app directory found"],
+      },
+    ]);
+
+    expect(summary.pages.length).toBeGreaterThan(0);
+    expect(summary.pages[0]?.evidence).toContain("App Router");
+    expect(summary.serverActionModules).toEqual(["src/app/actions/planning.ts"]);
   });
 });
