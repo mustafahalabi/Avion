@@ -120,8 +120,20 @@ export interface FrameworkInfo {
 
 export interface RouteInfo {
   readonly path: string;
+  readonly urlPath?: string | null;
   readonly type: "page" | "layout" | "api" | "action" | "middleware" | "other";
   readonly evidence: string;
+}
+
+export interface ApiSurfaceSummary {
+  readonly frameworks: readonly FrameworkInfo[];
+  readonly pages: readonly RouteInfo[];
+  readonly layouts: readonly RouteInfo[];
+  readonly apiRoutes: readonly RouteInfo[];
+  readonly middleware: readonly RouteInfo[];
+  readonly serverActionModules: readonly string[];
+  readonly entryPointPaths: readonly string[];
+  readonly unknowns: readonly string[];
 }
 
 export interface PrismaModelInfo {
@@ -169,6 +181,7 @@ export interface RepositoryAnalysisResult {
   readonly devDependencies: readonly string[];
   readonly importantFiles: readonly string[];
   readonly routes: readonly RouteInfo[];
+  readonly apiSurface: ApiSurfaceSummary;
   readonly serverActions: readonly string[];
   readonly apiRoutes: readonly string[];
   readonly prismaModels: readonly PrismaModelInfo[];
@@ -218,7 +231,8 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
   const { scripts, dependencies, devDependencies, frameworks, techStack, primaryLanguage } = parseManifests(localPath);
   const routes = detectRoutes(localPath, entries);
   const serverActions = detectServerActions(localPath, entries);
-  const apiRoutes = routes.filter((r) => r.type === "api").map((r) => r.path);
+  const apiSurface = buildApiSurfaceSummary(routes, serverActions, frameworks);
+  const apiRoutes = apiSurface.apiRoutes.map((route) => route.urlPath ?? route.path);
   const prismaModels = detectPrismaModels(localPath);
   const databaseLayer = detectDatabaseLayer(localPath, dependencies, devDependencies, prismaModels);
   const testFiles = detectTestFiles(entries);
@@ -237,6 +251,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
     packageManager,
     frameworks,
     routes,
+    apiSurface,
     serverActions,
     apiRoutes,
     prismaModels,
@@ -259,6 +274,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
     devDependencies,
     importantFiles,
     routes,
+    apiSurface,
     serverActions,
     apiRoutes,
     prismaModels,
@@ -581,9 +597,12 @@ function detectFrameworksFromDeps(allDeps: Set<string>, root: string): readonly 
     frameworks.push({
       name: `Next.js (${router})`,
       version,
-      confidence: "high",
+      confidence: hasAppDir || hasPagesDir ? "high" : "medium",
       evidence: [
-        hasAppDir ? "src/app or app directory found" : hasPagesDir ? "pages directory found" : "next in dependencies",
+        "next in dependencies",
+        ...(hasAppDir ? ["src/app or app directory found"] : []),
+        ...(hasPagesDir ? ["pages directory found"] : []),
+        ...(!hasAppDir && !hasPagesDir ? ["No app/ or pages/ directory detected"] : []),
       ],
     });
   }
@@ -675,6 +694,95 @@ function readPackageVersion(root: string, packageName: string): string | null {
 
 // ─── Route Detection ──────────────────────────────────────────────────────────
 
+/**
+ * Maps a Next.js App Router file path to a public URL path when possible.
+ *
+ * @param filePath - Repository-relative route file path.
+ * @param appDir - App Router root directory (`src/app` or `app`).
+ * @param routeType - Detected route artifact type.
+ * @returns Public URL path or `null` when mapping is unavailable.
+ */
+export function mapNextJsAppRouterFileToUrlPath(
+  filePath: string,
+  appDir: string,
+  routeType: RouteInfo["type"]
+): string | null {
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  const prefix = `${appDir}/`;
+  if (!normalizedPath.startsWith(prefix)) return null;
+
+  const relativeSegments = normalizedPath.slice(prefix.length).split("/");
+  const fileName = relativeSegments.pop();
+  if (!fileName) return null;
+
+  const segmentMatchesType =
+    (routeType === "page" && /^page\.(tsx|ts|jsx|js)$/.test(fileName)) ||
+    (routeType === "layout" && /^layout\.(tsx|ts|jsx|js)$/.test(fileName)) ||
+    (routeType === "api" && /^route\.(tsx|ts|jsx|js)$/.test(fileName));
+
+  if (!segmentMatchesType) return null;
+
+  const cleanedSegments = relativeSegments.filter(
+    (segment) => !(segment.startsWith("@") || (segment.startsWith("(") && segment.endsWith(")")))
+  );
+
+  if (cleanedSegments.length === 0) return "/";
+  return `/${cleanedSegments.join("/")}`;
+}
+
+/**
+ * Builds a structured API and routing surface summary for repository intelligence output.
+ *
+ * @param routes - Detected route artifacts.
+ * @param serverActions - Detected server action module paths.
+ * @param frameworks - Detected framework metadata.
+ * @returns Structured routing summary with explicit unknowns.
+ */
+export function buildApiSurfaceSummary(
+  routes: readonly RouteInfo[],
+  serverActions: readonly string[],
+  frameworks: readonly FrameworkInfo[]
+): ApiSurfaceSummary {
+  const pages = routes.filter((route) => route.type === "page");
+  const layouts = routes.filter((route) => route.type === "layout");
+  const apiRoutes = routes.filter((route) => route.type === "api");
+  const middleware = routes.filter((route) => route.type === "middleware");
+  const unknowns: string[] = [];
+
+  const nextFramework = frameworks.find((framework) => framework.name.startsWith("Next.js"));
+  if (nextFramework !== undefined && nextFramework.confidence !== "high") {
+    unknowns.push("Next.js dependency found but App Router or Pages Router directories were not confirmed.");
+  }
+
+  if (pages.length === 0 && layouts.length === 0 && apiRoutes.length === 0 && nextFramework !== undefined) {
+    unknowns.push("No Next.js route files were detected under app/ or pages/.");
+  }
+
+  if (serverActions.length === 0 && nextFramework !== undefined) {
+    unknowns.push("No server action modules with a top-level 'use server' directive were detected.");
+  }
+
+  const entryPointPaths = [
+    ...middleware.map((route) => route.path),
+    ...apiRoutes.map((route) => route.path),
+    ...serverActions,
+    ...layouts.filter((route) => route.path.endsWith("app/layout.tsx") || route.path.endsWith("src/app/layout.tsx")).map(
+      (route) => route.path
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+
+  return {
+    frameworks,
+    pages,
+    layouts,
+    apiRoutes,
+    middleware,
+    serverActionModules: serverActions,
+    entryPointPaths: [...new Set(entryPointPaths)],
+    unknowns,
+  };
+}
+
 export function detectRoutes(root: string, entries: FileEntry[]): readonly RouteInfo[] {
   const routes: RouteInfo[] = [];
   const appDirCandidates = ["src/app", "app"];
@@ -697,11 +805,26 @@ export function detectRoutes(root: string, entries: FileEntry[]): readonly Route
       const name = p.split("/").pop() ?? "";
 
       if (name === "page.tsx" || name === "page.ts" || name === "page.jsx" || name === "page.js") {
-        routes.push({ path: p, type: "page", evidence: "Next.js App Router page file" });
+        routes.push({
+          path: p,
+          urlPath: mapNextJsAppRouterFileToUrlPath(p, appDir, "page"),
+          type: "page",
+          evidence: "Next.js App Router page file",
+        });
       } else if (name === "layout.tsx" || name === "layout.ts") {
-        routes.push({ path: p, type: "layout", evidence: "Next.js App Router layout file" });
+        routes.push({
+          path: p,
+          urlPath: mapNextJsAppRouterFileToUrlPath(p, appDir, "layout"),
+          type: "layout",
+          evidence: "Next.js App Router layout file",
+        });
       } else if (name === "route.ts" || name === "route.js" || name === "route.tsx") {
-        routes.push({ path: p, type: "api", evidence: "Next.js App Router API route handler" });
+        routes.push({
+          path: p,
+          urlPath: mapNextJsAppRouterFileToUrlPath(p, appDir, "api"),
+          type: "api",
+          evidence: "Next.js App Router API route handler",
+        });
       }
     }
   }
@@ -716,9 +839,19 @@ export function detectRoutes(root: string, entries: FileEntry[]): readonly Route
         if (!p.startsWith(candidate + "/")) continue;
         if (!SOURCE_EXTENSIONS.has(entry.extension)) continue;
         if (p.includes("/api/")) {
-          routes.push({ path: p, type: "api", evidence: "Next.js Pages Router API route" });
+          routes.push({
+            path: p,
+            urlPath: null,
+            type: "api",
+            evidence: "Next.js Pages Router API route",
+          });
         } else {
-          routes.push({ path: p, type: "page", evidence: "Next.js Pages Router page" });
+          routes.push({
+            path: p,
+            urlPath: null,
+            type: "page",
+            evidence: "Next.js Pages Router page",
+          });
         }
       }
       break;
@@ -729,7 +862,12 @@ export function detectRoutes(root: string, entries: FileEntry[]): readonly Route
   for (const entry of entries) {
     const name = entry.path.split("/").pop() ?? "";
     if ((name === "middleware.ts" || name === "middleware.js" || name === "proxy.ts") && entry.type === "file") {
-      routes.push({ path: entry.path.replace(/\\/g, "/"), type: "middleware", evidence: "Middleware file" });
+      routes.push({
+        path: entry.path.replace(/\\/g, "/"),
+        urlPath: null,
+        type: "middleware",
+        evidence: "Middleware file",
+      });
     }
   }
 
@@ -1087,6 +1225,7 @@ function buildIntelligenceSummary(input: {
   packageManager: PackageManagerInfo;
   frameworks: readonly FrameworkInfo[];
   routes: readonly RouteInfo[];
+  apiSurface: ApiSurfaceSummary;
   serverActions: readonly string[];
   apiRoutes: readonly string[];
   prismaModels: readonly PrismaModelInfo[];
@@ -1099,6 +1238,7 @@ function buildIntelligenceSummary(input: {
     packageManager,
     frameworks,
     routes,
+    apiSurface,
     serverActions,
     apiRoutes,
     prismaModels,
@@ -1132,6 +1272,10 @@ function buildIntelligenceSummary(input: {
 
   if (serverActions.length > 0) {
     parts.push(`${serverActions.length} server action module(s) detected.`);
+  }
+
+  if (apiSurface.unknowns.length > 0) {
+    parts.push(`Routing unknowns: ${apiSurface.unknowns.join(" ")}`);
   }
 
   if (prismaModels.length > 0) {
