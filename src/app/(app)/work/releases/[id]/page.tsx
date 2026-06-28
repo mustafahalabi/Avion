@@ -16,6 +16,8 @@ import { ReleaseChecklist } from "./release-checklist";
 import { ReleaseNotesForm } from "./release-notes-form";
 import { ReleaseButton } from "./release-button";
 import { ReleaseTasksSection } from "./release-tasks-section";
+import { CeoReleaseSummaryPanel } from "./ceo-release-summary-panel";
+import { getCeoReleaseSummary } from "@/lib/release-summary-service";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -91,6 +93,8 @@ export default async function ReleaseDetailPage({ params }: Props) {
 
   const readyCount = checklist.filter((c) => c.checked).length;
   const allReady = readyCount === checklist.length && checklist.length > 0;
+
+  const ceoSummary = await getCeoReleaseSummary(company.id, release.id);
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
@@ -207,6 +211,11 @@ export default async function ReleaseDetailPage({ params }: Props) {
               ))}
             </div>
           </section>
+        )}
+
+        {/* CEO release summary */}
+        {ceoSummary && (
+          <CeoReleaseSummaryPanel markdown={ceoSummary.markdown} />
         )}
 
         {/* Release notes */}
