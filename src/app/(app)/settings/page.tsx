@@ -1,7 +1,7 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { SettingsForm } from "./settings-form";
+import { SettingsForm, ExecutionSettingsForm } from "./settings-form";
 
 export const metadata = { title: "Settings" };
 
@@ -49,6 +49,13 @@ export default async function SettingsPage() {
             autonomyLevel={company.settings?.autonomyLevel ?? "assist"}
             cultureProfile={company.settings?.cultureProfile ?? "startup"}
           />
+        </section>
+
+        <section>
+          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            Execution
+          </h2>
+          <ExecutionSettingsForm />
         </section>
       </div>
     </div>
