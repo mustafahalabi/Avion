@@ -174,6 +174,7 @@ export interface RepositoryAnalysisResult {
   readonly fileTree: FileTreeSummary;
   readonly packageManager: PackageManagerInfo;
   readonly scripts: ScriptInfo;
+  readonly validationCommands: readonly string[];
   readonly primaryLanguage: string | null;
   readonly techStack: readonly string[];
   readonly frameworks: readonly FrameworkInfo[];
@@ -245,7 +246,9 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
     dependencies,
     devDependencies,
     localPath,
+    packageManager,
   });
+  const validationCommands = deriveValidationCommandsFromManifest(localPath, packageManager.name);
   const intelligenceSummary = buildIntelligenceSummary({
     localPath,
     packageManager,
@@ -267,6 +270,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
     fileTree,
     packageManager,
     scripts,
+    validationCommands,
     primaryLanguage,
     techStack,
     frameworks,
@@ -475,6 +479,58 @@ function buildFileTreeSummary(entries: FileEntry[], root: string): FileTreeSumma
 }
 
 // ─── Package Manager Detection ────────────────────────────────────────────────
+
+/**
+ * Formats a package script name into a shell command for the detected package manager.
+ *
+ * @param packageManager - Detected package manager name.
+ * @param scriptName - Script key from package.json.
+ * @returns Shell command string for running the script.
+ */
+export function formatPackageScriptCommand(
+  packageManager: PackageManagerInfo["name"],
+  scriptName: string
+): string {
+  switch (packageManager) {
+    case "yarn":
+      return `yarn ${scriptName}`;
+    case "pnpm":
+      return `pnpm ${scriptName}`;
+    case "bun":
+      return `bun run ${scriptName}`;
+    case "npm":
+      return `npm run ${scriptName}`;
+    default:
+      return `npm run ${scriptName}`;
+  }
+}
+
+/**
+ * Derives likely repository validation commands from package.json scripts.
+ *
+ * @param root - Repository root path.
+ * @param packageManager - Detected package manager name.
+ * @returns Ordered validation commands suitable for task execution briefs.
+ */
+export function deriveValidationCommandsFromManifest(
+  root: string,
+  packageManager: PackageManagerInfo["name"]
+): readonly string[] {
+  const pkg = readJsonFile(join(root, "package.json"));
+  if (!pkg || typeof pkg.scripts !== "object" || pkg.scripts === null) return [];
+
+  const rawScripts = pkg.scripts as Record<string, string>;
+  const preferredScriptNames = ["typecheck", "type-check", "check", "lint", "build", "test", "test:unit"] as const;
+  const commands: string[] = [];
+
+  for (const scriptName of preferredScriptNames) {
+    if (typeof rawScripts[scriptName] === "string" && rawScripts[scriptName].length > 0) {
+      commands.push(formatPackageScriptCommand(packageManager, scriptName));
+    }
+  }
+
+  return [...new Set(commands)];
+}
 
 export function detectPackageManager(root: string): PackageManagerInfo {
   // Lockfile precedence: bun > pnpm > yarn > npm
@@ -1134,11 +1190,49 @@ function buildRisks(input: {
   dependencies: readonly string[];
   devDependencies: readonly string[];
   localPath: string;
+  packageManager: PackageManagerInfo;
 }): readonly RiskFinding[] {
   const risks: RiskFinding[] = [];
-  const { entries, testFiles, prismaModels, dependencies, devDependencies, localPath } = input;
+  const { entries, testFiles, prismaModels, dependencies, devDependencies, localPath, packageManager } = input;
   const allDeps = new Set([...dependencies, ...devDependencies]);
   const sourceFiles = entries.filter((e) => e.type === "file" && e.category === "source").length;
+
+  if (!existsSync(join(localPath, "package.json"))) {
+    risks.push({
+      severity: "high",
+      category: "dependencies",
+      description: "No package.json manifest was found.",
+      evidence: "package.json is missing at the repository root.",
+      mitigation: "Add a package.json or attach the correct repository root before planning dependency work.",
+    });
+  }
+
+  const lockfiles = [
+    existsSync(join(localPath, "bun.lockb")) || existsSync(join(localPath, "bun.lock")) ? "bun" : null,
+    existsSync(join(localPath, "pnpm-lock.yaml")) ? "pnpm" : null,
+    existsSync(join(localPath, "yarn.lock")) ? "yarn" : null,
+    existsSync(join(localPath, "package-lock.json")) ? "npm" : null,
+  ].filter((value): value is string => value !== null);
+
+  if (lockfiles.length > 1) {
+    risks.push({
+      severity: "medium",
+      category: "dependencies",
+      description: "Multiple package manager lockfiles were detected.",
+      evidence: `Lockfiles present: ${lockfiles.join(", ")}. Selected package manager: ${packageManager.name}.`,
+      mitigation: "Standardize on one package manager and remove stale lockfiles to avoid non-reproducible installs.",
+    });
+  }
+
+  if (packageManager.name === "unknown" && existsSync(join(localPath, "package.json"))) {
+    risks.push({
+      severity: "medium",
+      category: "dependencies",
+      description: "Package manager could not be determined from lockfiles.",
+      evidence: "package.json exists without a recognized lockfile or packageManager field.",
+      mitigation: "Generate a lockfile with the intended package manager and commit it to the repository.",
+    });
+  }
 
   // Missing tests
   if (testFiles.length === 0) {

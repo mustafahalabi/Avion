@@ -7,8 +7,11 @@ import {
   analyzeRepositoryPath,
   buildApiSurfaceSummary,
   detectDatabaseLayer,
+  detectPackageManager,
   detectPrismaModels,
   detectRoutes,
+  deriveValidationCommandsFromManifest,
+  formatPackageScriptCommand,
   mapNextJsAppRouterFileToUrlPath,
   parsePrismaModelOwnershipFields,
   type FileEntry,
@@ -246,5 +249,145 @@ describe("analyzeRepositoryPath — framework, routes, and API surface", () => {
     expect(summary.pages.length).toBeGreaterThan(0);
     expect(summary.pages[0]?.evidence).toContain("App Router");
     expect(summary.serverActionModules).toEqual(["src/app/actions/planning.ts"]);
+  });
+});
+
+describe("detectPackageManager", () => {
+  it.each([
+    ["pnpm-lock.yaml", "pnpm"],
+    ["yarn.lock", "yarn"],
+    ["package-lock.json", "npm"],
+    ["bun.lock", "bun"],
+  ] as const)("detects %s as %s", (lockfile, expected) => {
+    const root = createFixtureRoot(expected);
+    writeFixtureFile(root, "package.json", '{"name":"demo","private":true}');
+    writeFixtureFile(root, lockfile, lockfile.endsWith(".json") ? "{}" : "");
+
+    expect(detectPackageManager(root).name).toBe(expected);
+  });
+
+  it("uses the packageManager field when no lockfile is present", () => {
+    const root = createFixtureRoot("pnpm-field");
+    writeFixtureFile(
+      root,
+      "package.json",
+      '{"name":"demo","private":true,"packageManager":"pnpm@9.0.0"}'
+    );
+
+    expect(detectPackageManager(root).name).toBe("pnpm");
+  });
+
+  it("returns unknown when no manifest or lockfile exists", () => {
+    const root = createFixtureRoot("unknown");
+    expect(detectPackageManager(root).name).toBe("unknown");
+  });
+});
+
+describe("deriveValidationCommandsFromManifest", () => {
+  it("formats validation commands for the detected package manager", () => {
+    const root = createFixtureRoot("scripts");
+    writeFixtureFile(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "demo",
+        private: true,
+        scripts: {
+          lint: "eslint .",
+          build: "next build",
+          test: "vitest run",
+          "type-check": "tsc --noEmit",
+        },
+      })
+    );
+
+    expect(deriveValidationCommandsFromManifest(root, "pnpm")).toEqual([
+      "pnpm type-check",
+      "pnpm lint",
+      "pnpm build",
+      "pnpm test",
+    ]);
+    expect(formatPackageScriptCommand("yarn", "lint")).toBe("yarn lint");
+    expect(formatPackageScriptCommand("npm", "test")).toBe("npm run test");
+  });
+});
+
+describe("analyzeRepositoryPath — package manager and dependency graph", () => {
+  it("parses dependencies, dev dependencies, and scripts from package.json", () => {
+    const root = createFixtureRoot("manifest");
+    writeFixtureFile(root, "package-lock.json", "{}");
+    writeFixtureFile(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "demo",
+        private: true,
+        dependencies: { next: "^16.0.0", react: "^19.0.0" },
+        devDependencies: { eslint: "^9.0.0", typescript: "^5.0.0", vitest: "^4.0.0" },
+        scripts: {
+          dev: "next dev",
+          build: "next build",
+          lint: "eslint .",
+          test: "vitest run",
+          typecheck: "tsc --noEmit",
+        },
+      })
+    );
+    writeFixtureFile(root, "src/index.ts", "export {};\n");
+    writeFixtureFile(root, "src/index.test.ts", "it('works', () => {});\n");
+
+    const outcome = analyzeRepositoryPath(root);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(outcome.packageManager.name).toBe("npm");
+    expect(outcome.dependencies).toEqual(["next", "react"]);
+    expect(outcome.devDependencies).toEqual(["eslint", "typescript", "vitest"]);
+    expect(outcome.scripts.build).toBe("next build");
+    expect(outcome.scripts.lint).toBe("eslint .");
+    expect(outcome.scripts.test).toBe("vitest run");
+    expect(outcome.scripts.typecheck).toBe("tsc --noEmit");
+    expect(outcome.validationCommands).toEqual([
+      "npm run typecheck",
+      "npm run lint",
+      "npm run build",
+      "npm run test",
+    ]);
+  });
+
+  it("surfaces dependency risks for missing manifests and conflicting lockfiles", () => {
+    const root = createFixtureRoot("dependency-risks");
+    writeFixtureFile(root, "package.json", '{"name":"demo","private":true}');
+    writeFixtureFile(root, "package-lock.json", "{}");
+    writeFixtureFile(root, "yarn.lock", "# yarn\n");
+
+    const outcome = analyzeRepositoryPath(root);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(
+      outcome.risks.some(
+        (risk) => risk.category === "dependencies" && risk.description.includes("Multiple package manager lockfiles")
+      )
+    ).toBe(true);
+  });
+
+  it("detects pnpm workspaces from pnpm-workspace.yaml", () => {
+    const root = createFixtureRoot("pnpm-workspace");
+    writeFixtureFile(root, "pnpm-lock.yaml", "lockfileVersion: 9\n");
+    writeFixtureFile(root, "package.json", '{"name":"workspace","private":true}');
+    writeFixtureFile(root, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+    writeFixtureFile(root, "packages/web/package.json", '{"name":"web","private":true}');
+    writeFixtureFile(root, "packages/web/index.ts", "export {};\n");
+
+    const outcome = analyzeRepositoryPath(root);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(outcome.packageManager.name).toBe("pnpm");
+    expect(outcome.packageManager.workspaces).toEqual(["packages/*"]);
   });
 });
