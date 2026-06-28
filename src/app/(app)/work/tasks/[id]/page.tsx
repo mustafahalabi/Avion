@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { PriorityBadge } from "@/components/ui/badge";
 import { TaskStatusSelect } from "./task-status-select";
 import { TaskBriefSection } from "./task-brief-section";
 import { ReviewBriefSection } from "./review-brief-section";
@@ -279,14 +280,7 @@ export default async function TaskDetailPage({ params }: Props) {
               <TaskStatusSelect taskId={task.id} current={task.status} />
             </DetailCard>
             <DetailCard label="Priority">
-              <span
-                className={cn(
-                  "text-sm font-medium capitalize",
-                  PRIORITY_COLORS[task.priority] ?? "text-neutral-400"
-                )}
-              >
-                {task.priority}
-              </span>
+              <PriorityBadge priority={task.priority} />
             </DetailCard>
             <DetailCard label="Assignee">
               {task.assignee ? (

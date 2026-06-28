@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/ui/badge";
 import {
   computeNextActions,
   type NextAction,
@@ -370,9 +371,7 @@ export default async function DashboardPage() {
                   <p className="flex-1 min-w-0 text-sm text-neutral-400 truncate">
                     {task.title}
                   </p>
-                  <span className="text-[10px] font-medium text-red-600 uppercase tracking-wide">
-                    Blocked
-                  </span>
+                  <StatusBadge status="blocked" dot={false} />
                 </div>
               ))}
               {blockedTasks.length > 4 && (

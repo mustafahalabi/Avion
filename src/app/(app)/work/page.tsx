@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { Badge, StatusBadge } from "@/components/ui/badge";
 
 const STATUS_CONFIG: Record<
   string,
@@ -228,15 +229,15 @@ export default async function WorkPage() {
                         <p className="text-sm font-medium text-neutral-200 truncate">
                           {project.name}
                         </p>
-                        <span
+                        <Badge
                           className={cn(
-                            "shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                            "shrink-0 text-[10px]",
                             PROJECT_STATUS_COLORS[project.status] ??
                               PROJECT_STATUS_COLORS["active"]
                           )}
                         >
                           {project.status}
-                        </span>
+                        </Badge>
                       </div>
                       {tasks.length > 0 && (
                         <div className="mt-2 flex items-center gap-2">
@@ -289,6 +290,7 @@ export default async function WorkPage() {
                       {task.title}
                     </span>
                     <div className="flex items-center gap-2 shrink-0">
+                      <StatusBadge status={task.status} dot={false} />
                       {task.feature?.project?.name && (
                         <span className="text-xs text-neutral-600 truncate max-w-[100px]">
                           {task.feature.project.name}
