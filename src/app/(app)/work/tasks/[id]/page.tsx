@@ -7,11 +7,12 @@ import {
   Circle,
   Clock,
   AlertCircle,
+  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { TaskStatusSelect } from "./task-status-select";
-import { ShieldCheck } from "lucide-react";
+import { TaskBriefSection } from "./task-brief-section";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -86,6 +87,14 @@ export default async function TaskDetailPage({ params }: Props) {
   });
 
   if (!task) notFound();
+
+  // Latest prepared execution session for this task (if any) — used to surface
+  // an existing brief without regenerating.
+  const latestPreparedSession = await prisma.executionSession.findFirst({
+    where: { companyId: company.id, taskId: id, status: "prepared" },
+    orderBy: { createdAt: "desc" },
+    select: { taskBrief: true },
+  });
 
   // Quality gate: find latest review and QA for this task
   const [latestReview, latestQA] = await Promise.all([
@@ -275,6 +284,13 @@ export default async function TaskDetailPage({ params }: Props) {
             </div>
           </section>
         )}
+
+        {/* Claude Implementation Brief */}
+        <TaskBriefSection
+          taskId={task.id}
+          taskStatus={task.status}
+          existingBrief={latestPreparedSession?.taskBrief ?? null}
+        />
 
         {/* Subtasks */}
         {task.subtasks.length > 0 && (
