@@ -391,3 +391,111 @@ describe("analyzeRepositoryPath — package manager and dependency graph", () =>
     expect(outcome.packageManager.workspaces).toEqual(["packages/*"]);
   });
 });
+
+describe("analyzeRepositoryPath — file tree ingestion", () => {
+  it("returns a truthful error when the repository path does not exist", () => {
+    const outcome = analyzeRepositoryPath(join(tmpdir(), "missing-repository-path"));
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("Expected analysis failure");
+    expect(outcome.error).toContain("does not exist");
+  });
+
+  it("returns a truthful error when the path is not a directory", () => {
+    const root = createFixtureRoot("file-not-dir");
+    const filePath = join(root, "not-a-directory.txt");
+    writeFileSync(filePath, "hello", "utf8");
+
+    const outcome = analyzeRepositoryPath(filePath);
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("Expected analysis failure");
+    expect(outcome.error).toContain("not a directory");
+  });
+
+  it("captures directories, files, extensions, sizes, and important paths for a shallow repo", () => {
+    const root = createFixtureRoot("shallow");
+    writeFixtureFile(root, "package.json", '{"name":"demo","private":true}');
+    writeFixtureFile(root, "src/lib/example.ts", 'export const value = "demo";\n');
+    writeFixtureFile(root, "prisma/schema.prisma", 'model User { id String @id }\n');
+
+    const outcome = analyzeRepositoryPath(root);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(outcome.fileTree.totalFiles).toBeGreaterThanOrEqual(3);
+    expect(outcome.fileTree.totalDirs).toBeGreaterThanOrEqual(2);
+    expect(outcome.fileTree.topLevelDirs).toContain("src");
+    expect(outcome.fileTree.topLevelDirs).toContain("prisma");
+    expect(outcome.fileTree.byExtension[".ts"]).toBeGreaterThanOrEqual(1);
+    expect(outcome.fileTree.byCategory.source).toBeGreaterThanOrEqual(1);
+    expect(outcome.fileTree.importantPaths).toContain("package.json");
+    expect(outcome.fileTree.importantPaths).toContain("prisma/schema.prisma");
+
+    const exampleFingerprint = outcome.fileFingerprints.find(
+      (fingerprint) => fingerprint.path === "src/lib/example.ts"
+    );
+    expect(exampleFingerprint?.size).toBeGreaterThan(0);
+    expect(exampleFingerprint?.extension).toBe(".ts");
+  });
+
+  it("excludes ignored vendor, build, and dependency directories", () => {
+    const root = createFixtureRoot("ignored");
+    writeFixtureFile(root, "package.json", '{"name":"demo","private":true}');
+    writeFixtureFile(root, "src/index.ts", "export {};\n");
+    writeFixtureFile(root, "node_modules/lodash/index.js", "module.exports = {};\n");
+    writeFixtureFile(root, ".next/server/app.js", "console.log('build');\n");
+    writeFixtureFile(root, "dist/output.js", "console.log('dist');\n");
+
+    const outcome = analyzeRepositoryPath(root);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    const paths = outcome.fileFingerprints.map((fingerprint) => fingerprint.path);
+    expect(paths).toContain("src/index.ts");
+    expect(paths.some((path) => path.includes("node_modules"))).toBe(false);
+    expect(paths.some((path) => path.includes(".next"))).toBe(false);
+    expect(paths.some((path) => path.includes("dist/"))).toBe(false);
+    expect(outcome.fileTree.topLevelDirs).not.toContain("node_modules");
+    expect(outcome.fileTree.topLevelDirs).not.toContain(".next");
+    expect(outcome.fileTree.topLevelDirs).not.toContain("dist");
+  });
+
+  it("covers nested and workspace-style repository structures", () => {
+    const root = createFixtureRoot("nested");
+    writeFixtureFile(root, "package.json", '{"name":"workspace","private":true,"workspaces":["packages/*"]}');
+    writeFixtureFile(root, "packages/web/package.json", '{"name":"web","private":true}');
+    writeFixtureFile(root, "packages/web/src/app/page.tsx", "export default function Page() { return null; }\n");
+    writeFixtureFile(root, "packages/web/src/app/layout.tsx", "export default function Layout({ children }: { children: React.ReactNode }) { return children; }\n");
+
+    const outcome = analyzeRepositoryPath(root);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(outcome.fileTree.topLevelDirs).toContain("packages");
+    expect(outcome.fileFingerprints.some((fingerprint) => fingerprint.path.includes("packages/web/src/app/page.tsx"))).toBe(
+      true
+    );
+    expect(outcome.fileTree.byExtension[".tsx"]).toBeGreaterThanOrEqual(2);
+    expect(outcome.fileTree.importantPaths.some((path) => path.endsWith("package.json"))).toBe(true);
+  });
+
+  it("produces stable file tree output for repeated analysis of the same repository", () => {
+    const root = createFixtureRoot("stable");
+    writeFixtureFile(root, "package.json", '{"name":"stable","private":true}');
+    writeFixtureFile(root, "src/lib/stable.ts", "export const stable = true;\n");
+
+    const first = analyzeRepositoryPath(root);
+    const second = analyzeRepositoryPath(root);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) throw new Error("Expected analysis success");
+
+    expect(first.fileTree).toEqual(second.fileTree);
+    expect(first.fileFingerprints).toEqual(second.fileFingerprints);
+  });
+});

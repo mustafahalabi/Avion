@@ -18,6 +18,7 @@ function makeSnapshot(overrides: Partial<SnapshotForComparison> = {}): SnapshotF
       byCategory: { source: 1 },
       byExtension: { ".ts": 1 },
       topLevelDirs: ["src"],
+      importantPaths: [],
     }),
     importantFiles: "[]",
     routes: "[]",
