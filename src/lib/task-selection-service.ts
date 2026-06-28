@@ -1,0 +1,154 @@
+import type { PlanningDraftStatus } from "@/lib/outcome-planning";
+import { prisma } from "@/lib/prisma";
+import {
+  parseGeneratedTaskMetadata,
+  selectNextExecutableTask,
+  type GeneratedTaskMetadata,
+  type SelectNextExecutableTaskResult,
+  type TaskSelectionCandidate,
+} from "@/lib/task-selection";
+
+/**
+ * Selects the next executable task for a company from approved or applied plans.
+ *
+ * @param companyId - Company ID used for ownership scoping
+ * @returns The selected task or a reason explaining why none is executable
+ * @example
+ * ```ts
+ * const result = await selectNextExecutableTaskForCompany("company_123");
+ * if (result.task) {
+ *   logger.info({ taskId: result.task.id }, result.reason);
+ * }
+ * ```
+ */
+export async function selectNextExecutableTaskForCompany(
+  companyId: string
+): Promise<SelectNextExecutableTaskResult> {
+  const [tasks, planningDrafts] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        companyId,
+        planningDraftId: { not: null },
+        planningDraft: {
+          status: { in: ["approved", "applied"] },
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        priority: true,
+        planningDraftId: true,
+        planItemId: true,
+        createdAt: true,
+        planningDraft: {
+          select: {
+            id: true,
+            status: true,
+            generatedTasks: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.planningDraft.findMany({
+      where: {
+        companyId,
+        status: { in: ["approved", "applied"] },
+      },
+      select: {
+        id: true,
+        generatedTasks: true,
+      },
+    }),
+  ]);
+
+  const generatedTaskMetadata = buildGeneratedTaskMetadata(planningDrafts);
+  const completedPlanItemIds = buildCompletedPlanItemIds(tasks);
+  const candidates = tasks
+    .filter((task) => task.planningDraft !== null && task.planningDraftId !== null)
+    .map((task) => toTaskSelectionCandidate(task));
+
+  return selectNextExecutableTask(candidates, completedPlanItemIds, generatedTaskMetadata);
+}
+
+interface PlanningDraftMetadataSource {
+  readonly id: string;
+  readonly generatedTasks: string;
+}
+
+interface TaskWithPlanningDraft {
+  readonly id: string;
+  readonly title: string;
+  readonly status: string;
+  readonly priority: string;
+  readonly planningDraftId: string | null;
+  readonly planItemId: string | null;
+  readonly createdAt: Date;
+  readonly planningDraft: {
+    readonly id: string;
+    readonly status: string;
+    readonly generatedTasks: string;
+  } | null;
+}
+
+/**
+ * Builds a combined metadata map from all approved or applied planning drafts.
+ *
+ * @param planningDrafts - Planning drafts with generated task payloads
+ * @returns Metadata keyed by deterministic plan item ID
+ */
+function buildGeneratedTaskMetadata(
+  planningDrafts: readonly PlanningDraftMetadataSource[]
+): ReadonlyMap<string, GeneratedTaskMetadata> {
+  const metadata = new Map<string, GeneratedTaskMetadata>();
+
+  for (const draft of planningDrafts) {
+    for (const [planItemId, taskMetadata] of parseGeneratedTaskMetadata(
+      draft.generatedTasks
+    )) {
+      metadata.set(planItemId, taskMetadata);
+    }
+  }
+
+  return metadata;
+}
+
+/**
+ * Collects plan item IDs for tasks that have completed implementation.
+ *
+ * @param tasks - Company tasks linked to approved or applied plans
+ * @returns Plan item IDs whose linked tasks are done
+ */
+function buildCompletedPlanItemIds(
+  tasks: readonly Pick<TaskWithPlanningDraft, "status" | "planItemId">[]
+): ReadonlySet<string> {
+  const completedPlanItemIds = new Set<string>();
+
+  for (const task of tasks) {
+    if (task.status === "done" && task.planItemId) {
+      completedPlanItemIds.add(task.planItemId);
+    }
+  }
+
+  return completedPlanItemIds;
+}
+
+/**
+ * Converts a Prisma task row into a task selection candidate.
+ *
+ * @param task - Task row with planning draft context
+ * @returns Normalized selection candidate
+ */
+function toTaskSelectionCandidate(task: TaskWithPlanningDraft): TaskSelectionCandidate {
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    priority: task.priority,
+    planningDraftId: task.planningDraftId ?? task.planningDraft?.id ?? "",
+    planningDraftStatus: (task.planningDraft?.status ?? "draft") as PlanningDraftStatus,
+    planItemId: task.planItemId,
+    createdAt: task.createdAt,
+  };
+}
