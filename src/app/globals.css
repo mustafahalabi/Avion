@@ -93,6 +93,9 @@
 
   /* Font */
   --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  /* Semantic text aliases */
+  --color-muted-foreground: #737373;
 }
 
 /* Light mode overrides (for consumers that opt in) */
@@ -200,6 +203,9 @@
   /* Spacing */
   --spacing-section: var(--spacing-section);
   --spacing-card:    var(--spacing-card);
+
+  /* Semantic text aliases */
+  --color-muted-foreground: var(--color-muted-foreground);
 }
 
 /* ─────────────────────────────────────────────

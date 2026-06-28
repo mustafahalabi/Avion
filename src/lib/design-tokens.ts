@@ -23,8 +23,10 @@ export type StatusKey = keyof typeof STATUS_COLORS;
 
 /** Returns the Tailwind text-color class for a given issue status slug. */
 export function getStatusColor(status: string): string {
-  const key = status.toLowerCase().replace(/\s+/g, "_") as StatusKey;
-  return STATUS_COLORS[key] ?? "text-muted-foreground";
+  const key = status.toLowerCase().replace(/\s+/g, "_");
+  return key in STATUS_COLORS
+    ? STATUS_COLORS[key as StatusKey]
+    : "text-muted-foreground";
 }
 
 // ─── Status background colors (for badges/chips) ──────────────────────────────
@@ -43,8 +45,10 @@ export type StatusBgKey = keyof typeof STATUS_BG_COLORS;
 
 /** Returns combined Tailwind bg/text/border classes for a status badge. */
 export function getStatusBadgeClasses(status: string): string {
-  const key = status.toLowerCase().replace(/\s+/g, "_") as StatusBgKey;
-  return STATUS_BG_COLORS[key] ?? STATUS_BG_COLORS.todo;
+  const key = status.toLowerCase().replace(/\s+/g, "_");
+  return key in STATUS_BG_COLORS
+    ? STATUS_BG_COLORS[key as StatusBgKey]
+    : STATUS_BG_COLORS.todo;
 }
 
 // ─── Priority colors ──────────────────────────────────────────────────────────
@@ -61,8 +65,10 @@ export type PriorityKey = keyof typeof PRIORITY_COLORS;
 
 /** Returns the Tailwind text-color class for a given issue priority label. */
 export function getPriorityColor(priority: string): string {
-  const key = priority.toLowerCase() as PriorityKey;
-  return PRIORITY_COLORS[key] ?? "text-muted-foreground";
+  const key = priority.toLowerCase();
+  return key in PRIORITY_COLORS
+    ? PRIORITY_COLORS[key as PriorityKey]
+    : "text-muted-foreground";
 }
 
 // ─── Priority background colors (for badges) ──────────────────────────────────
@@ -79,8 +85,10 @@ export type PriorityBgKey = keyof typeof PRIORITY_BG_COLORS;
 
 /** Returns combined Tailwind bg/text/border classes for a priority badge. */
 export function getPriorityBadgeClasses(priority: string): string {
-  const key = priority.toLowerCase() as PriorityBgKey;
-  return PRIORITY_BG_COLORS[key] ?? PRIORITY_BG_COLORS.none;
+  const key = priority.toLowerCase();
+  return key in PRIORITY_BG_COLORS
+    ? PRIORITY_BG_COLORS[key as PriorityBgKey]
+    : PRIORITY_BG_COLORS.none;
 }
 
 // ─── Surface tokens ───────────────────────────────────────────────────────────
