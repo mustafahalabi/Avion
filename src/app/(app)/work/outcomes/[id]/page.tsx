@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/current-user";
+import { buildPlanningReviewUrl } from "@/lib/planning-review-view";
 import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, GitBranch } from "lucide-react";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { GeneratePlanButton } from "./generate-plan-button";
 
@@ -221,6 +222,12 @@ export default async function OutcomeDetailPage({
                     )}
                   </p>
                 </div>
+                <Link
+                  href={buildPlanningReviewUrl(latestDraft.id)}
+                  className="shrink-0 rounded-md border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 transition-colors hover:bg-neutral-800"
+                >
+                  Review plan
+                </Link>
               </div>
               {latestDraft.status === "failed" && (
                 <div className="mt-3 pt-3 border-t border-neutral-800">

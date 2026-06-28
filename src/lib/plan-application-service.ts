@@ -24,6 +24,18 @@ export interface ApprovePlanOutput {
   readonly status: "approved" | "already_approved" | "already_applied";
 }
 
+export interface RejectPlanInput {
+  readonly companyId: string;
+  readonly planningDraftId: string;
+  readonly actorId: string;
+  readonly reason: string;
+}
+
+export interface RejectPlanOutput {
+  readonly planningDraftId: string;
+  readonly status: "rejected" | "already_rejected" | "already_applied";
+}
+
 export interface ApplyPlanInput {
   readonly companyId: string;
   readonly planningDraftId: string;
@@ -102,6 +114,76 @@ export async function approvePlanningDraft(input: ApprovePlanInput): Promise<App
   });
 
   return { planningDraftId: draft.id, status: "approved" };
+}
+
+// ─── Reject ───────────────────────────────────────────────────────────────────
+
+/**
+ * Rejects a planning draft without creating work records.
+ * Idempotent: calling on an already-rejected draft returns the current state.
+ *
+ * @param input - Rejection context including reason.
+ * @returns Rejection result status.
+ */
+export async function rejectPlanningDraft(input: RejectPlanInput): Promise<RejectPlanOutput> {
+  const reason = input.reason.trim();
+  if (reason.length === 0) {
+    throw new Error("Rejection reason is required.");
+  }
+
+  const draft = await prisma.planningDraft.findFirst({
+    where: { id: input.planningDraftId, companyId: input.companyId },
+    select: {
+      id: true,
+      status: true,
+      outcomeId: true,
+      rejectedAt: true,
+    },
+  });
+
+  if (!draft) throw new Error("Planning draft not found.");
+
+  if (draft.status === "applied") {
+    return { planningDraftId: draft.id, status: "already_applied" };
+  }
+
+  if (draft.status === "rejected") {
+    return { planningDraftId: draft.id, status: "already_rejected" };
+  }
+
+  if (draft.status === "approved") {
+    throw new Error("Cannot reject an approved planning draft.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.planningDraft.update({
+      where: { id: draft.id },
+      data: {
+        status: "rejected",
+        rejectedAt: new Date(),
+        rejectedById: input.actorId,
+        rejectionReason: reason,
+      },
+    });
+
+    await tx.outcome.updateMany({
+      where: { id: draft.outcomeId, companyId: input.companyId },
+      data: { status: "rejected", updatedAt: new Date() },
+    });
+
+    await tx.timelineEntry.create({
+      data: {
+        entityType: "planning_draft",
+        entityId: draft.id,
+        eventType: "plan.rejected",
+        summary: "Planning draft rejected.",
+        actorId: input.actorId,
+        metadata: JSON.stringify({ planningDraftId: draft.id, reason }),
+      },
+    });
+  });
+
+  return { planningDraftId: draft.id, status: "rejected" };
 }
 
 // ─── Apply ────────────────────────────────────────────────────────────────────
