@@ -10,6 +10,7 @@ import {
 } from "@/lib/implementation-brief";
 import {
   createExecutionSession,
+  ingestAgentExecutionResult,
   prepareExecutionSession,
 } from "@/lib/execution-session-service";
 import { parseJsonStringArray } from "@/lib/planning-generator";
@@ -19,6 +20,18 @@ import { prisma } from "@/lib/prisma";
 
 const generateTaskBriefSchema = z.object({
   taskId: z.string().min(1, "Task ID is required."),
+});
+
+const ingestResultSchema = z.object({
+  sessionId: z.string().min(1, "Session ID is required."),
+  status: z.enum(["completed", "failed", "needs_clarification"]).refine(
+    (v) => ["completed", "failed", "needs_clarification"].includes(v),
+    { message: "Status must be completed, failed, or needs_clarification." }
+  ),
+  resultSummary: z.string().max(5000).trim().optional(),
+  filesChanged: z.string().max(10000).trim().optional(),
+  validationOutput: z.string().max(20000).trim().optional(),
+  errorMessage: z.string().max(2000).trim().optional(),
 });
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -31,6 +44,23 @@ export type GenerateTaskBriefState =
       readonly message?: string;
       readonly errors?: {
         readonly taskId?: readonly string[];
+      };
+    }
+  | undefined;
+
+export type IngestExecutionResultState =
+  | {
+      readonly success?: boolean;
+      readonly newTaskStatus?: string | null;
+      readonly taskStatusChanged?: boolean;
+      readonly message?: string;
+      readonly errors?: {
+        readonly sessionId?: readonly string[];
+        readonly status?: readonly string[];
+        readonly resultSummary?: readonly string[];
+        readonly filesChanged?: readonly string[];
+        readonly validationOutput?: readonly string[];
+        readonly errorMessage?: readonly string[];
       };
     }
   | undefined;
@@ -138,6 +168,77 @@ export async function generateTaskBrief(
   };
 }
 
+/**
+ * Records the result of an external agent execution run back into Engineering OS.
+ *
+ * The session transitions to the reported status; completed sessions move the
+ * linked task to "in-review". Failed or needs-clarification sessions leave the
+ * task actionable ("todo"). Review/QA gates are never bypassed.
+ *
+ * @param _prev - Previous action state supplied by `useActionState`.
+ * @param formData - Form data with sessionId, status, resultSummary, filesChanged,
+ *   validationOutput, and errorMessage.
+ * @returns Action state with success flag and new task status.
+ * @example
+ * ```tsx
+ * <form action={ingestExecutionResult}>
+ *   <input type="hidden" name="sessionId" value={session.id} />
+ *   <select name="status">…</select>
+ * </form>
+ * ```
+ */
+export async function ingestExecutionResult(
+  _prev: IngestExecutionResultState,
+  formData: FormData
+): Promise<IngestExecutionResultState> {
+  const user = await getCurrentUser();
+  if (!user) return { message: "Not authenticated." };
+
+  const parsed = ingestResultSchema.safeParse({
+    sessionId: formData.get("sessionId"),
+    status: formData.get("status"),
+    resultSummary: formData.get("resultSummary") || undefined,
+    filesChanged: formData.get("filesChanged") || undefined,
+    validationOutput: formData.get("validationOutput") || undefined,
+    errorMessage: formData.get("errorMessage") || undefined,
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) return { message: "No company found." };
+
+  try {
+    const outcome = await ingestAgentExecutionResult({
+      companyId: company.id,
+      sessionId: parsed.data.sessionId,
+      status: parsed.data.status,
+      resultSummary: parsed.data.resultSummary ?? null,
+      filesChanged: parsed.data.filesChanged ?? "",
+      validationOutput: parsed.data.validationOutput ?? null,
+      errorMessage: parsed.data.errorMessage ?? null,
+    });
+
+    if (outcome.session.taskId) {
+      revalidatePath(`/work/tasks/${outcome.session.taskId}`);
+    }
+
+    return {
+      success: true,
+      newTaskStatus: outcome.newTaskStatus,
+      taskStatusChanged: outcome.taskStatusChanged,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to record execution result.";
+    return { message };
+  }
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -177,7 +278,7 @@ function extractRepositoryId(task: TaskWithProjectAndWorkspace): string | null {
   return repositories[0].id;
 }
 
-// ─── Local Type ────────────────────────────────────────────────────────────────
+// ─── Local Types ───────────────────────────────────────────────────────────────
 
 interface RepositoryRow {
   readonly id: string;

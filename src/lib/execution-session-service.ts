@@ -363,3 +363,244 @@ export function isSessionTerminal(session: ExecutionSession): boolean {
   ];
   return terminalStatuses.includes(session.status as ExecutionSessionStatus);
 }
+
+// ─── Ingestion Result ─────────────────────────────────────────────────────────
+
+/**
+ * Input for the high-level agent result ingestion path.
+ */
+export interface IngestAgentExecutionResultInput {
+  /** Company ID (ownership guard). */
+  readonly companyId: string;
+  /** ExecutionSession ID to receive the result. */
+  readonly sessionId: string;
+  /** Final execution status reported by the agent. */
+  readonly status: Extract<ExecutionSessionStatus, "completed" | "failed" | "needs_clarification">;
+  /** Free-text summary of what the agent did. */
+  readonly resultSummary: string | null;
+  /**
+   * Relative file paths changed by the agent.
+   * Newline-separated string from a textarea, or a pre-split array.
+   */
+  readonly filesChanged: string | readonly string[];
+  /** Raw validation command output (tsc, lint, test, etc.) */
+  readonly validationOutput: string | null;
+  /** Error message when status is "failed" or "needs_clarification". */
+  readonly errorMessage: string | null;
+}
+
+/**
+ * Result of the agent execution result ingestion.
+ */
+export interface IngestAgentExecutionResultOutcome {
+  readonly session: ExecutionSession;
+  /** New task status after ingestion, or null when no task is linked. */
+  readonly newTaskStatus: string | null;
+  /** Whether a task status transition occurred. */
+  readonly taskStatusChanged: boolean;
+}
+
+/**
+ * Ingests the result of an external agent execution attempt.
+ *
+ * Handles the full state transition: if the session is in "prepared" status it
+ * is automatically started before the result is recorded, so the caller does
+ * not need to call `startExecutionSession` separately.
+ *
+ * After recording the result the linked task's status is updated truthfully:
+ * - "completed" → task moves to "in-review" (signals work is ready for review).
+ * - "failed" or "needs_clarification" → task remains actionable ("todo") so
+ *   it can be retried. The task is NOT automatically moved to done, in-review,
+ *   or any review/QA state.
+ *
+ * A runtime timeline event is written on the originating RuntimeRequest when
+ * the task → outcome → runtimeRequest chain is resolvable.
+ *
+ * @param input - Ingestion payload including session ID and agent result.
+ * @returns Updated session, new task status, and whether the task changed.
+ * @throws Error if the session is not found, not owned, or is already terminal.
+ *
+ * @example
+ * ```ts
+ * const outcome = await ingestAgentExecutionResult({
+ *   companyId: "cmp_123",
+ *   sessionId: "ses_456",
+ *   status: "completed",
+ *   resultSummary: "Implemented feature. All tests pass.",
+ *   filesChanged: "src/lib/foo.ts\nsrc/lib/foo.test.ts",
+ *   validationOutput: "✅ tsc, lint, test all pass",
+ *   errorMessage: null,
+ * });
+ * ```
+ */
+export async function ingestAgentExecutionResult(
+  input: IngestAgentExecutionResultInput
+): Promise<IngestAgentExecutionResultOutcome> {
+  const session = await prisma.executionSession.findFirst({
+    where: { id: input.sessionId, companyId: input.companyId },
+  });
+
+  if (!session) {
+    throw new Error(`ExecutionSession ${input.sessionId} not found or not owned by company ${input.companyId}`);
+  }
+
+  if (isSessionTerminal(session)) {
+    throw new Error(
+      `Cannot ingest result for session ${input.sessionId}: already in terminal status "${session.status}"`
+    );
+  }
+
+  const parsedFiles = parseFilesInput(input.filesChanged);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    let current = session;
+
+    if (current.status === "prepared") {
+      current = await tx.executionSession.update({
+        where: { id: current.id },
+        data: { status: "running", startedAt: new Date() },
+      });
+    }
+
+    if (current.status !== "running") {
+      throw new Error(
+        `Cannot record result for session ${input.sessionId}: expected "running" or "prepared", got "${current.status}"`
+      );
+    }
+
+    const resultSession = await tx.executionSession.update({
+      where: { id: current.id },
+      data: {
+        status: input.status,
+        resultSummary: input.resultSummary ?? null,
+        filesChanged: serializeFiles(parsedFiles),
+        validationOutput: input.validationOutput ?? null,
+        errorMessage: input.errorMessage ?? null,
+        completedAt: new Date(),
+      },
+    });
+
+    return resultSession;
+  });
+
+  let newTaskStatus: string | null = null;
+  let taskStatusChanged = false;
+
+  if (updated.taskId) {
+    const targetTaskStatus = input.status === "completed" ? "in-review" : "todo";
+
+    const updateResult = await prisma.task.updateMany({
+      where: {
+        id: updated.taskId,
+        companyId: input.companyId,
+        status: { notIn: ["done", "cancelled", "in-review"] },
+      },
+      data: { status: targetTaskStatus },
+    });
+
+    taskStatusChanged = updateResult.count > 0;
+    newTaskStatus = targetTaskStatus;
+
+    if (taskStatusChanged) {
+      try {
+        await writeTimelineEventForTask(
+          input.companyId,
+          updated.taskId,
+          input.status,
+          input.resultSummary
+        );
+      } catch {
+        // Timeline event creation is best-effort; do not fail the main ingestion flow.
+      }
+    }
+  }
+
+  return { session: updated, newTaskStatus, taskStatusChanged };
+}
+
+// ─── Internal Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Parses filesChanged input which may be a newline-separated string or array.
+ *
+ * @param files - Newline-separated string from a textarea, or an array.
+ * @returns Cleaned array of relative file paths.
+ */
+function parseFilesInput(files: string | readonly string[]): string[] {
+  if (Array.isArray(files)) {
+    return (files as string[]).filter((f) => f.trim().length > 0);
+  }
+  return (files as string)
+    .split("\n")
+    .map((f) => f.trim())
+    .filter((f) => f.length > 0);
+}
+
+/**
+ * Writes a runtime timeline event on the RuntimeRequest linked to a task's
+ * outcome, when the full chain is resolvable.
+ *
+ * @param companyId - Company ID for ownership scoping.
+ * @param taskId - Task to trace to its RuntimeRequest.
+ * @param executionStatus - Final execution status.
+ * @param resultSummary - Optional result summary for the event description.
+ */
+async function writeTimelineEventForTask(
+  companyId: string,
+  taskId: string,
+  executionStatus: string,
+  resultSummary: string | null
+): Promise<void> {
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, companyId },
+    select: {
+      id: true,
+      outcome: { select: { runtimeRequestId: true } },
+    },
+  });
+
+  const runtimeRequestId = task?.outcome?.runtimeRequestId;
+  if (!runtimeRequestId) return;
+
+  const requestExists = await prisma.runtimeRequest.findFirst({
+    where: { id: runtimeRequestId, companyId },
+    select: { id: true },
+  });
+  if (!requestExists) return;
+
+  const description = buildTimelineDescription(executionStatus, resultSummary);
+
+  await prisma.runtimeEvent.create({
+    data: {
+      requestId: runtimeRequestId,
+      type: `execution_${executionStatus}`,
+      description,
+      actor: "Agent",
+    },
+  });
+}
+
+/**
+ * Builds a human-readable timeline event description for execution results.
+ *
+ * @param executionStatus - Final execution status.
+ * @param resultSummary - Optional agent-provided summary.
+ * @returns Short, consistent description string for the RuntimeEvent.
+ */
+function buildTimelineDescription(executionStatus: string, resultSummary: string | null): string {
+  const summarySnippet =
+    resultSummary && resultSummary.trim().length > 0
+      ? `: ${resultSummary.trim().slice(0, 120)}`
+      : "";
+
+  switch (executionStatus) {
+    case "completed":
+      return `Implementation completed${summarySnippet}`;
+    case "failed":
+      return `Implementation failed${summarySnippet}`;
+    case "needs_clarification":
+      return `Implementation needs clarification${summarySnippet}`;
+    default:
+      return `Execution result recorded: ${executionStatus}${summarySnippet}`;
+  }
+}
