@@ -15,7 +15,10 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { TaskStatusSelect } from "./task-status-select";
 import { TaskBriefSection } from "./task-brief-section";
+import { ReviewBriefSection } from "./review-brief-section";
 import { ExecutionResultForm } from "./execution-result-form";
+import { generateReviewBrief } from "@/lib/review-brief";
+import { extractPlanningTaskPayload } from "@/lib/implementation-brief";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -86,6 +89,7 @@ export default async function TaskDetailPage({ params }: Props) {
       },
       project: { select: { id: true, name: true } },
       subtasks: { orderBy: { createdAt: "asc" } },
+      planningDraft: { select: { generatedTasks: true } },
     },
   });
 
@@ -121,7 +125,7 @@ export default async function TaskDetailPage({ params }: Props) {
         mergeStatus: true,
       },
     }),
-    // Latest completed session — surfaces branch/PR info after work is done.
+    // Latest completed session — surfaces branch/PR info and review brief data.
     prisma.executionSession.findFirst({
       where: {
         companyId: company.id,
@@ -137,9 +141,54 @@ export default async function TaskDetailPage({ params }: Props) {
         prNumber: true,
         prStatus: true,
         mergeStatus: true,
+        resultSummary: true,
+        filesChanged: true,
+        validationOutput: true,
       },
     }),
   ]);
+
+  // Generate review brief when a completed session exists.
+  let reviewBrief: string | null = null;
+  if (latestCompletedSession) {
+    const taskPayload = extractPlanningTaskPayload(
+      task.planningDraft?.generatedTasks ?? null,
+      task.planItemId ?? null
+    );
+    const acceptanceCriteria: string[] =
+      taskPayload?.acceptanceCriteria
+        ? [...taskPayload.acceptanceCriteria]
+        : task.description
+        ? [task.description]
+        : [];
+
+    let filesChanged: string[] = [];
+    try {
+      filesChanged = JSON.parse(latestCompletedSession.filesChanged ?? "[]") as string[];
+    } catch {
+      filesChanged = [];
+    }
+
+    reviewBrief = generateReviewBrief({
+      task: {
+        id: task.id,
+        title: task.title,
+        description: task.description ?? null,
+        acceptanceCriteria,
+      },
+      session: {
+        resultSummary: latestCompletedSession.resultSummary ?? null,
+        filesChanged,
+        validationOutput: latestCompletedSession.validationOutput ?? null,
+        branchName: latestCompletedSession.branchName ?? null,
+        baseBranch: latestCompletedSession.baseBranch ?? null,
+        commitSha: latestCompletedSession.commitSha ?? null,
+        prUrl: latestCompletedSession.prUrl ?? null,
+        prNumber: latestCompletedSession.prNumber ?? null,
+        prStatus: latestCompletedSession.prStatus ?? null,
+      },
+    });
+  }
 
   // Quality gate: find latest review and QA for this task
   const [latestReview, latestQA] = await Promise.all([
@@ -416,6 +465,9 @@ export default async function TaskDetailPage({ params }: Props) {
           taskStatus={task.status}
           existingBrief={latestPreparedSession?.taskBrief ?? null}
         />
+
+        {/* Codex Review Brief */}
+        {reviewBrief && <ReviewBriefSection brief={reviewBrief} />}
 
         {/* Execution Result Ingestion */}
         {activeSession && (
