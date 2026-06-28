@@ -1,6 +1,8 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { SettingsForm } from "./settings-form";
 
 export const metadata = { title: "Settings" };
@@ -49,6 +51,26 @@ export default async function SettingsPage() {
             autonomyLevel={company.settings?.autonomyLevel ?? "assist"}
             cultureProfile={company.settings?.cultureProfile ?? "startup"}
           />
+        </section>
+
+        <section>
+          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            System
+          </h2>
+          <div className="rounded-xl border border-neutral-800 bg-neutral-900 overflow-hidden">
+            <Link
+              href="/settings/config"
+              className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-neutral-800/50"
+            >
+              <div>
+                <p className="text-sm font-medium text-neutral-200">Config Inventory</p>
+                <p className="mt-0.5 text-xs text-neutral-600">
+                  View all company, integration, and environment configuration in one place.
+                </p>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-neutral-600" />
+            </Link>
+          </div>
         </section>
       </div>
     </div>
