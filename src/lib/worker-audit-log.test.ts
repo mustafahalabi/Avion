@@ -182,6 +182,28 @@ describe("WorkerAuditLog.getEventsBySeverity()", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].severity).toBe("error");
   });
+
+  it("treats an unknown severity value as 'info' (included at minSeverity 'info')", () => {
+    const log = new WorkerAuditLog("ses_unknown_sev");
+    // Force an unknown severity via type cast to simulate deserialized corrupt data
+    log.log("file_read", {}, "info" as AuditSeverity);
+    const events = log.getEvents();
+    // Patch the severity to an unknown value directly on the event object
+    (events[0] as { severity: string }).severity = "debug";
+
+    // Reconstruct via serialize/deserialize to get the patched event into a new log
+    const envelope = {
+      version: 1,
+      sessionId: "ses_unknown_sev",
+      events: [{ ...events[0], severity: "debug" }],
+    };
+    const restored = WorkerAuditLog.deserialize(JSON.stringify(envelope));
+
+    // "debug" is unknown — treated as info (level 0), so included at minSeverity "info"
+    expect(restored.getEventsBySeverity("info")).toHaveLength(1);
+    // But excluded at minSeverity "warn" (level 1), since unknown defaults to 0
+    expect(restored.getEventsBySeverity("warn")).toHaveLength(0);
+  });
 });
 
 // ─── serialize() / deserialize() ─────────────────────────────────────────────
@@ -278,6 +300,42 @@ describe("WorkerAuditLog serialize / deserialize round-trip", () => {
     expect(() => WorkerAuditLog.deserialize("null")).toThrow(
       "unrecognized envelope"
     );
+  });
+
+  it("deserialize skips null entries inside events array without throwing", () => {
+    const envelope = JSON.stringify({
+      version: 1,
+      sessionId: "ses_null_entry",
+      events: [null, null],
+    });
+    const restored = WorkerAuditLog.deserialize(envelope);
+    expect(restored.getEvents()).toHaveLength(0);
+  });
+
+  it("deserialize skips primitive entries inside events array without throwing", () => {
+    const envelope = JSON.stringify({
+      version: 1,
+      sessionId: "ses_prim_entry",
+      events: [42, "bad", true, null],
+    });
+    const restored = WorkerAuditLog.deserialize(envelope);
+    expect(restored.getEvents()).toHaveLength(0);
+  });
+
+  it("deserialize overwrites event sessionId with the envelope sessionId", () => {
+    const original = new WorkerAuditLog("ses_correct");
+    original.log("file_read", {});
+
+    // Tamper with the serialized JSON to inject a mismatched sessionId
+    const tampered = JSON.parse(original.serialize()) as {
+      version: number;
+      sessionId: string;
+      events: Array<{ sessionId: string }>;
+    };
+    tampered.events[0].sessionId = "ses_wrong";
+    const restored = WorkerAuditLog.deserialize(JSON.stringify(tampered));
+
+    expect(restored.getEvents()[0].sessionId).toBe("ses_correct");
   });
 });
 

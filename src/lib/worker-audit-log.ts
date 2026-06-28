@@ -190,24 +190,34 @@ export class WorkerAuditLog {
    */
   getEventsBySeverity(minSeverity: AuditSeverity): AuditEvent[] {
     const order: Record<AuditSeverity, number> = { info: 0, warn: 1, error: 2 };
+    type SeverityLevel = keyof typeof order;
     const threshold = order[minSeverity];
-    return this._events.filter((e) => order[e.severity] >= threshold);
+    return this._events.filter((e) => {
+      const eventLevel = order[e.severity as SeverityLevel] ?? 0; // default unknown severity to info level
+      return eventLevel >= threshold;
+    });
   }
 
   // ─── Serialization ──────────────────────────────────────────────────────────
 
   /**
-   * Serializes the entire log to a JSON string suitable for storage in a
-   * text field (e.g. `ExecutionSession.resultSummary`).
+   * Serializes the entire log to a compact JSON string.
+   *
+   * The returned string should be stored in a **dedicated audit-log field**
+   * (e.g. a `workerAuditLog` column) rather than reusing
+   * `ExecutionSession.resultSummary`, which is reserved for human-readable
+   * text consumed by other services. Alternatively, pass the value as a
+   * structured payload (e.g. via `validationOutput`) where appropriate.
    *
    * @returns Compact JSON string.
    *
    * @example
    * ```ts
    * const json = log.serialize();
+   * // Store in a dedicated audit field, not resultSummary:
    * await prisma.executionSession.update({
    *   where: { id: sessionId },
-   *   data: { resultSummary: json },
+   *   data: { workerAuditLog: json },
    * });
    * ```
    */
@@ -269,6 +279,10 @@ export class WorkerAuditLog {
 
     const instance = new WorkerAuditLog(envelope.sessionId);
     for (const event of envelope.events) {
+      // Guard against null or non-object entries in the events array
+      if (event === null || typeof event !== "object") continue;
+      // Enforce envelope sessionId to prevent mismatched events
+      (event as Record<string, unknown>).sessionId = envelope.sessionId;
       // Push directly to bypass UUID generation — restore originals
       instance._events.push(event as AuditEvent);
     }
