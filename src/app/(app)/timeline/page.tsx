@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/current-user";
+import { getPlanningLifecycleTimeline } from "@/lib/outcome-planning-lifecycle";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { TrendingUp } from "lucide-react";
@@ -51,18 +52,58 @@ export default async function TimelinePage() {
   });
   if (!company) redirect("/onboarding");
 
-  const events = await prisma.runtimeEvent.findMany({
-    where: { request: { companyId: company.id } },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    include: {
-      request: {
-        select: { id: true, title: true, status: true, requestType: true },
+  const [events, planningTimeline] = await Promise.all([
+    prisma.runtimeEvent.findMany({
+      where: { request: { companyId: company.id } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: {
+        request: {
+          select: { id: true, title: true, status: true, requestType: true },
+        },
       },
-    },
-  });
+    }),
+    getPlanningLifecycleTimeline(company.id, 50),
+  ]);
 
-  const grouped = groupByDate(events);
+  const mergedTimeline = [
+    ...events.map((event) => ({
+      id: `runtime-${event.id}`,
+      createdAt: event.createdAt,
+      description: event.description,
+      href: `/inbox/requests/${event.request.id}`,
+      contextLabel: event.request.title,
+      type: event.type,
+      source: "runtime" as const,
+    })),
+    ...planningTimeline.map((event) => ({
+      id: `planning-${event.id}`,
+      createdAt: event.createdAt,
+      description: event.summary,
+      href: event.href,
+      contextLabel: event.outcomeTitle ?? "Outcome planning",
+      type: event.eventType,
+      source: "planning" as const,
+    })),
+  ]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 100);
+
+  const grouped = groupByDate(
+    mergedTimeline.map((event) => ({
+      id: event.id,
+      type: event.type,
+      description: event.description,
+      actor: null,
+      createdAt: event.createdAt,
+      request: {
+        id: event.href,
+        title: event.contextLabel,
+        status: event.source,
+        requestType: event.type,
+      },
+    }))
+  );
   const dateKeys = Object.keys(grouped);
 
   return (
@@ -70,12 +111,12 @@ export default async function TimelinePage() {
       <header className="flex h-12 items-center justify-between border-b border-neutral-800 px-6">
         <h1 className="text-sm font-semibold text-neutral-100">Timeline</h1>
         <span className="text-xs text-neutral-600">
-          {events.length} event{events.length === 1 ? "" : "s"}
+          {mergedTimeline.length} event{mergedTimeline.length === 1 ? "" : "s"}
         </span>
       </header>
 
       <div className="flex flex-col p-6 max-w-2xl">
-        {events.length === 0 ? (
+        {mergedTimeline.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-neutral-800 py-14 text-center">
             <TrendingUp className="h-5 w-5 text-neutral-700" />
             <div>
@@ -131,7 +172,11 @@ export default async function TimelinePage() {
                           </p>
                           <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-700">
                             <Link
-                              href={`/inbox/requests/${event.request.id}`}
+                              href={
+                                event.request.id.startsWith("/")
+                                  ? event.request.id
+                                  : `/inbox/requests/${event.request.id}`
+                              }
                               className="truncate hover:text-neutral-500 transition-colors"
                             >
                               {event.request.title}

@@ -4,6 +4,7 @@ import {
   buildGeneratedWorkTraceData,
   type PlanningDraftWorkGuardInput,
 } from "@/lib/outcome-planning";
+import { OUTCOME_PLANNING_EVENT_TYPES } from "@/lib/outcome-planning-lifecycle";
 import type {
   GeneratedPlanningProject,
   GeneratedPlanningFeature,
@@ -105,7 +106,7 @@ export async function approvePlanningDraft(input: ApprovePlanInput): Promise<App
       data: {
         entityType: "planning_draft",
         entityId: draft.id,
-        eventType: "plan.approved",
+        eventType: OUTCOME_PLANNING_EVENT_TYPES.planApproved,
         summary: "Planning draft approved.",
         actorId: input.actorId,
         metadata: JSON.stringify({ planningDraftId: draft.id, notes: input.notes ?? null }),
@@ -175,10 +176,15 @@ export async function rejectPlanningDraft(input: RejectPlanInput): Promise<Rejec
       data: {
         entityType: "planning_draft",
         entityId: draft.id,
-        eventType: "plan.rejected",
-        summary: "Planning draft rejected.",
+        eventType: OUTCOME_PLANNING_EVENT_TYPES.planRejected,
+        summary: "Planning draft rejected. No work records were created.",
         actorId: input.actorId,
-        metadata: JSON.stringify({ planningDraftId: draft.id, reason }),
+        metadata: JSON.stringify({
+          outcomeId: draft.outcomeId,
+          planningDraftId: draft.id,
+          reason,
+          createdWorkRecords: false,
+        }),
       },
     });
   });
@@ -418,8 +424,8 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
       data: {
         entityType: "planning_draft",
         entityId: draft.id,
-        eventType: "plan.applied",
-        summary: `Planning draft applied: ${projectsCreated} project(s), ${featuresCreated} feature(s), ${tasksCreated} task(s) created.`,
+        eventType: OUTCOME_PLANNING_EVENT_TYPES.workCreated,
+        summary: `Work created from approved plan: ${projectsCreated} project(s), ${featuresCreated} feature(s), ${tasksCreated} task(s).`,
         actorId: input.actorId,
         metadata: JSON.stringify({
           planningDraftId: draft.id,

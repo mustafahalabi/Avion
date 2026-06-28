@@ -22,6 +22,13 @@ import {
   computeNextActions,
   type NextAction,
 } from "@/lib/next-action-recommendation";
+import {
+  countPendingPlanningDrafts,
+  getPendingPlanningDrafts,
+  getPlanningLifecycleTimeline,
+  getRecentlyApprovedPlanningDrafts,
+} from "@/lib/outcome-planning-lifecycle";
+import { PlanningDashboardSections } from "@/components/planning/planning-dashboard-sections";
 
 const RUNTIME_STATUS: Record<
   string,
@@ -131,22 +138,24 @@ export default async function DashboardPage() {
   const blockedTasks = allTasks.filter((t) => t.status === "blocked");
 
   // Fetch execution session counts and pending plan approvals in parallel
-  const [recentEvents, executionCounts, pendingPlanCount] = await Promise.all([
-    prisma.runtimeEvent.findMany({
-      where: { request: { companyId: company.id } },
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      include: { request: { select: { id: true, title: true } } },
-    }),
-    prisma.executionSession.groupBy({
-      by: ["status"],
-      where: { companyId: company.id },
-      _count: { id: true },
-    }),
-    prisma.planningDraft.count({
-      where: { companyId: company.id, status: "review" },
-    }),
-  ]);
+  const [recentEvents, executionCounts, pendingPlanCount, pendingPlans, approvedPlans, planningTimeline] =
+    await Promise.all([
+      prisma.runtimeEvent.findMany({
+        where: { request: { companyId: company.id } },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        include: { request: { select: { id: true, title: true } } },
+      }),
+      prisma.executionSession.groupBy({
+        by: ["status"],
+        where: { companyId: company.id },
+        _count: { id: true },
+      }),
+      countPendingPlanningDrafts(company.id),
+      getPendingPlanningDrafts(company.id),
+      getRecentlyApprovedPlanningDrafts(company.id),
+      getPlanningLifecycleTimeline(company.id, 8),
+    ]);
 
   const execByStatus = Object.fromEntries(
     executionCounts.map((r) => [r.status, r._count.id])
@@ -270,6 +279,11 @@ export default async function DashboardPage() {
             href="/memory"
           />
         </section>
+
+        <PlanningDashboardSections
+          pendingPlans={pendingPlans}
+          approvedPlans={approvedPlans}
+        />
 
         {/* Decisions awaiting approval */}
         {awaitingApproval.length > 0 && (
@@ -496,6 +510,55 @@ export default async function DashboardPage() {
                 {idleEmployees.length} employee{idleEmployees.length === 1 ? "" : "s"} with no assigned tasks.
               </p>
             )}
+          </section>
+        )}
+
+        {/* Planning lifecycle timeline */}
+        {planningTimeline.length > 0 && (
+          <section>
+            <SectionHeader
+              label="Outcome Planning Activity"
+              icon={<TrendingUp className="h-3.5 w-3.5 text-neutral-400" />}
+            />
+            <div className="flex flex-col">
+              {planningTimeline.map((event, i) => (
+                <div key={event.id} className="flex items-start gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500" />
+                    {i < planningTimeline.length - 1 && (
+                      <div
+                        className="w-px flex-1 bg-neutral-800 mt-1 mb-1"
+                        style={{ minHeight: "16px" }}
+                      />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 pb-3">
+                    <p className="text-xs text-neutral-400 leading-relaxed">{event.summary}</p>
+                    <div className="mt-0.5 flex items-center gap-2 text-[11px] text-neutral-700">
+                      <Link
+                        href={event.href}
+                        className="truncate hover:text-neutral-500 transition-colors"
+                      >
+                        {event.outcomeTitle ?? "View outcome"}
+                      </Link>
+                      <span className="shrink-0">·</span>
+                      <span className="shrink-0 capitalize">
+                        {event.eventType.replace(/\./g, " ")}
+                      </span>
+                      <span className="shrink-0">·</span>
+                      <span className="shrink-0">
+                        {new Date(event.createdAt).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
         )}
 

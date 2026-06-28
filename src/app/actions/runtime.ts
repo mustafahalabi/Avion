@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { notify } from "@/lib/notify";
 import { REQUEST_ROUTING } from "@/lib/request-routing";
 import { buildOutcomeCreateData } from "@/lib/outcome-planning";
+import { recordOutcomeSubmittedEvent } from "@/lib/outcome-planning-lifecycle";
 import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
 
 const REQUEST_TYPES = [
@@ -95,6 +96,14 @@ export async function submitRequest(
     });
 
     return { request: runtimeRequest, outcome: createdOutcome };
+  });
+
+  await recordOutcomeSubmittedEvent({
+    companyId: company.id,
+    outcomeId: outcome.id,
+    outcomeTitle: parsed.data.title,
+    actorId: user.id,
+    source: "runtime_request",
   });
 
   await createOrUpdatePlanningDraftForOutcome({

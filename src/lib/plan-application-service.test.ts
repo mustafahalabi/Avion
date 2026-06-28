@@ -675,7 +675,7 @@ describe("applyApprovedPlan", () => {
     });
 
     const entry = await prisma.timelineEntry.findFirst({
-      where: { entityId: "draft-1", eventType: "plan.applied" },
+      where: { entityId: "draft-1", eventType: "work.created" },
     });
     expect(entry).not.toBeNull();
     expect(entry?.summary).toContain("1 project(s)");

@@ -108,7 +108,28 @@ Successful generation stores:
 
 Generation failure stores a `failed` `PlanningDraft` with `generationError` and focused CEO questions. Empty, too-short, ambiguous, and unsupported outcomes fail before any work generation instructions are produced.
 
-Runtime and timeline events record `outcome.plan_created` or `outcome.plan_failed`. These events describe planning only; they must not imply execution has started.
+Runtime and timeline events record:
+
+- `outcome.submitted`
+- `plan.generated`
+- `plan.approved`
+- `plan.rejected`
+- `work.created`
+- `plan.failed`
+
+These events describe planning and work creation boundaries only; they must not imply autonomous agent execution, review automation, or QA automation has started.
+
+## Dashboard and Traceability (MUS-143)
+
+The CEO dashboard surfaces:
+
+- **Plans Awaiting Review** for `draft` and `reviewing` planning drafts.
+- **Recently Approved Plans** for approved drafts awaiting apply.
+- **Outcome Planning Activity** from `TimelineEntry` records.
+
+Generated work (`Project`, `Feature`, `Task`) includes optional `outcomeId` and `planningDraftId` trace fields. Project detail pages show a trace banner linking back to the originating outcome when those fields are present.
+
+Manual QA coverage lives in `docs/qa/OUTCOME_PLANNING_SMOKE_CHECKLIST.md`.
 
 ## Rejected Plan Invariant
 
@@ -118,4 +139,4 @@ Server-side apply code must call `assertPlanningDraftCanCreateWork()` before cre
 
 ## Deferred Work
 
-MUS-140 does not implement plan approval actions, plan application, UI review screens, Linear/GitHub automation, external AI planning, or execution providers. Applying approved plans into `Project`, `Feature`, `Task`, `Review`, `QAResult`, and `Release` rows remains deferred to the later Outcome Planning Engine tickets.
+MUS-140 does not call external AI planning providers. Linear/GitHub automation and autonomous execution providers remain out of scope for the planning slice. Dedicated plan review pages may ship in adjacent tickets once merged to `master`.

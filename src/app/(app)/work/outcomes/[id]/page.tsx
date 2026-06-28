@@ -114,6 +114,25 @@ export default async function OutcomeDetailPage({
 
   if (!outcome) notFound();
 
+  const planningTimeline = await prisma.timelineEntry.findMany({
+    where: {
+      OR: [
+        { entityType: "outcome", entityId: outcome.id },
+        ...(outcome.planningDrafts[0]
+          ? [{ entityType: "planning_draft", entityId: outcome.planningDrafts[0].id }]
+          : []),
+      ],
+    },
+    orderBy: { createdAt: "asc" },
+    take: 20,
+    select: {
+      id: true,
+      eventType: true,
+      summary: true,
+      createdAt: true,
+    },
+  });
+
   const statusCfg =
     OUTCOME_STATUS_COLORS[outcome.status] ??
     OUTCOME_STATUS_COLORS["proposed"];
@@ -247,6 +266,32 @@ export default async function OutcomeDetailPage({
 
           {canGeneratePlan && latestDraft?.status !== "failed" && !latestDraft && null}
         </section>
+
+        {planningTimeline.length > 0 && (
+          <section>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-600">
+              Planning Lifecycle
+            </h3>
+            <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-4">
+              <div className="flex flex-col gap-3">
+                {planningTimeline.map((entry) => (
+                  <div key={entry.id} className="border-l border-neutral-700 pl-3">
+                    <p className="text-xs text-neutral-300">{entry.summary}</p>
+                    <p className="mt-1 text-[11px] text-neutral-600">
+                      {entry.eventType.replace(/\./g, " ")} ·{" "}
+                      {new Date(entry.createdAt).toLocaleString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

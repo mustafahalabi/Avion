@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { AddTaskForm } from "./add-task-form";
+import { GeneratedWorkTraceBanner } from "@/components/planning/generated-work-trace-banner";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -77,6 +78,7 @@ export default async function ProjectDetailPage({ params }: Props) {
     ? await prisma.project.findFirst({
         where: { id, workspaceId: workspace.id },
         include: {
+          outcome: { select: { id: true, title: true } },
           features: {
             include: {
               tasks: {
@@ -129,6 +131,12 @@ export default async function ProjectDetailPage({ params }: Props) {
       </header>
 
       <div className="flex flex-col gap-8 p-6">
+        <GeneratedWorkTraceBanner
+          outcomeId={project.outcomeId}
+          outcomeTitle={project.outcome?.title ?? null}
+          planningDraftId={project.planningDraftId}
+        />
+
         {/* Project header */}
         <section>
           <div className="flex items-start justify-between gap-4">
