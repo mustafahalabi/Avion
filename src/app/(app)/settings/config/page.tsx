@@ -163,7 +163,8 @@ export default async function ConfigInventoryPage() {
   const repoCount = allRepos.length;
   const analysedCount = allRepos.filter((r) => r.analysisStatus === "completed").length;
 
-  const nextVersion = "16.2.9";
+  // Read version from the running process so it stays accurate after upgrades
+  const nextVersion = (process.env.npm_package_dependencies_next ?? "16.x").replace(/[\^~>=<]/, "").split(" ")[0];
   const nodeEnv = process.env.NODE_ENV ?? "—";
 
   return (
@@ -235,7 +236,7 @@ export default async function ConfigInventoryPage() {
         </SectionCard>
 
         {/* ── 3. Repository Configuration ───────────────────────────────── */}
-        <SectionCard title="Repository Configuration" editHref="/repositories" editLabel="Manage">
+        <SectionCard title="Repository Configuration" editHref="/work/repositories" editLabel="Manage">
           <ConfigRow label="Connected repositories" value={String(repoCount)} />
           <ConfigRow
             label="Analysed"
