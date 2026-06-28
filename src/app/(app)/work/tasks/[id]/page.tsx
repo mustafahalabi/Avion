@@ -423,7 +423,10 @@ export default async function TaskDetailPage({ params }: Props) {
                 </Link>
               )}
               {latestQA && (
-                <div className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3">
+                <Link
+                  href={`/work/quality/qa/${latestQA.id}`}
+                  className="group flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3 transition-colors hover:border-neutral-700"
+                >
                   <CheckCircle2
                     className={cn(
                       "h-3.5 w-3.5 shrink-0",
@@ -431,6 +434,8 @@ export default async function TaskDetailPage({ params }: Props) {
                         ? "text-emerald-400"
                         : latestQA.status === "failed"
                         ? "text-red-400"
+                        : latestQA.status === "blocked"
+                        ? "text-amber-400"
                         : "text-neutral-500"
                     )}
                   />
@@ -445,15 +450,17 @@ export default async function TaskDetailPage({ params }: Props) {
                           ? "text-emerald-400"
                           : latestQA.status === "failed"
                           ? "text-red-400"
+                          : latestQA.status === "blocked"
+                          ? "text-amber-400"
                           : "text-neutral-600"
                       )}
                     >
-                      {latestQA.status}
+                      {latestQA.status.replace(/_/g, " ")}
                       {latestQA.passedCount + latestQA.failedCount > 0 &&
                         ` · ${latestQA.passedCount}/${latestQA.passedCount + latestQA.failedCount} checks`}
                     </p>
                   </div>
-                </div>
+                </Link>
               )}
             </div>
           </section>

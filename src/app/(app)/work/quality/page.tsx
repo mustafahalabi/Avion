@@ -33,6 +33,8 @@ const QA_STATUS: Record<
   pending: { label: "Pending", color: "text-neutral-500", icon: Clock },
   passed: { label: "Passed", color: "text-emerald-400", icon: CheckCircle2 },
   failed: { label: "Failed", color: "text-red-400", icon: XCircle },
+  blocked: { label: "Blocked", color: "text-amber-400", icon: AlertCircle },
+  needs_clarification: { label: "Needs Clarification", color: "text-blue-400", icon: Clock },
   in_progress: { label: "In Progress", color: "text-blue-400", icon: Clock },
 };
 
@@ -168,9 +170,10 @@ export default async function QualityPage() {
                 const total = qa.passedCount + qa.failedCount;
 
                 return (
-                  <div
+                  <Link
                     key={qa.id}
-                    className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3.5"
+                    href={`/work/quality/qa/${qa.id}`}
+                    className="group flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3.5 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
                   >
                     <Icon className={cn("h-4 w-4 shrink-0", cfg.color)} />
                     <div className="flex-1 min-w-0">
@@ -191,7 +194,8 @@ export default async function QualityPage() {
                         )}
                       </p>
                     </div>
-                  </div>
+                    <ChevronRight className="h-3.5 w-3.5 text-neutral-700 group-hover:text-neutral-500 transition-colors" />
+                  </Link>
                 );
               })}
             </div>
