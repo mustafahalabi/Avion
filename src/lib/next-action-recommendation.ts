@@ -20,7 +20,7 @@ export interface NextAction {
  * All counts are non-negative integers.
  */
 export interface WorkspaceActionState {
-  /** PlanningDrafts awaiting CEO approval (status = "review") */
+  /** PlanningDrafts awaiting CEO review (status draft or reviewing) */
   pendingPlanApprovalCount: number;
   /** RuntimeRequests awaiting approval (legacy status = "awaiting_approval") */
   awaitingApprovalRequestCount: number;
@@ -76,7 +76,7 @@ export function computeNextActions(
       reason: `${n} planning draft${n === 1 ? " is" : "s are"} ready for CEO review. Approving unlocks the next execution cycle.`,
       priority: "urgent",
       confidence: "high",
-      href: "/work/projects",
+      href: "/work/outcomes",
       cta: "Review plans",
     });
   }

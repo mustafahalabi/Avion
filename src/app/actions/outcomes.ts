@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { getCurrentUser } from "@/lib/current-user";
+import { recordOutcomeSubmittedEvent } from "@/lib/outcome-planning-lifecycle";
 import { prisma } from "@/lib/prisma";
 
 // ─── Submit Outcome ───────────────────────────────────────────────────────────
@@ -91,11 +92,20 @@ export async function submitOutcome(
       priority: parsed.data.priority,
       status: "proposed",
     },
-    select: { id: true },
+    select: { id: true, title: true },
+  });
+
+  await recordOutcomeSubmittedEvent({
+    companyId: company.id,
+    outcomeId: outcome.id,
+    outcomeTitle: outcome.title,
+    actorId: user.id,
+    source: "outcome_form",
   });
 
   revalidatePath("/work/projects");
   revalidatePath("/dashboard");
+  revalidatePath("/timeline");
 
   redirect(`/work/outcomes/${outcome.id}`);
 }

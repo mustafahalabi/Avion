@@ -9,6 +9,7 @@ import {
   type PlanningRepositoryContext,
 } from "@/lib/planning-generator";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
+import { OUTCOME_PLANNING_EVENT_TYPES } from "@/lib/outcome-planning-lifecycle";
 
 const INITIAL_DRAFT_VERSION = 1;
 
@@ -311,7 +312,7 @@ async function persistSuccessfulGeneration(
       await tx.runtimeEvent.create({
         data: {
           requestId: outcome.runtimeRequestId,
-          type: "outcome.plan_created",
+          type: OUTCOME_PLANNING_EVENT_TYPES.planGenerated,
           description: `Planning draft generated for outcome "${outcome.title}". No work records were created.`,
           actor: "System",
         },
@@ -322,12 +323,27 @@ async function persistSuccessfulGeneration(
       data: {
         entityType: "outcome",
         entityId: outcome.id,
-        eventType: "outcome.plan_created",
-        summary: `Planning draft generated for "${outcome.title}".`,
+        eventType: OUTCOME_PLANNING_EVENT_TYPES.planGenerated,
+        summary: `Planning draft generated for "${outcome.title}". No work records were created.`,
         actorId,
         metadata: JSON.stringify({
           planningDraftId: persistedDraft.id,
           generatorVersion: draft.generatorVersion,
+          createdWorkRecords: false,
+        }),
+      },
+    });
+
+    await tx.timelineEntry.create({
+      data: {
+        entityType: "planning_draft",
+        entityId: persistedDraft.id,
+        eventType: OUTCOME_PLANNING_EVENT_TYPES.planGenerated,
+        summary: `Plan ready for CEO review: "${draft.title}".`,
+        actorId,
+        metadata: JSON.stringify({
+          outcomeId: outcome.id,
+          planningDraftId: persistedDraft.id,
           createdWorkRecords: false,
         }),
       },
@@ -421,7 +437,7 @@ async function persistFailedGeneration(
       await tx.runtimeEvent.create({
         data: {
           requestId: outcome.runtimeRequestId,
-          type: "outcome.plan_failed",
+          type: OUTCOME_PLANNING_EVENT_TYPES.planFailed,
           description: `Planning draft generation failed for outcome "${outcome.title}": ${failure.reason}`,
           actor: "System",
         },
@@ -432,7 +448,7 @@ async function persistFailedGeneration(
       data: {
         entityType: "outcome",
         entityId: outcome.id,
-        eventType: "outcome.plan_failed",
+        eventType: OUTCOME_PLANNING_EVENT_TYPES.planFailed,
         summary: failure.reason,
         actorId,
         metadata: JSON.stringify({
