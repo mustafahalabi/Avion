@@ -543,6 +543,22 @@ model ExecutionSession {
   // Error message when status is "failed" or "needs_clarification".
   errorMessage     String?
 
+  // ── Git / PR tracking ────────────────────────────────────────────────────
+  // Implementation branch the agent should work on (derived from task ID + title).
+  branchName  String?
+  // Base branch the implementation branch is checked out from.
+  baseBranch  String?
+  // Commit SHA reported by the agent after completing work.
+  commitSha   String?
+  // Pull Request URL after the agent opens a PR.
+  prUrl       String?
+  // Pull Request number.
+  prNumber    Int?
+  // "open" | "draft" | "merged" | "closed"
+  prStatus    String?
+  // "pending" | "merged" | "conflicts"
+  mergeStatus String?
+
   // ── Lifecycle timestamps ──────────────────────────────────────────────────
   startedAt   DateTime?
   completedAt DateTime?

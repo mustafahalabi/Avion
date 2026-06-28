@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { ExecutionSession } from "@/generated/prisma/client";
+import { deriveBranchName } from "@/lib/implementation-brief";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -19,8 +20,36 @@ export const EXECUTION_SESSION_AGENT_TYPES = [
   "human",
 ] as const;
 
+export const PR_STATUSES = ["open", "draft", "merged", "closed"] as const;
+export const MERGE_STATUSES = ["pending", "merged", "conflicts"] as const;
+
 export type ExecutionSessionStatus = (typeof EXECUTION_SESSION_STATUSES)[number];
 export type ExecutionSessionAgentType = (typeof EXECUTION_SESSION_AGENT_TYPES)[number];
+export type PrStatus = (typeof PR_STATUSES)[number];
+export type MergeStatus = (typeof MERGE_STATUSES)[number];
+
+// ─── Branch Helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Generates a deterministic branch name from a task ID and title.
+ * Delegates to the canonical derivation in implementation-brief.
+ */
+export { deriveBranchName as generateBranchName };
+
+/**
+ * Returns true when the given branch name matches a protected pattern.
+ *
+ * Protected branches cannot be used as the implementation branch in an
+ * execution session unless the session is explicitly marked as a hotfix.
+ *
+ * Protected patterns: main, master, release/*, v<digit>*
+ */
+export function isProtectedBranch(name: string): boolean {
+  if (name === "main" || name === "master") return true;
+  if (/^release\//.test(name)) return true;
+  if (/^v\d/.test(name)) return true;
+  return false;
+}
 
 // ─── Input / Output Interfaces ────────────────────────────────────────────────
 
@@ -41,6 +70,36 @@ export interface CreateExecutionSessionInput {
   planningDraftId?: string | null;
   /** Type of agent executing the session */
   agentType?: ExecutionSessionAgentType;
+  /**
+   * Implementation branch the agent will work on. If omitted and both taskId
+   * and taskTitle are provided, a name is derived automatically.
+   */
+  branchName?: string | null;
+  /** Task title used to auto-derive branchName when branchName is not supplied. */
+  taskTitle?: string | null;
+  /** Base branch to check out from (defaults to "master"). */
+  baseBranch?: string | null;
+  /**
+   * When true, the branch protection guard is bypassed. Use only for
+   * explicit hotfix sessions targeting a release branch.
+   */
+  isHotfix?: boolean;
+}
+
+/**
+ * Input for recording branch and PR metadata on an existing session.
+ */
+export interface RecordBranchInfoInput {
+  /** Commit SHA reported by the agent. */
+  commitSha?: string | null;
+  /** Pull Request URL. */
+  prUrl?: string | null;
+  /** Pull Request number. */
+  prNumber?: number | null;
+  /** PR status: open | draft | merged | closed */
+  prStatus?: PrStatus | null;
+  /** Merge status: pending | merged | conflicts */
+  mergeStatus?: MergeStatus | null;
 }
 
 /**
@@ -102,6 +161,21 @@ function deserializeFiles(raw: string): string[] {
 export async function createExecutionSession(
   input: CreateExecutionSessionInput
 ): Promise<ExecutionSession> {
+  const branchName =
+    input.branchName ??
+    (input.taskId && input.taskTitle
+      ? deriveBranchName(input.taskId, input.taskTitle)
+      : null);
+
+  const baseBranch = input.baseBranch ?? "master";
+
+  if (branchName && isProtectedBranch(branchName) && !input.isHotfix) {
+    throw new Error(
+      `Cannot create session with protected branch "${branchName}". ` +
+        `Set isHotfix: true to override for explicit hotfix work.`
+    );
+  }
+
   return prisma.executionSession.create({
     data: {
       companyId: input.companyId,
@@ -112,6 +186,8 @@ export async function createExecutionSession(
       planningDraftId: input.planningDraftId ?? null,
       agentType: input.agentType ?? "claude_code",
       status: "queued",
+      branchName,
+      baseBranch,
     },
   });
 }
@@ -327,6 +403,51 @@ export async function cancelExecutionSession(
   return prisma.executionSession.update({
     where: { id: sessionId },
     data: { status: "canceled", completedAt: new Date() },
+  });
+}
+
+/**
+ * Records branch and PR metadata on an existing session.
+ *
+ * Can be called at any point in the session lifecycle (e.g. after the agent
+ * opens a PR or after a merge). Only non-null fields in the input are applied.
+ *
+ * @param companyId - Company ID (ownership guard)
+ * @param sessionId - ExecutionSession ID
+ * @param info - Branch / PR metadata to record
+ * @returns Updated session, or null if not found / not owned
+ *
+ * @example
+ * await recordBranchInfo("cmp_123", "ses_456", {
+ *   commitSha: "abc1234",
+ *   prUrl: "https://github.com/org/repo/pull/42",
+ *   prNumber: 42,
+ *   prStatus: "open",
+ *   mergeStatus: "pending",
+ * });
+ */
+export async function recordBranchInfo(
+  companyId: string,
+  sessionId: string,
+  info: RecordBranchInfoInput
+): Promise<ExecutionSession | null> {
+  const existing = await prisma.executionSession.findFirst({
+    where: { id: sessionId, companyId },
+  });
+  if (!existing) return null;
+
+  const data: Record<string, unknown> = {};
+  if (info.commitSha !== undefined) data.commitSha = info.commitSha;
+  if (info.prUrl !== undefined) data.prUrl = info.prUrl;
+  if (info.prNumber !== undefined) data.prNumber = info.prNumber;
+  if (info.prStatus !== undefined) data.prStatus = info.prStatus;
+  if (info.mergeStatus !== undefined) data.mergeStatus = info.mergeStatus;
+
+  if (Object.keys(data).length === 0) return existing;
+
+  return prisma.executionSession.update({
+    where: { id: sessionId },
+    data,
   });
 }
 
