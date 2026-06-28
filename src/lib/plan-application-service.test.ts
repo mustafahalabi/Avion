@@ -71,6 +71,7 @@ beforeAll(async () => {
       "id" TEXT NOT NULL PRIMARY KEY,
       "companyId" TEXT NOT NULL,
       "runtimeRequestId" TEXT,
+      "repositoryId" TEXT,
       "title" TEXT NOT NULL,
       "rawRequest" TEXT NOT NULL DEFAULT '',
       "brief" TEXT,
