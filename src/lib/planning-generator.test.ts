@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import {
   generateDeterministicPlanningDraft,
+  validatePlanningDraftQuality,
   type OutcomePlanningInput,
 } from "./planning-generator";
 
@@ -200,6 +201,130 @@ describe("generateDeterministicPlanningDraft", () => {
     expect(result.draft.reviewPlan.checkpoints.length).toBeGreaterThan(0);
     expect(result.draft.qaPlan.requiredChecks.length).toBeGreaterThan(0);
     expect(result.draft.releasePlan.readinessCriteria.length).toBeGreaterThan(0);
+    expect(result.draft.assumptions.length).toBeGreaterThan(0);
+    expect(result.draft.openCeoQuestions.length).toBeGreaterThan(0);
+  });
+
+  it("passes execution-ready plan quality validation for Repository Intelligence V2", () => {
+    const result = generateDeterministicPlanningDraft(buildInput());
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+
+    expect(validatePlanningDraftQuality(result.draft)).toEqual([]);
+    expect(result.draft.generatorVersion).toBe("deterministic-v2");
+
+    for (const task of result.draft.generatedTasks) {
+      expect(task.acceptanceCriteria.length).toBeGreaterThanOrEqual(2);
+      expect(task.recommendedRole.length).toBeGreaterThan(0);
+      expect(task.requiredContext.length).toBeGreaterThan(3);
+      expect(task.definitionOfDone.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("enriches repository intelligence tasks with repository-specific context", () => {
+    const result = generateDeterministicPlanningDraft(buildInput());
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+
+    const packageManagerTask = result.draft.generatedTasks.find(
+      (task) => task.planItemId === "task:detect-package-manager"
+    );
+
+    expect(packageManagerTask?.description).toContain("engineering-os");
+    expect(packageManagerTask?.requiredContext.some((entry) => entry.includes("repository-analyzer.ts"))).toBe(
+      true
+    );
+    expect(
+      packageManagerTask?.acceptanceCriteria.some((entry) => entry.includes("npm, pnpm, yarn, and bun"))
+    ).toBe(true);
+  });
+
+  it("links generated features with stable feature dependency IDs", () => {
+    const result = generateDeterministicPlanningDraft(buildInput());
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+
+    const apiFeature = result.draft.generatedFeatures.find(
+      (feature) => feature.planItemId === "feature:api-risk-summary"
+    );
+
+    expect(apiFeature?.dependencies).toEqual(["feature:source-model"]);
+  });
+
+  it("matches the Repository Intelligence V2 plan shape snapshot", () => {
+    const result = generateDeterministicPlanningDraft(buildInput());
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+
+    const shape = {
+      generatorVersion: result.draft.generatorVersion,
+      project: {
+        name: result.draft.generatedProjects[0]?.name,
+        milestoneCount: result.draft.generatedProjects[0]?.milestones.length,
+        milestoneTitles: result.draft.generatedProjects[0]?.milestones.map((milestone) => milestone.title),
+      },
+      featureCount: result.draft.generatedFeatures.length,
+      featureTitles: result.draft.generatedTasks.map((task) => task.title),
+      taskCount: result.draft.generatedTasks.length,
+      assignmentRoles: result.draft.recommendedAssignments.map((assignment) => assignment.role).sort(),
+      dependencyIds: result.draft.dependencies.map((dependency) => dependency.id).sort(),
+      riskIds: result.draft.risks.map((risk) => risk.id).sort(),
+      reviewOwnerRole: result.draft.reviewPlan.ownerRole,
+      qaOwnerRole: result.draft.qaPlan.ownerRole,
+      releaseOwnerRole: result.draft.releasePlan.ownerRole,
+    };
+
+    expect(shape).toMatchInlineSnapshot(`
+      {
+        "assignmentRoles": [
+          "Backend Engineer",
+          "Frontend Engineer",
+          "QA Engineer",
+          "Reviewer",
+          "Tech Lead",
+        ],
+        "dependencyIds": [
+          "dependency:ceo-approval",
+          "dependency:manifest-fixtures",
+          "dependency:repository-metadata-freshness",
+        ],
+        "featureCount": 3,
+        "featureTitles": [
+          "Inspect repository source tree model",
+          "Detect package manager and workspace strategy",
+          "Parse package manifests and dependency groups",
+          "Detect framework and routing system",
+          "Identify database layer and persistence risks",
+          "Summarize API surface and server entry points",
+          "Generate repository risk report",
+          "Expose repository intelligence summary in UI",
+          "Add QA coverage for repository analysis",
+        ],
+        "generatorVersion": "deterministic-v2",
+        "project": {
+          "milestoneCount": 3,
+          "milestoneTitles": [
+            "Repository discovery model complete",
+            "Repository intelligence summary complete",
+            "Reviewable repository intelligence experience complete",
+          ],
+          "name": "Repository Intelligence V2",
+        },
+        "qaOwnerRole": "QA Engineer",
+        "releaseOwnerRole": "Release Manager",
+        "reviewOwnerRole": "Reviewer",
+        "riskIds": [
+          "risk:incomplete-context",
+          "risk:overconfident-detection",
+          "risk:premature-work-creation",
+        ],
+        "taskCount": 9,
+      }
+    `);
   });
 
   it("uses available company roles and employees for recommendations", () => {

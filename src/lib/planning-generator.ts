@@ -1,6 +1,9 @@
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 
-export const PLANNING_GENERATOR_VERSION = "deterministic-v1" as const;
+export const PLANNING_GENERATOR_VERSION = "deterministic-v2" as const;
+
+const MIN_TASK_ACCEPTANCE_CRITERIA = 2;
+const MIN_TASK_DESCRIPTION_LENGTH = 48;
 
 const MIN_OUTCOME_LENGTH = 8;
 const MIN_MEANINGFUL_WORDS = 2;
@@ -317,12 +320,19 @@ export function generateDeterministicPlanningDraft(
   const repositorySummary = summarizeRepositories(repositories);
   const featureBlueprints = buildFeatureBlueprints(template.id, normalizedOutcome, repositories);
   const milestones = buildMilestones(template.id, projectName, repositories);
-  const generatedFeatures = featureBlueprints.map((feature, index) =>
-    buildFeature(feature, projectPlanItemId, employees, index + 1)
+  const generatedFeatures = featureBlueprints.map((feature, index, allFeatures) =>
+    buildFeature(feature, projectPlanItemId, employees, index + 1, allFeatures)
   );
   const generatedTasks = featureBlueprints.flatMap((feature, featureIndex) =>
     feature.taskBlueprints.map((task, taskIndex) =>
-      buildTask(task, feature, employees, featureIndex * 10 + taskIndex + 1)
+      buildTask(
+        task,
+        feature,
+        employees,
+        repositories,
+        template.id,
+        featureIndex * 10 + taskIndex + 1
+      )
     )
   );
   const assignments = buildAssignments(generatedTasks, employees);
@@ -379,6 +389,174 @@ export function generateDeterministicPlanningDraft(
  * ```
  * @returns A failure result when planning should not continue, otherwise `null`.
  */
+export interface PlanningDraftQualityIssue {
+  readonly code: string;
+  readonly message: string;
+  readonly planItemId?: string;
+}
+
+/**
+ * Validates that a generated planning draft meets execution-ready quality thresholds.
+ *
+ * @param draft - Successful planning draft payload.
+ * @example
+ * ```ts
+ * const result = generateDeterministicPlanningDraft(input);
+ * if (result.status === "success") {
+ *   const issues = validatePlanningDraftQuality(result.draft);
+ * }
+ * ```
+ * @returns Quality issues; an empty array means the draft passes validation.
+ */
+export function validatePlanningDraftQuality(
+  draft: DeterministicPlanningDraft
+): readonly PlanningDraftQualityIssue[] {
+  const issues: PlanningDraftQualityIssue[] = [];
+
+  if (draft.generatedProjects.length === 0) {
+    issues.push({
+      code: "missing-project",
+      message: "Planning draft must include at least one generated project.",
+    });
+  }
+
+  for (const project of draft.generatedProjects) {
+    if (project.milestones.length === 0) {
+      issues.push({
+        code: "missing-milestones",
+        message: `Project ${project.planItemId} must include milestones.`,
+        planItemId: project.planItemId,
+      });
+    }
+
+    for (const milestone of project.milestones) {
+      if (milestone.acceptanceCriteria.length === 0) {
+        issues.push({
+          code: "missing-milestone-acceptance",
+          message: `Milestone ${milestone.id} must include acceptance criteria.`,
+          planItemId: milestone.id,
+        });
+      }
+    }
+  }
+
+  if (draft.generatedFeatures.length === 0) {
+    issues.push({
+      code: "missing-features",
+      message: "Planning draft must include at least one generated feature.",
+    });
+  }
+
+  for (const feature of draft.generatedFeatures) {
+    if (feature.acceptanceCriteria.length === 0) {
+      issues.push({
+        code: "missing-feature-acceptance",
+        message: `Feature ${feature.planItemId} must include acceptance criteria.`,
+        planItemId: feature.planItemId,
+      });
+    }
+
+    if (feature.ownerRole.trim().length === 0) {
+      issues.push({
+        code: "missing-feature-owner-role",
+        message: `Feature ${feature.planItemId} must include an owner role.`,
+        planItemId: feature.planItemId,
+      });
+    }
+  }
+
+  if (draft.generatedTasks.length === 0) {
+    issues.push({
+      code: "missing-tasks",
+      message: "Planning draft must include at least one generated task.",
+    });
+  }
+
+  for (const task of draft.generatedTasks) {
+    if (task.description.trim().length < MIN_TASK_DESCRIPTION_LENGTH) {
+      issues.push({
+        code: "task-description-too-short",
+        message: `Task ${task.planItemId} description is too short for implementation agents.`,
+        planItemId: task.planItemId,
+      });
+    }
+
+    if (task.acceptanceCriteria.length < MIN_TASK_ACCEPTANCE_CRITERIA) {
+      issues.push({
+        code: "insufficient-task-acceptance",
+        message: `Task ${task.planItemId} must include at least ${MIN_TASK_ACCEPTANCE_CRITERIA} acceptance criteria.`,
+        planItemId: task.planItemId,
+      });
+    }
+
+    if (task.recommendedRole.trim().length === 0) {
+      issues.push({
+        code: "missing-task-role",
+        message: `Task ${task.planItemId} must include a recommended role.`,
+        planItemId: task.planItemId,
+      });
+    }
+
+    if (task.definitionOfDone.length === 0) {
+      issues.push({
+        code: "missing-definition-of-done",
+        message: `Task ${task.planItemId} must include definition-of-done guidance.`,
+        planItemId: task.planItemId,
+      });
+    }
+
+    if (task.requiredContext.length === 0) {
+      issues.push({
+        code: "missing-required-context",
+        message: `Task ${task.planItemId} must include required context for implementation agents.`,
+        planItemId: task.planItemId,
+      });
+    }
+  }
+
+  if (draft.risks.length === 0) {
+    issues.push({ code: "missing-risks", message: "Planning draft must include risks." });
+  }
+
+  if (draft.dependencies.length === 0) {
+    issues.push({ code: "missing-dependencies", message: "Planning draft must include dependencies." });
+  }
+
+  if (draft.assumptions.length === 0) {
+    issues.push({ code: "missing-assumptions", message: "Planning draft must include assumptions." });
+  }
+
+  if (draft.openCeoQuestions.length === 0) {
+    issues.push({
+      code: "missing-ceo-questions",
+      message: "Planning draft must include open CEO questions.",
+    });
+  }
+
+  if (draft.reviewPlan.checkpoints.length === 0) {
+    issues.push({
+      code: "missing-review-plan",
+      message: "Planning draft must include a review plan with checkpoints.",
+    });
+  }
+
+  if (draft.qaPlan.requiredChecks.length === 0) {
+    issues.push({
+      code: "missing-qa-plan",
+      message: "Planning draft must include a QA plan with required checks.",
+    });
+  }
+
+  if (draft.releasePlan.readinessCriteria.length === 0) {
+    issues.push({
+      code: "missing-release-plan",
+      message: "Planning draft must include a release plan with readiness criteria.",
+    });
+  }
+
+  return issues;
+}
+
 export function validateOutcomeForPlanning(
   title: string,
   rawRequest: string
@@ -940,8 +1118,11 @@ function buildFeature(
   blueprint: FeatureBlueprint,
   projectPlanItemId: string,
   employees: readonly PlanningEmployeeContext[],
-  order: number
+  order: number,
+  allFeatures: readonly FeatureBlueprint[]
 ): GeneratedPlanningFeature {
+  const previousFeature = order > 1 ? allFeatures[order - 2] : undefined;
+
   return {
     planItemId: `feature:${blueprint.id}`,
     projectPlanItemId,
@@ -950,7 +1131,7 @@ function buildFeature(
     description: blueprint.description,
     ownerRole: blueprint.ownerRole,
     ...findOwnerAssignment(blueprint.ownerRole, employees),
-    dependencies: order === 1 ? [] : [`feature:${order - 1}`],
+    dependencies: previousFeature !== undefined ? [`feature:${previousFeature.id}`] : [],
     risks: [`${blueprint.title} may need revision if CEO acceptance criteria change before approval.`],
     acceptanceCriteria: [
       `${blueprint.title} has concrete task instructions with dependencies and QA expectations.`,
@@ -978,9 +1159,11 @@ function buildTask(
   blueprint: TaskBlueprint,
   feature: FeatureBlueprint,
   employees: readonly PlanningEmployeeContext[],
+  repositories: readonly PlanningRepositoryContext[],
+  templateId: string,
   order: number
 ): GeneratedPlanningTask {
-  return {
+  const baseTask: GeneratedPlanningTask = {
     planItemId: `task:${blueprint.id}`,
     featurePlanItemId: `feature:${feature.id}`,
     title: blueprint.title,
@@ -1006,6 +1189,144 @@ function buildTask(
     qaImpact: blueprint.qaImpact,
     estimatedExecutionOrder: order,
     estimatePoints: blueprint.estimatePoints,
+  };
+
+  return enrichTaskWithRepositoryContext(baseTask, blueprint.id, repositories, templateId);
+}
+
+const REPOSITORY_INTELLIGENCE_TASK_HINTS: Readonly<
+  Record<string, { readonly modules: readonly string[]; readonly extraAcceptance: readonly string[] }>
+> = {
+  "inspect-source-tree-model": {
+    modules: ["src/lib/repository-analyzer.ts", "src/lib/repository-snapshot-service.ts"],
+    extraAcceptance: [
+      "File tree ingestion excludes ignored, vendor, build, and generated directories.",
+      "Snapshot output is versioned and can be re-run without mutating repository state.",
+    ],
+  },
+  "detect-package-manager": {
+    modules: ["src/lib/repository-analyzer.ts", "package.json", "package-lock.json"],
+    extraAcceptance: [
+      "Detection covers npm, pnpm, yarn, and bun lockfile signals when present.",
+      "Workspace package boundaries are listed with stable relative paths.",
+    ],
+  },
+  "parse-package-manifests": {
+    modules: ["package.json", "src/lib/repository-analyzer.ts"],
+    extraAcceptance: [
+      "Scripts for lint, build, test, and typecheck are extracted when declared.",
+      "Dependency groups distinguish runtime, development, and toolchain packages.",
+    ],
+  },
+  "detect-framework-routing": {
+    modules: ["src/app/", "next.config.ts", "src/lib/repository-analyzer.ts"],
+    extraAcceptance: [
+      "Next.js App Router routes and API handlers are detected with evidence paths.",
+      "Framework detection records confidence notes instead of overstating certainty.",
+    ],
+  },
+  "identify-database-layer": {
+    modules: ["prisma/schema.prisma", "prisma/migrations/", "src/lib/repository-analyzer.ts"],
+    extraAcceptance: [
+      "Prisma schema, migration, and seed paths are captured when present.",
+      "Persistence risks include migration drift and generated-client freshness.",
+    ],
+  },
+  "summarize-api-surface": {
+    modules: ["src/app/actions/", "src/app/api/", "src/lib/repository-analyzer.ts"],
+    extraAcceptance: [
+      "Server actions, route handlers, and webhook entry points are categorized separately.",
+      "Each API surface entry includes a path or symbol evidence reference.",
+    ],
+  },
+  "generate-repository-risk-report": {
+    modules: ["src/lib/repository-impact-analysis.ts", "src/lib/repository-change-intelligence.ts"],
+    extraAcceptance: [
+      "Risk findings include severity, evidence path, owner role, and mitigation guidance.",
+      "Confirmed repository facts are separated from assumptions and unknowns.",
+    ],
+  },
+  "expose-summary-ui": {
+    modules: ["src/app/(app)/", "src/app/actions/repository.ts"],
+    extraAcceptance: [
+      "Dashboard renders analyzed, pending, and incomplete repository states truthfully.",
+      "Evidence paths for stack, routing, database, and risk claims are visible to users.",
+    ],
+  },
+  "add-analysis-qa-coverage": {
+    modules: ["src/lib/planning-generator.test.ts", "src/lib/repository-snapshot-dogfood.test.ts"],
+    extraAcceptance: [
+      "Automated tests cover deterministic ordering and incomplete-metadata edge cases.",
+      "Manual QA script includes at least one repository with partial analysis metadata.",
+    ],
+  },
+};
+
+/**
+ * Enriches a generated task with repository-specific context and acceptance criteria.
+ *
+ * @param task - Base generated task payload.
+ * @param taskBlueprintId - Task blueprint identifier.
+ * @param repositories - Sorted repository context rows.
+ * @param templateId - Selected planning template identifier.
+ * @returns Task payload enriched with repository-aware implementation guidance.
+ */
+function enrichTaskWithRepositoryContext(
+  task: GeneratedPlanningTask,
+  taskBlueprintId: string,
+  repositories: readonly PlanningRepositoryContext[],
+  templateId: string
+): GeneratedPlanningTask {
+  if (repositories.length === 0 || templateId !== "repository-intelligence") {
+    return task;
+  }
+
+  const hints = REPOSITORY_INTELLIGENCE_TASK_HINTS[taskBlueprintId];
+  const repositoryNames = repositories.map((repo) => repo.name).join(", ");
+  const importantFiles = [
+    ...new Set(repositories.flatMap((repo) => repo.importantFiles).filter(Boolean)),
+  ].slice(0, 8);
+  const stackSummary = [
+    ...new Set(
+      repositories.flatMap((repo) => [
+        ...repo.frameworks,
+        ...repo.techStack,
+        ...(repo.primaryLanguage ? [repo.primaryLanguage] : []),
+      ])
+    ),
+  ]
+    .filter(Boolean)
+    .slice(0, 6)
+    .join(", ");
+
+  const requiredContext = [
+    ...task.requiredContext,
+    `Attached repositories: ${repositoryNames}.`,
+    stackSummary.length > 0 ? `Detected stack context: ${stackSummary}.` : "Repository stack metadata is incomplete.",
+    ...(hints?.modules.map((modulePath) => `Inspect ${modulePath} before implementation.`) ?? []),
+    ...importantFiles.map((filePath) => `Review repository evidence file: ${filePath}.`),
+  ];
+
+  const acceptanceCriteria = [
+    ...task.acceptanceCriteria,
+    ...(hints?.extraAcceptance ?? []),
+    `Validation commands pass for ${repositoryNames}: npx prisma validate, npx tsc --noEmit, npm run lint, npm run test.`,
+  ].slice(0, 6);
+
+  const descriptionSuffix =
+    stackSummary.length > 0
+      ? ` Use attached repository context (${repositoryNames}; ${stackSummary}) to keep the task concrete for implementation agents.`
+      : ` Confirm repository facts for ${repositoryNames} before claiming detection behavior.`;
+
+  return {
+    ...task,
+    description: `${task.description}${descriptionSuffix}`,
+    requiredContext,
+    acceptanceCriteria,
+    definitionOfDone: [
+      ...task.definitionOfDone,
+      "Repository validation commands listed in the task acceptance criteria pass locally.",
+    ],
   };
 }
 
