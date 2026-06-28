@@ -665,6 +665,8 @@ model Review {
   verdict            String?
   notes              String?
   changeRequestNotes String?
+  // JSON array of ReviewFinding: [{ severity, description, actionable }]
+  findings           String   @default("[]")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
