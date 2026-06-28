@@ -2,6 +2,10 @@
 
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import {
+  createReleaseCandidate as createReleaseCandidateRecord,
+  listEligibleReleaseTasks,
+} from "@/lib/release-candidate-service";
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 
@@ -199,4 +203,81 @@ export async function removeTaskFromRelease(releaseId: string, taskId: string): 
   });
 
   revalidatePath(`/work/releases/${releaseId}`);
+}
+
+export type CreateReleaseCandidateState =
+  | undefined
+  | { error: string }
+  | { success: true; id: string; rejectedTasks: readonly { taskId: string; reason: string }[] };
+
+const candidateSchema = z.object({
+  version: z.string().min(1).max(50).trim(),
+  title: z.string().max(300).trim().optional(),
+  taskIds: z.array(z.string().min(1)).min(1, "Select at least one eligible task."),
+});
+
+/**
+ * Creates a release candidate from completed tasks that passed review and QA.
+ */
+export async function createReleaseCandidate(
+  _prev: CreateReleaseCandidateState,
+  formData: FormData
+): Promise<CreateReleaseCandidateState> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) return { error: "Company not found." };
+
+  const rawTaskIds = formData.getAll("taskIds");
+  const taskIds = rawTaskIds.filter((id): id is string => typeof id === "string" && id.length > 0);
+
+  const parsed = candidateSchema.safeParse({
+    version: formData.get("version"),
+    title: formData.get("title") || undefined,
+    taskIds,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  try {
+    const result = await createReleaseCandidateRecord({
+      companyId: company.id,
+      version: parsed.data.version,
+      title: parsed.data.title,
+      taskIds: parsed.data.taskIds,
+    });
+
+    revalidatePath("/work/releases");
+    revalidatePath("/timeline");
+    return {
+      success: true,
+      id: result.releaseId,
+      rejectedTasks: result.rejectedTasks,
+    };
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Failed to create release candidate.";
+    return { error: message };
+  }
+}
+
+/** Loads tasks eligible for release candidate creation for the current company. */
+export async function getEligibleReleaseTasks(): Promise<
+  readonly { id: string; title: string; projectId: string | null; outcomeId: string | null }[]
+> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) return [];
+
+  return listEligibleReleaseTasks(company.id);
 }

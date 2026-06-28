@@ -67,13 +67,22 @@ export default async function ReleasesPage() {
           <span className="text-neutral-700">/</span>
           <h1 className="text-sm font-semibold text-neutral-100">Releases</h1>
         </div>
-        <Link
-          href="/work/releases/new"
-          className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New release
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/work/releases/candidate/new"
+            className="flex items-center gap-1.5 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800 transition-colors"
+          >
+            <Rocket className="h-3.5 w-3.5" />
+            From completed tasks
+          </Link>
+          <Link
+            href="/work/releases/new"
+            className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New release
+          </Link>
+        </div>
       </header>
 
       <div className="flex flex-col gap-8 p-6 max-w-3xl">
