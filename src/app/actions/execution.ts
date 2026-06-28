@@ -150,10 +150,13 @@ export async function generateTaskBrief(
   const session = await createExecutionSession({
     companyId: company.id,
     taskId: task.id,
+    taskTitle: task.title,
     projectId: task.projectId ?? null,
     repositoryId: repo ? extractRepositoryId(task) : null,
     planningDraftId: task.planningDraftId ?? null,
     agentType: "claude_code",
+    branchName,
+    baseBranch: "master",
   });
 
   const prepared = await prepareExecutionSession(company.id, session.id, brief);

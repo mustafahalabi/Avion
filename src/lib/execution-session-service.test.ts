@@ -85,6 +85,13 @@ beforeAll(async () => {
       "filesChanged" TEXT NOT NULL DEFAULT '[]',
       "validationOutput" TEXT,
       "errorMessage" TEXT,
+      "branchName" TEXT,
+      "baseBranch" TEXT,
+      "commitSha" TEXT,
+      "prUrl" TEXT,
+      "prNumber" INTEGER,
+      "prStatus" TEXT,
+      "mergeStatus" TEXT,
       "startedAt" DATETIME,
       "completedAt" DATETIME,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -524,6 +531,176 @@ describe("execution-session-service", () => {
       const session = await service.createExecutionSession({ companyId: "company-1" });
       const canceled = await service.cancelExecutionSession("company-1", session.id);
       expect(service.isSessionTerminal(canceled!)).toBe(true);
+    });
+  });
+
+  // ── generateBranchName ────────────────────────────────────────────────────
+
+  describe("generateBranchName", () => {
+    it("generates a deterministic branch name including the task identifier", () => {
+      const name = service.generateBranchName("MUS-152", "Add branch and PR tracking");
+      expect(name).toBe("feature/MUS-152-add-branch-and-pr-tracking");
+    });
+
+    it("lowercases and slugifies the title", () => {
+      const name = service.generateBranchName("T-1", "Fix: Crash on Login!");
+      expect(name).toMatch(/^feature\/T-1-/);
+      // Title portion must be slugified (no uppercase, colons, or exclamation marks)
+      const titleSlug = name.replace(/^feature\/T-1-/, "");
+      expect(titleSlug).not.toMatch(/[A-Z:!]/);
+    });
+
+    it("is stable across calls with identical inputs", () => {
+      const a = service.generateBranchName("MUS-99", "Some Feature");
+      const b = service.generateBranchName("MUS-99", "Some Feature");
+      expect(a).toBe(b);
+    });
+  });
+
+  // ── isProtectedBranch ─────────────────────────────────────────────────────
+
+  describe("isProtectedBranch", () => {
+    it("identifies main as protected", () => {
+      expect(service.isProtectedBranch("main")).toBe(true);
+    });
+
+    it("identifies master as protected", () => {
+      expect(service.isProtectedBranch("master")).toBe(true);
+    });
+
+    it("identifies release/* branches as protected", () => {
+      expect(service.isProtectedBranch("release/v1")).toBe(true);
+      expect(service.isProtectedBranch("release/2024-q1")).toBe(true);
+    });
+
+    it("identifies v<digit> branches as protected", () => {
+      expect(service.isProtectedBranch("v1")).toBe(true);
+      expect(service.isProtectedBranch("v2.0")).toBe(true);
+    });
+
+    it("does not flag feature branches as protected", () => {
+      expect(service.isProtectedBranch("feature/MUS-152-foo")).toBe(false);
+      expect(service.isProtectedBranch("fix/some-bug")).toBe(false);
+      expect(service.isProtectedBranch("hotfix/critical")).toBe(false);
+    });
+  });
+
+  // ── createExecutionSession branch tracking ────────────────────────────────
+
+  describe("createExecutionSession — branch tracking", () => {
+    it("stores branchName and baseBranch when provided", async () => {
+      const session = await service.createExecutionSession({
+        companyId: "company-1",
+        branchName: "feature/MUS-152-tracking",
+        baseBranch: "master",
+      });
+      expect(session.branchName).toBe("feature/MUS-152-tracking");
+      expect(session.baseBranch).toBe("master");
+    });
+
+    it("derives branchName from taskId and taskTitle when not provided", async () => {
+      const session = await service.createExecutionSession({
+        companyId: "company-1",
+        taskId: "task-1",
+        taskTitle: "Implement Feature",
+      });
+      expect(session.branchName).toBe("feature/task-1-implement-feature");
+    });
+
+    it("defaults baseBranch to master", async () => {
+      const session = await service.createExecutionSession({ companyId: "company-1" });
+      expect(session.baseBranch).toBe("master");
+    });
+
+    it("rejects a protected branchName unless isHotfix is true", async () => {
+      await expect(
+        service.createExecutionSession({
+          companyId: "company-1",
+          branchName: "main",
+        })
+      ).rejects.toThrow(/protected branch/);
+
+      await expect(
+        service.createExecutionSession({
+          companyId: "company-1",
+          branchName: "release/v1",
+        })
+      ).rejects.toThrow(/protected branch/);
+    });
+
+    it("allows a protected branchName when isHotfix is true", async () => {
+      const session = await service.createExecutionSession({
+        companyId: "company-1",
+        branchName: "release/v1",
+        isHotfix: true,
+      });
+      expect(session.branchName).toBe("release/v1");
+    });
+
+    it("leaves branchName null when taskId and taskTitle are not provided", async () => {
+      const session = await service.createExecutionSession({ companyId: "company-1" });
+      expect(session.branchName).toBeNull();
+    });
+  });
+
+  // ── recordBranchInfo ──────────────────────────────────────────────────────
+
+  describe("recordBranchInfo", () => {
+    it("updates commitSha, prUrl, prNumber, prStatus, and mergeStatus", async () => {
+      const session = await service.createExecutionSession({
+        companyId: "company-1",
+        branchName: "feature/task-1-foo",
+      });
+
+      const updated = await service.recordBranchInfo("company-1", session.id, {
+        commitSha: "abc1234",
+        prUrl: "https://github.com/org/repo/pull/42",
+        prNumber: 42,
+        prStatus: "open",
+        mergeStatus: "pending",
+      });
+
+      expect(updated).not.toBeNull();
+      expect(updated!.commitSha).toBe("abc1234");
+      expect(updated!.prUrl).toBe("https://github.com/org/repo/pull/42");
+      expect(updated!.prNumber).toBe(42);
+      expect(updated!.prStatus).toBe("open");
+      expect(updated!.mergeStatus).toBe("pending");
+    });
+
+    it("returns null for a session not owned by the company", async () => {
+      const session = await service.createExecutionSession({ companyId: "company-2" });
+      const result = await service.recordBranchInfo("company-1", session.id, {
+        commitSha: "abc1234",
+      });
+      expect(result).toBeNull();
+    });
+
+    it("returns the unchanged session when called with no updates", async () => {
+      const session = await service.createExecutionSession({ companyId: "company-1" });
+      const result = await service.recordBranchInfo("company-1", session.id, {});
+      expect(result!.id).toBe(session.id);
+    });
+
+    it("returns null for nonexistent session", async () => {
+      const result = await service.recordBranchInfo("company-1", "nonexistent", {
+        commitSha: "abc",
+      });
+      expect(result).toBeNull();
+    });
+
+    it("can update prStatus to merged and mergeStatus to merged", async () => {
+      const session = await service.createExecutionSession({ companyId: "company-1" });
+      await service.recordBranchInfo("company-1", session.id, {
+        prStatus: "open",
+        mergeStatus: "pending",
+      });
+      const merged = await service.recordBranchInfo("company-1", session.id, {
+        prStatus: "merged",
+        mergeStatus: "merged",
+      });
+      expect(merged!.prStatus).toBe("merged");
+      expect(merged!.mergeStatus).toBe("merged");
     });
   });
 
