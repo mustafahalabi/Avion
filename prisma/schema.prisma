@@ -54,7 +54,7 @@ model Company {
   releases                    Release[]
   conversations               Conversation[]
   integrations                Integration[]
-  providerConnections         ProviderConnection[]
+  executionSessions           ExecutionSession[]
   repositoryAnalysisSnapshots RepositoryAnalysisSnapshot[]
 }
 
@@ -107,13 +107,14 @@ model Employee {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  user          User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  department    Department? @relation(fields: [departmentId], references: [id])
-  role          Role?       @relation(fields: [roleId], references: [id])
-  manager       Employee?   @relation("EmployeeReporting", fields: [managerId], references: [id])
-  reports       Employee[]  @relation("EmployeeReporting")
-  assignedTasks Task[]
+  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  department        Department?        @relation(fields: [departmentId], references: [id])
+  role              Role?              @relation(fields: [roleId], references: [id])
+  manager           Employee?          @relation("EmployeeReporting", fields: [managerId], references: [id])
+  reports           Employee[]         @relation("EmployeeReporting")
+  assignedTasks     Task[]
+  executionSessions ExecutionSession[]
 
   @@unique([companyId, id])
 }
@@ -170,6 +171,7 @@ model Repository {
 
   workspace         Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   analysisSnapshots RepositoryAnalysisSnapshot[]
+  executionSessions ExecutionSession[]
 }
 
 model RepositoryAnalysisSnapshot {
@@ -220,14 +222,15 @@ model Project {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  workspace     Workspace      @relation(fields: [companyId, workspaceId], references: [companyId, id], onDelete: Cascade)
-  outcome       Outcome?       @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
-  planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
-  features      Feature[]
-  milestones    Milestone[]
-  sprints       Sprint[]
-  tasks         Task[]
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workspace         Workspace          @relation(fields: [companyId, workspaceId], references: [companyId, id], onDelete: Cascade)
+  outcome           Outcome?           @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft     PlanningDraft?     @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
+  features          Feature[]
+  milestones        Milestone[]
+  sprints           Sprint[]
+  tasks             Task[]
+  executionSessions ExecutionSession[]
 
   @@unique([companyId, id])
   @@unique([planningDraftId, planItemId])
@@ -275,14 +278,15 @@ model Task {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project       Project?       @relation(fields: [companyId, projectId], references: [companyId, id], onDelete: Restrict)
-  feature       Feature?       @relation(fields: [companyId, featureId], references: [companyId, id], onDelete: Restrict)
-  sprint        Sprint?        @relation(fields: [sprintId], references: [id])
-  assignee      Employee?      @relation(fields: [companyId, assigneeId], references: [companyId, id], onDelete: Restrict)
-  outcome       Outcome?       @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
-  planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
-  subtasks      Subtask[]
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project           Project?           @relation(fields: [companyId, projectId], references: [companyId, id], onDelete: Restrict)
+  feature           Feature?           @relation(fields: [companyId, featureId], references: [companyId, id], onDelete: Restrict)
+  sprint            Sprint?            @relation(fields: [sprintId], references: [id])
+  assignee          Employee?          @relation(fields: [companyId, assigneeId], references: [companyId, id], onDelete: Restrict)
+  outcome           Outcome?           @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft     PlanningDraft?     @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
+  subtasks          Subtask[]
+  executionSessions ExecutionSession[]
 
   @@unique([companyId, id])
   @@unique([planningDraftId, planItemId])
@@ -481,18 +485,78 @@ model PlanningDraft {
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  outcome   Outcome    @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Cascade)
-  projects  Project[]
-  features  Feature[]
-  tasks     Task[]
-  reviews   Review[]
-  qaResults QAResult[]
-  releases  Release[]
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  outcome           Outcome            @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Cascade)
+  projects          Project[]
+  features          Feature[]
+  tasks             Task[]
+  reviews           Review[]
+  qaResults         QAResult[]
+  releases          Release[]
+  executionSessions ExecutionSession[]
 
   @@unique([outcomeId, version])
   @@unique([companyId, id])
   @@unique([companyId, outcomeId, version])
+}
+
+// ─── Agent Execution Models ───────────────────────────────────────────────────
+//
+// ExecutionSession tracks a single implementation attempt for a task by an
+// agent (Claude Code, Codex, human, etc.). It is company-scoped and links to
+// task, project, repository, employee/role, and originating plan where
+// available. No code execution is performed by Engineering OS itself — the
+// session records what an external agent did.
+
+model ExecutionSession {
+  id        String @id @default(cuid())
+  companyId String
+
+  // ── Optional links ────────────────────────────────────────────────────────
+  taskId          String? // Task being implemented
+  projectId       String? // Project containing the task
+  repositoryId    String? // Repository the agent will work in
+  employeeId      String? // Assigned employee / recommended role
+  planningDraftId String? // Originating planning draft
+
+  // ── Agent metadata ────────────────────────────────────────────────────────
+  // e.g. "claude_code" | "codex" | "human"
+  agentType String @default("claude_code")
+
+  // ── Status lifecycle ──────────────────────────────────────────────────────
+  // "queued" | "prepared" | "running" | "completed" | "failed" | "canceled" | "needs_clarification"
+  status String @default("queued")
+
+  // ── Task brief ────────────────────────────────────────────────────────────
+  // Copyable, agent-safe implementation brief generated for the session.
+  // Populated when status transitions to "prepared".
+  taskBrief String?
+
+  // ── Execution results ─────────────────────────────────────────────────────
+  // Human-readable summary of what the agent did (filled on completion).
+  resultSummary    String?
+  // JSON array of relative file paths changed: ["src/lib/foo.ts", ...]
+  filesChanged     String  @default("[]")
+  // Raw validation command output (tsc, lint, test, etc.) recorded by agent.
+  validationOutput String?
+  // Error message when status is "failed" or "needs_clarification".
+  errorMessage     String?
+
+  // ── Lifecycle timestamps ──────────────────────────────────────────────────
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  task          Task?          @relation(fields: [companyId, taskId], references: [companyId, id], onDelete: Restrict)
+  project       Project?       @relation(fields: [companyId, projectId], references: [companyId, id], onDelete: Restrict)
+  employee      Employee?      @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict)
+  planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
+  repository    Repository?    @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status])
+  @@index([companyId, taskId])
 }
 
 // ─── Communication / Inbox Models ─────────────────────────────────────────────
