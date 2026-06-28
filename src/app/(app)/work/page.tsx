@@ -231,7 +231,7 @@ export default async function WorkPage() {
                         </p>
                         <Badge
                           className={cn(
-                            "shrink-0 text-[10px]",
+                            "shrink-0 px-1.5 text-[10px]",
                             PROJECT_STATUS_COLORS[project.status] ??
                               PROJECT_STATUS_COLORS["active"]
                           )}

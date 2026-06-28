@@ -57,13 +57,6 @@ const STATUS_CONFIG: Record<
   },
 };
 
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: "text-red-400",
-  high: "text-orange-400",
-  medium: "text-neutral-400",
-  low: "text-neutral-600",
-};
-
 export default async function TaskDetailPage({ params }: Props) {
   const { id } = await params;
   const user = await getCurrentUser();
