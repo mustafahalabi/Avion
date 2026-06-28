@@ -18,6 +18,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import {
+  computeNextActions,
+  type NextAction,
+} from "@/lib/next-action-recommendation";
 
 const RUNTIME_STATUS: Record<
   string,
@@ -126,13 +130,27 @@ export default async function DashboardPage() {
   );
   const blockedTasks = allTasks.filter((t) => t.status === "blocked");
 
-  // Recent timeline events across all requests
-  const recentEvents = await prisma.runtimeEvent.findMany({
-    where: { request: { companyId: company.id } },
-    orderBy: { createdAt: "desc" },
-    take: 8,
-    include: { request: { select: { id: true, title: true } } },
-  });
+  // Fetch execution session counts and pending plan approvals in parallel
+  const [recentEvents, executionCounts, pendingPlanCount] = await Promise.all([
+    prisma.runtimeEvent.findMany({
+      where: { request: { companyId: company.id } },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      include: { request: { select: { id: true, title: true } } },
+    }),
+    prisma.executionSession.groupBy({
+      by: ["status"],
+      where: { companyId: company.id },
+      _count: { id: true },
+    }),
+    prisma.planningDraft.count({
+      where: { companyId: company.id, status: "review" },
+    }),
+  ]);
+
+  const execByStatus = Object.fromEntries(
+    executionCounts.map((r) => [r.status, r._count.id])
+  );
 
   const employeesWithWork = company.employees.filter(
     (e) => e.assignedTasks.length > 0
@@ -146,13 +164,20 @@ export default async function DashboardPage() {
     allTasks.length === 0 &&
     recentEvents.length === 0;
 
-  const nextAction = getNextAction({
-    awaitingApproval: awaitingApproval.length,
-    blockedTasks: blockedTasks.length,
-    blockedRequests: blockedRequests.length,
-    activeRequests: company.runtimeRequests.length,
-    isNewCompany,
-  });
+  const { primary: primaryAction, secondary: secondaryActions } =
+    computeNextActions({
+      pendingPlanApprovalCount: pendingPlanCount,
+      awaitingApprovalRequestCount: awaitingApproval.length,
+      failedExecutionCount: execByStatus["failed"] ?? 0,
+      needsClarificationCount: execByStatus["needs_clarification"] ?? 0,
+      blockedTaskCount: blockedTasks.length,
+      blockedRequestCount: blockedRequests.length,
+      readyExecutionCount:
+        (execByStatus["queued"] ?? 0) + (execByStatus["prepared"] ?? 0),
+      runningExecutionCount: execByStatus["running"] ?? 0,
+      activeRequestCount: company.runtimeRequests.length,
+      isNewCompany,
+    });
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
@@ -519,23 +544,17 @@ export default async function DashboardPage() {
         )}
 
         {/* Recommended next action */}
-        {!isNewCompany && (
-          <section className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-4">
-            <div className="flex items-start gap-3">
-              <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-500" />
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-600 mb-1">
-                  Recommended Next Action
-                </p>
-                <p className="text-sm text-neutral-300">{nextAction.message}</p>
-                <Link
-                  href={nextAction.href}
-                  className="mt-2 inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-                >
-                  {nextAction.cta}
-                  <ChevronRight className="h-3 w-3" />
-                </Link>
-              </div>
+        {primaryAction && (
+          <section>
+            <SectionHeader
+              label="Recommended Next Action"
+              icon={<Zap className="h-3.5 w-3.5 text-neutral-400" />}
+            />
+            <div className="flex flex-col gap-2">
+              <NextActionCard action={primaryAction} primary />
+              {secondaryActions.map((action) => (
+                <NextActionCard key={action.id} action={action} />
+              ))}
             </div>
           </section>
         )}
@@ -549,48 +568,6 @@ function getGreeting(): string {
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";
   return "Good evening";
-}
-
-function getNextAction(state: {
-  awaitingApproval: number;
-  blockedTasks: number;
-  blockedRequests: number;
-  activeRequests: number;
-  isNewCompany: boolean;
-}): { message: string; href: string; cta: string } {
-  if (state.awaitingApproval > 0) {
-    return {
-      message: `${state.awaitingApproval} request${state.awaitingApproval === 1 ? " is" : "s are"} waiting for your approval. Review and approve to keep the company moving.`,
-      href: "/inbox",
-      cta: "Review requests",
-    };
-  }
-  if (state.blockedRequests > 0) {
-    return {
-      message: "One or more requests are blocked and need your attention to unblock the team.",
-      href: "/inbox",
-      cta: "View blocked requests",
-    };
-  }
-  if (state.blockedTasks > 0) {
-    return {
-      message: `${state.blockedTasks} task${state.blockedTasks === 1 ? " is" : "s are"} blocked. Review and unblock them to keep engineering on track.`,
-      href: "/work",
-      cta: "View work board",
-    };
-  }
-  if (state.activeRequests > 0) {
-    return {
-      message: "Your team is executing. Check the inbox to monitor progress and advance any requests through the pipeline.",
-      href: "/inbox",
-      cta: "Open inbox",
-    };
-  }
-  return {
-    message: "No active requests. Submit a new request to put your company to work on your next priority.",
-    href: "/inbox",
-    cta: "Submit a request",
-  };
 }
 
 function StatCard({
@@ -653,5 +630,105 @@ function SectionHeader({
         </Link>
       )}
     </div>
+  );
+}
+
+const PRIORITY_COLORS: Record<
+  string,
+  { border: string; bg: string; dot: string; label: string }
+> = {
+  urgent: {
+    border: "border-amber-900/50",
+    bg: "bg-amber-950/10",
+    dot: "bg-amber-400",
+    label: "text-amber-400",
+  },
+  high: {
+    border: "border-red-900/40",
+    bg: "bg-red-950/5",
+    dot: "bg-red-400",
+    label: "text-red-400",
+  },
+  medium: {
+    border: "border-blue-900/40",
+    bg: "bg-blue-950/5",
+    dot: "bg-blue-400",
+    label: "text-blue-400",
+  },
+  low: {
+    border: "border-neutral-800",
+    bg: "bg-neutral-900",
+    dot: "bg-neutral-600",
+    label: "text-neutral-500",
+  },
+};
+
+const CONFIDENCE_LABELS: Record<string, string> = {
+  high: "High confidence",
+  medium: "Medium confidence",
+  low: "Low confidence",
+};
+
+function NextActionCard({
+  action,
+  primary = false,
+}: {
+  action: NextAction;
+  primary?: boolean;
+}) {
+  const colors =
+    PRIORITY_COLORS[action.priority] ?? PRIORITY_COLORS["low"];
+
+  return (
+    <Link
+      href={action.href}
+      className={cn(
+        "group flex items-start gap-3 rounded-lg border px-4 py-3.5 transition-colors hover:brightness-110",
+        colors.border,
+        colors.bg,
+        primary && "py-4"
+      )}
+    >
+      <div className="mt-1.5 flex shrink-0 flex-col items-center gap-1.5">
+        <div className={cn("h-2 w-2 rounded-full", colors.dot)} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p
+            className={cn(
+              "font-semibold text-neutral-100",
+              primary ? "text-sm" : "text-[13px]"
+            )}
+          >
+            {action.title}
+          </p>
+          <span
+            className={cn(
+              "text-[10px] font-medium uppercase tracking-wider",
+              colors.label
+            )}
+          >
+            {action.priority}
+          </span>
+        </div>
+        <p
+          className={cn(
+            "mt-0.5 text-neutral-400",
+            primary ? "text-xs" : "text-[11px]"
+          )}
+        >
+          {action.reason}
+        </p>
+        <div className="mt-2 flex items-center gap-3">
+          <span className="inline-flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300 transition-colors">
+            {action.cta}
+            <ChevronRight className="h-3 w-3" />
+          </span>
+          <span className="text-[10px] text-neutral-700">
+            {CONFIDENCE_LABELS[action.confidence]}
+          </span>
+        </div>
+      </div>
+    </Link>
   );
 }
