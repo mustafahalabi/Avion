@@ -417,7 +417,7 @@ describe("analyzeRepositoryPath — file tree ingestion", () => {
     const root = createFixtureRoot("shallow");
     writeFixtureFile(root, "package.json", '{"name":"demo","private":true}');
     writeFixtureFile(root, "src/lib/example.ts", 'export const value = "demo";\n');
-    writeFixtureFile(root, "prisma/schema.prisma", 'model User { id String @id }\n');
+    writeFixtureFile(root, "prisma/schema.prisma", "model User {\n  id String @id\n}\n");
 
     const outcome = analyzeRepositoryPath(root);
 
