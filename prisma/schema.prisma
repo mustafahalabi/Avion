@@ -37,23 +37,24 @@ model Company {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  owner           User             @relation("CompanyOwner", fields: [ownerId], references: [id])
-  departments     Department[]
-  employees       Employee[]
-  settings        CompanySettings?
-  workspaces      Workspace[]
-  projects        Project[]
-  features        Feature[]
-  tasks           Task[]
-  memories        Memory[]
-  runtimeRequests RuntimeRequest[]
-  outcomes        Outcome[]
-  planningDrafts  PlanningDraft[]
-  reviews         Review[]
-  qaResults       QAResult[]
-  releases        Release[]
-  conversations   Conversation[]
-  integrations    Integration[]
+  owner                       User                         @relation("CompanyOwner", fields: [ownerId], references: [id])
+  departments                 Department[]
+  employees                   Employee[]
+  settings                    CompanySettings?
+  workspaces                  Workspace[]
+  projects                    Project[]
+  features                    Feature[]
+  tasks                       Task[]
+  memories                    Memory[]
+  runtimeRequests             RuntimeRequest[]
+  outcomes                    Outcome[]
+  planningDrafts              PlanningDraft[]
+  reviews                     Review[]
+  qaResults                   QAResult[]
+  releases                    Release[]
+  conversations               Conversation[]
+  integrations                Integration[]
+  repositoryAnalysisSnapshots RepositoryAnalysisSnapshot[]
 }
 
 model Department {
@@ -166,7 +167,40 @@ model Repository {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace         Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  analysisSnapshots RepositoryAnalysisSnapshot[]
+}
+
+model RepositoryAnalysisSnapshot {
+  id               String   @id @default(cuid())
+  repositoryId     String
+  companyId        String
+  analyzerVersion  String
+  status           String   @default("completed")
+  error            String?
+  localPath        String?
+  fileTree         String   @default("{}")
+  importantFiles   String   @default("[]")
+  routes           String   @default("[]")
+  apiRoutes        String   @default("[]")
+  serverActions    String   @default("[]")
+  prismaModels     String   @default("[]")
+  dependencies     String   @default("[]")
+  devDependencies  String   @default("[]")
+  scripts          String   @default("{}")
+  testFiles        String   @default("[]")
+  fileFingerprints String   @default("[]")
+  risks            String   @default("[]")
+  ignoredPaths     String   @default("[]")
+  analysisSummary  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([repositoryId, createdAt])
+  @@index([companyId, createdAt])
 }
 
 model Project {

@@ -27,6 +27,16 @@ export type AddRepositoryState =
     }
   | undefined;
 
+export type RepositoryAnalysisActionState =
+  | {
+      message?: string;
+      snapshotId?: string;
+      status?: string;
+      comparison?: unknown;
+      impact?: unknown;
+    }
+  | undefined;
+
 function csvToJson(input: string | undefined): string {
   if (!input?.trim()) return "[]";
   const items = input
@@ -34,6 +44,16 @@ function csvToJson(input: string | undefined): string {
     .map((s) => s.trim())
     .filter(Boolean);
   return JSON.stringify(items);
+}
+
+async function getCurrentCompany() {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  return prisma.company.findFirst({
+    where: { ownerId: user.id },
+    include: { workspaces: { select: { id: true } } },
+  });
 }
 
 export async function addRepository(
@@ -90,4 +110,76 @@ export async function addRepository(
   });
 
   redirect(`/work/repositories/${repo.id}`);
+}
+
+export async function analyzeRepository(
+  _prev: RepositoryAnalysisActionState,
+  formData: FormData,
+): Promise<RepositoryAnalysisActionState> {
+  const company = await getCurrentCompany();
+  if (!company) return { message: "No company found." };
+
+  const repositoryId = String(formData.get("repositoryId") ?? "");
+  const localPath = String(formData.get("localPath") ?? "");
+
+  if (!repositoryId || !localPath) {
+    return { message: "Repository id and local path are required." };
+  }
+
+  const { createRepositoryAnalysisSnapshot } = await import("@/lib/repository-snapshot-service");
+  const snapshot = await createRepositoryAnalysisSnapshot({
+    repositoryId,
+    companyId: company.id,
+    localPath,
+  });
+
+  return {
+    message: snapshot.status === "failed" ? snapshot.error ?? "Repository analysis failed." : "Repository analysis snapshot created.",
+    snapshotId: snapshot.id,
+    status: snapshot.status,
+  };
+}
+
+export async function compareLatestRepositorySnapshots(
+  _prev: RepositoryAnalysisActionState,
+  formData: FormData,
+): Promise<RepositoryAnalysisActionState> {
+  const company = await getCurrentCompany();
+  if (!company) return { message: "No company found." };
+
+  const repositoryId = String(formData.get("repositoryId") ?? "");
+  if (!repositoryId) return { message: "Repository id is required." };
+
+  const { compareLatestRepositoryAnalysisSnapshots } = await import("@/lib/repository-snapshot-service");
+  const comparison = await compareLatestRepositoryAnalysisSnapshots({
+    repositoryId,
+    companyId: company.id,
+  });
+
+  return {
+    message: "Latest repository snapshots compared.",
+    comparison,
+  };
+}
+
+export async function analyzeLatestRepositorySnapshotImpact(
+  _prev: RepositoryAnalysisActionState,
+  formData: FormData,
+): Promise<RepositoryAnalysisActionState> {
+  const company = await getCurrentCompany();
+  if (!company) return { message: "No company found." };
+
+  const repositoryId = String(formData.get("repositoryId") ?? "");
+  if (!repositoryId) return { message: "Repository id is required." };
+
+  const { analyzeLatestRepositoryImpact } = await import("@/lib/repository-snapshot-service");
+  const impact = await analyzeLatestRepositoryImpact({
+    repositoryId,
+    companyId: company.id,
+  });
+
+  return {
+    message: "Latest repository impact analysis generated.",
+    impact,
+  };
 }

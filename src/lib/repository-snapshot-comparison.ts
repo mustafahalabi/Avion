@@ -23,6 +23,7 @@ export interface SnapshotForComparison {
   devDependencies: string; // JSON: string[]
   scripts: string;         // JSON: ScriptInfo
   testFiles: string;       // JSON: string[]
+  fileFingerprints?: string; // JSON: FileFingerprint[]
   risks: string;           // JSON: RiskFinding[]
   ignoredPaths: string;    // JSON: string[]
 }
@@ -106,6 +107,7 @@ export interface TestChanges {
 }
 
 export interface ChangeCounts {
+  changedFiles: number;
   addedImportantFiles: number;
   removedImportantFiles: number;
   addedRoutes: number;
@@ -176,6 +178,14 @@ interface FileTreeSummary {
   topLevelDirs: string[];
 }
 
+interface FileFingerprint {
+  path: string;
+  extension?: string;
+  size?: number;
+  category?: string;
+  contentHash: string;
+}
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function parseSafe<T>(json: string, fallback: T): T {
@@ -200,6 +210,27 @@ function diffStringLists(
   const added = [...newSet].filter((p) => !oldSet.has(p)).sort();
   const removed = [...oldSet].filter((p) => !newSet.has(p)).sort();
   return { added, removed };
+}
+
+function compareFileFingerprints(
+  oldFingerprints: FileFingerprint[],
+  newFingerprints: FileFingerprint[],
+): string[] {
+  const oldMap = new Map(
+    oldFingerprints
+      .filter((entry) => typeof entry.path === "string" && typeof entry.contentHash === "string")
+      .map((entry) => [normalizePath(entry.path), entry.contentHash]),
+  );
+  const newMap = new Map(
+    newFingerprints
+      .filter((entry) => typeof entry.path === "string" && typeof entry.contentHash === "string")
+      .map((entry) => [normalizePath(entry.path), entry.contentHash]),
+  );
+
+  return [...newMap.entries()]
+    .filter(([path, newHash]) => oldMap.has(path) && oldMap.get(path) !== newHash)
+    .map(([path]) => path)
+    .sort();
 }
 
 // ─── Area Comparators ─────────────────────────────────────────────────────────
@@ -321,6 +352,7 @@ function compareRisks(
 
 function buildEvidence(
   importantFileChanges: StringListChanges,
+  changedFiles: string[],
   routeChanges: RouteChanges,
   apiRouteChanges: StringListChanges,
   serverActionChanges: StringListChanges,
@@ -337,6 +369,9 @@ function buildEvidence(
   }
   for (const f of importantFileChanges.removed) {
     items.push({ area: "files", description: `Important file removed: ${f}`, oldValue: f });
+  }
+  for (const f of changedFiles) {
+    items.push({ area: "files", description: `File content changed: ${f}`, oldValue: "previous hash", newValue: "new hash" });
   }
 
   for (const r of routeChanges.added) {
@@ -414,6 +449,7 @@ function buildEvidence(
 
 function buildAffectedAreas(
   importantFileChanges: StringListChanges,
+  changedFiles: string[],
   fileSummary: FileSummaryChange,
   routeChanges: RouteChanges,
   apiRouteChanges: StringListChanges,
@@ -426,7 +462,7 @@ function buildAffectedAreas(
 ): string[] {
   const areas = new Set<string>();
 
-  if (importantFileChanges.added.length > 0 || importantFileChanges.removed.length > 0 || fileSummary.totalFilesDelta !== 0 || Object.keys(fileSummary.categoryChanges).length > 0) {
+  if (importantFileChanges.added.length > 0 || importantFileChanges.removed.length > 0 || changedFiles.length > 0 || fileSummary.totalFilesDelta !== 0 || Object.keys(fileSummary.categoryChanges).length > 0) {
     areas.add("files");
   }
   if (routeChanges.added.length > 0 || routeChanges.removed.length > 0 || routeChanges.changed.length > 0) {
@@ -511,9 +547,8 @@ function buildSummary(
 
 const STATIC_LIMITATIONS: readonly string[] = [
   "Dependency version changes are not detectable: only package names are stored in snapshots.",
-  "Individual non-important file changes are not tracked: only important files and test files are compared by path.",
+  "Only safe scanned text files receive content fingerprints; ignored files, secrets, large files, and binaries are not hashed.",
   "Prisma model field-level changes are not detectable: only model names are stored.",
-  "File content changes are not detectable: snapshots store path lists, not content hashes.",
   "Route evidence strings are excluded from change detection to avoid noise from re-analysis.",
 ];
 
@@ -596,6 +631,8 @@ export function compareSnapshots(
 
   const oldTestFiles = parseSafe<string[]>(oldSnapshot.testFiles, []);
   const newTestFiles = parseSafe<string[]>(newSnapshot.testFiles, []);
+  const oldFingerprints = parseSafe<FileFingerprint[]>(oldSnapshot.fileFingerprints ?? "[]", []);
+  const newFingerprints = parseSafe<FileFingerprint[]>(newSnapshot.fileFingerprints ?? "[]", []);
 
   const oldRisks = parseSafe<RiskFinding[]>(oldSnapshot.risks, []);
   const newRisks = parseSafe<RiskFinding[]>(newSnapshot.risks, []);
@@ -604,6 +641,7 @@ export function compareSnapshots(
 
   const fileSummary = compareFileSummary(oldTree, newTree);
   const importantFileChanges = diffStringLists(oldImportantFiles, newImportantFiles);
+  const changedFiles = compareFileFingerprints(oldFingerprints, newFingerprints);
   const routeChanges = compareRoutes(oldRoutes, newRoutes);
   const apiRouteChanges = diffStringLists(oldApiRoutes, newApiRoutes);
   const serverActionChanges = diffStringLists(oldServerActions, newServerActions);
@@ -630,6 +668,7 @@ export function compareSnapshots(
   // ─── Aggregate ───────────────────────────────────────────────────────────
 
   const changeCounts: ChangeCounts = {
+    changedFiles: changedFiles.length,
     addedImportantFiles: importantFileChanges.added.length,
     removedImportantFiles: importantFileChanges.removed.length,
     addedRoutes: routeChanges.added.length,
@@ -656,6 +695,7 @@ export function compareSnapshots(
 
   const affectedAreas = buildAffectedAreas(
     importantFileChanges,
+    changedFiles,
     fileSummary,
     routeChanges,
     apiRouteChanges,
@@ -671,6 +711,7 @@ export function compareSnapshots(
 
   const evidence = buildEvidence(
     importantFileChanges,
+    changedFiles,
     routeChanges,
     apiRouteChanges,
     serverActionChanges,
@@ -693,7 +734,7 @@ export function compareSnapshots(
     fileSummary,
     addedFiles: importantFileChanges.added,
     removedFiles: importantFileChanges.removed,
-    changedFiles: [],
+    changedFiles,
     routeChanges,
     apiRouteChanges,
     serverActionChanges,

@@ -29,7 +29,7 @@ The analyzer consumes all fields from `SnapshotComparisonResult`:
 | `scriptChanges` | Build tooling and CI pipeline impact |
 | `testChanges` | QA coverage impact |
 | `riskChanges` | Risk delta impact |
-| `addedFiles` / `removedFiles` / `changedFiles` | Important file impact, including auth/middleware, package manifest, config, deployment, and layout files |
+| `addedFiles` / `removedFiles` / `changedFiles` | File impact, including content-hash changes for safe text files and escalation for auth/middleware, package manifest, config, deployment, and layout files |
 | `fileSummary.categoryChanges` | Documentation-only detection |
 | `limitations` | Passed through to output; drives confidence |
 | `hasChanges` | Short-circuits to `none` impact if false |
@@ -285,6 +285,7 @@ Additional impact analysis limitations:
 - Auth path detection is pattern-based. Paths that do not follow naming conventions may be misclassified.
 - Auth library detection covers known packages only. Custom auth implementations are not detected.
 - Documentation-only detection requires all changes to be in the `doc` category with no functional changes. Mixed changes are classified functionally.
+- Content-only change detection depends on analyzer fingerprints. Ignored files, secret-like files, large files, and binaries are intentionally not hashed.
 - Partial comparison inputs are accepted defensively. Missing nested sections are treated as empty and reported in `limitations`, so the analyzer stays available but may understate impact for omitted sections.
 
 ---

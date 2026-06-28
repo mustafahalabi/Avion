@@ -335,6 +335,7 @@ function normalizeSnapshotComparisonResult(
     comparedAt: partial.comparedAt ?? "",
     hasChanges: partial.hasChanges ?? false,
     changeCounts: partial.changeCounts ?? {
+      changedFiles: 0,
       addedImportantFiles: 0,
       removedImportantFiles: 0,
       addedRoutes: 0,
@@ -1104,21 +1105,50 @@ function buildFileImpactItems(result: SnapshotComparisonResult): ImpactItem[] {
   // Documentation-only file changes in important files
   const docFilesAdded = addedFiles.filter((f) => !isAuthFile(f) && isDocFile(f));
   const docFilesRemoved = removedFiles.filter((f) => !isAuthFile(f) && isDocFile(f));
-  if (docFilesAdded.length > 0 || docFilesRemoved.length > 0) {
+  const docFilesChanged = changedFiles.filter((f) => !isAuthFile(f) && isDocFile(f));
+  if (docFilesAdded.length > 0 || docFilesRemoved.length > 0 || docFilesChanged.length > 0) {
     items.push({
       title: "Documentation file(s) changed",
-      description: `Documentation changes detected. Added: ${docFilesAdded.join(", ") || "none"}. Removed: ${docFilesRemoved.join(", ") || "none"}.`,
+      description: `Documentation changes detected. Added: ${docFilesAdded.join(", ") || "none"}. Removed: ${docFilesRemoved.join(", ") || "none"}. Changed: ${docFilesChanged.join(", ") || "none"}.`,
       area: "documentation",
       impactLevel: "low",
       affectedRoles: [],
       evidence: [
         ...docFilesAdded.map((f) => `Doc file added: ${f}`),
         ...docFilesRemoved.map((f) => `Doc file removed: ${f}`),
+        ...docFilesChanged.map((f) => `Doc file changed: ${f}`),
       ],
       recommendedAction:
         "No action required. Documentation changes carry no functional risk.",
       reason:
         "Documentation-only changes do not affect application behavior.",
+    });
+  }
+
+  const categorizedPaths = new Set([
+    ...authFilesAdded,
+    ...authFilesRemoved,
+    ...authFilesChanged,
+    ...allFileChanges
+      .filter((change) => classifyImportantFile(change.path))
+      .map((change) => change.path),
+    ...docFilesAdded,
+    ...docFilesRemoved,
+    ...docFilesChanged,
+  ]);
+  const unclassifiedChangedFiles = changedFiles.filter((path) => !categorizedPaths.has(path));
+  if (unclassifiedChangedFiles.length > 0) {
+    items.push({
+      title: "Source file content changed",
+      description: `Safe text file content changed without a route, schema, dependency, or config classification: ${unclassifiedChangedFiles.join(", ")}.`,
+      area: "files",
+      impactLevel: "medium",
+      affectedRoles: [ROLE_EM, ROLE_QA],
+      evidence: unclassifiedChangedFiles.map((path) => `File content changed: ${path}`),
+      recommendedAction:
+        "Engineering Manager and QA Engineer should review the changed files and decide whether targeted regression coverage is required.",
+      reason:
+        "Same-path content changes can alter behavior even when repository structure is unchanged.",
     });
   }
 

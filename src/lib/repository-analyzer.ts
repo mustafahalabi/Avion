@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, extname, relative } from "node:path";
 
@@ -85,6 +86,7 @@ export interface FileEntry {
   readonly size: number;
   readonly category: "source" | "config" | "style" | "doc" | "test" | "asset" | "other";
   readonly purposeGuess: string;
+  readonly contentHash?: string;
 }
 
 export interface FileTreeSummary {
@@ -135,6 +137,14 @@ export interface RiskFinding {
   readonly mitigation: string;
 }
 
+export interface FileFingerprint {
+  readonly path: string;
+  readonly extension: string;
+  readonly size: number;
+  readonly category: FileEntry["category"];
+  readonly contentHash: string;
+}
+
 export interface RepositoryAnalysisResult {
   readonly localPath: string;
   readonly fileTree: FileTreeSummary;
@@ -151,6 +161,7 @@ export interface RepositoryAnalysisResult {
   readonly apiRoutes: readonly string[];
   readonly prismaModels: readonly PrismaModelInfo[];
   readonly testFiles: readonly string[];
+  readonly fileFingerprints: readonly FileFingerprint[];
   readonly risks: readonly RiskFinding[];
   readonly intelligenceSummary: string;
 }
@@ -197,6 +208,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
   const apiRoutes = routes.filter((r) => r.type === "api").map((r) => r.path);
   const prismaModels = detectPrismaModels(localPath);
   const testFiles = detectTestFiles(entries);
+  const fileFingerprints = buildFileFingerprints(entries);
   const importantFiles = buildImportantFiles(localPath, entries, prismaModels);
   const risks = buildRisks({
     entries,
@@ -236,6 +248,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
     apiRoutes,
     prismaModels,
     testFiles,
+    fileFingerprints,
     risks,
     intelligenceSummary,
   };
@@ -289,6 +302,7 @@ function walkDirectory(
       if (IGNORED_FILE_NAMES.has(name)) continue;
       const ext = extname(name).toLowerCase();
       if (IGNORED_EXTENSIONS.has(ext)) continue;
+      const category = categorizeFile(name, relativePath, ext);
 
       counter.count++;
       results.push({
@@ -296,13 +310,46 @@ function walkDirectory(
         type: "file",
         extension: ext,
         size: stat.size,
-        category: categorizeFile(name, relativePath, ext),
+        category,
         purposeGuess: guessFilePurpose(name, relativePath, ext),
+        contentHash: buildContentHash(fullPath, stat.size, category),
       });
     }
   }
 
   return results;
+}
+
+function buildContentHash(
+  fullPath: string,
+  size: number,
+  category: FileEntry["category"],
+): string | undefined {
+  if (size > MAX_FILE_READ_BYTES) return undefined;
+  if (!["source", "config", "style", "doc", "test"].includes(category)) return undefined;
+
+  try {
+    const content = readFileSync(fullPath);
+    if (content.includes(0)) return undefined;
+    return createHash("sha256").update(content).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+function buildFileFingerprints(entries: readonly FileEntry[]): readonly FileFingerprint[] {
+  return entries
+    .filter((entry): entry is FileEntry & { contentHash: string } =>
+      entry.type === "file" && typeof entry.contentHash === "string",
+    )
+    .map((entry) => ({
+      path: entry.path.replace(/\\/g, "/"),
+      extension: entry.extension,
+      size: entry.size,
+      category: entry.category,
+      contentHash: entry.contentHash,
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function categorizeFile(name: string, relativePath: string, ext: string): FileEntry["category"] {

@@ -23,6 +23,7 @@ function makeComparisonResult(
     comparedAt: FIXED_AT,
     hasChanges: false,
     changeCounts: {
+      changedFiles: 0,
       addedImportantFiles: 0,
       removedImportantFiles: 0,
       addedRoutes: 0,
