@@ -733,6 +733,70 @@ model Incident {
   updatedAt   DateTime  @updatedAt
 }
 
+// ─── Provider Connections ─────────────────────────────────────────────────────
+//
+// ProviderConnection is the first-class OAuth / app / manual-token model for
+// connecting external providers (GitHub, Linear, Vercel, …) to a company.
+// It co-exists with the legacy Integration model; existing Integration records
+// are never touched by this model's migrations.
+
+model ProviderConnection {
+  id String @id @default(cuid())
+
+  companyId String
+  // null = company-level connection; set = personal/user-scoped connection
+  userId    String?
+
+  // Supported providers: "github" | "linear" | "vercel" — extensible to future providers
+  provider String
+
+  // "oauth" | "github_app" | "manual_token"
+  connectionType String @default("oauth")
+
+  // "connected" | "disconnected" | "error" | "expired" | "revoked" | "needs_reauth"
+  status String @default("disconnected")
+
+  // ── Connected account identity ─────────────────────────────────────────────
+  // External account / installation ID (e.g. GitHub user ID, Linear user ID)
+  externalAccountId    String?
+  // Human-readable login / display name for the connected account
+  externalAccountName  String?
+  // Email address of the connected account when available
+  externalAccountEmail String?
+
+  // ── OAuth / app scope metadata ─────────────────────────────────────────────
+  // JSON array of scope strings granted by the provider (e.g. ["repo","read:org"])
+  scopes String @default("[]")
+
+  // ── Encrypted token storage ────────────────────────────────────────────────
+  // AES-256-GCM encrypted JSON produced by encryptCredentials() from
+  // src/lib/credentials-crypto.ts.
+  // Keys vary by provider: accessToken, refreshToken?, tokenType?,
+  // installationId? (GitHub App), manualToken? (manual_token flow), etc.
+  encryptedTokens  String    @default("{}")
+  tokenExpiresAt   DateTime? // null = non-expiring or expiry unknown
+  refreshAvailable Boolean   @default(false)
+
+  // ── Error state ───────────────────────────────────────────────────────────
+  errorCode    String?
+  errorMessage String?
+
+  // ── Lifecycle timestamps ──────────────────────────────────────────────────
+  lastConnectedAt DateTime?
+  disconnectedAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // One company-level connection per provider (userId IS NULL — enforced in service layer
+  // because SQLite treats each NULL as distinct in composite unique indexes).
+  // One user-scoped connection per provider per user per company.
+  @@unique([companyId, provider, userId])
+  @@index([companyId, provider])
+  @@index([companyId, status])
+}
+
 model Integration {
   id           String    @id @default(cuid())
   companyId    String
