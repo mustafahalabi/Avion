@@ -11,6 +11,11 @@ import {
   type ReviewFinding,
 } from "@/lib/review-service";
 import {
+  recordQaResult,
+  type QaVerdict,
+  type QaFinding,
+} from "@/lib/qa-service";
+import {
   generateQaChecklist,
   serializeChecklist,
   countChecklist,
@@ -196,55 +201,66 @@ export async function createQAResult(
   return { success: true, id: qa.id };
 }
 
-export async function updateQAStatus(qaId: string, status: string, notes: string): Promise<void> {
+export type SubmitQaVerdict = QaVerdict;
+
+export async function submitQaVerdict(
+  qaResultId: string,
+  verdict: SubmitQaVerdict,
+  notes: string,
+  findings: QaFinding[] = []
+): Promise<{ error?: string }> {
   const user = await getCurrentUser();
-  if (!user) return;
+  if (!user) return { error: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
     where: { ownerId: user.id },
     select: { id: true },
   });
-  if (!company) return;
+  if (!company) return { error: "Company not found." };
 
-  const qa = await prisma.qAResult.findFirst({
-    where: { id: qaId, companyId: company.id },
-    select: { id: true, entityType: true, entityId: true },
-  });
-  if (!qa) return;
-
-  // Review gate: QA cannot be marked passed before review approval.
-  if (status === "passed" && qa.entityType === "task") {
-    const approvedReview = await prisma.review.findFirst({
-      where: {
-        companyId: company.id,
-        entityType: "task",
-        entityId: qa.entityId,
-        status: "approved",
-      },
-      select: { id: true },
+  let result;
+  try {
+    result = await recordQaResult({
+      companyId: company.id,
+      qaResultId,
+      verdict,
+      notes: notes.trim() || null,
+      findings,
     });
-    if (!approvedReview) return; // silently block — caller should check gate status
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Failed to record QA result.";
+    return { error: message };
   }
 
-  await prisma.qAResult.update({
-    where: { id: qaId },
-    data: { status, notes, updatedAt: new Date() },
-  });
-
-  // When QA passes on a task, mark the task done
-  if (status === "passed" && qa.entityType === "task") {
-    await prisma.task.updateMany({
-      where: {
-        id: qa.entityId,
-        companyId: company.id,
-        status: { notIn: ["done", "cancelled"] },
-      },
-      data: { status: "done", updatedAt: new Date() },
+  if (verdict === "failed" && result.taskId) {
+    await notify({
+      userId: user.id,
+      companyId: company.id,
+      title: "QA failed",
+      body: `QA validation failed${notes ? `: ${notes.slice(0, 80)}` : "."}`,
+      type: "alert",
+      priority: "high",
+      entityType: "task",
+      entityId: result.taskId,
+      actionUrl: `/work/quality/qa/${qaResultId}`,
     });
-    revalidatePath(`/work/tasks/${qa.entityId}`);
   }
 
   revalidatePath("/work/quality");
+  revalidatePath(`/work/quality/qa/${qaResultId}`);
+  if (result.taskId) {
+    revalidatePath(`/work/tasks/${result.taskId}`);
+  }
+
+  return {};
+}
+
+/** @deprecated Use submitQaVerdict instead. */
+export async function updateQAStatus(qaId: string, status: string, notes: string): Promise<void> {
+  if (status === "passed" || status === "failed" || status === "blocked" || status === "needs_clarification") {
+    await submitQaVerdict(qaId, status as SubmitQaVerdict, notes);
+  }
 }
 
 export type GenerateQaChecklistState =
