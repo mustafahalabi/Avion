@@ -120,6 +120,9 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await prisma.$executeRawUnsafe(`DELETE FROM "ExecutionSession"`);
+  await prisma.$executeRawUnsafe(
+    `UPDATE "Task" SET "status" = 'todo', "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = 'task-1'`
+  );
 });
 
 afterAll(async () => {
@@ -521,6 +524,198 @@ describe("execution-session-service", () => {
       const session = await service.createExecutionSession({ companyId: "company-1" });
       const canceled = await service.cancelExecutionSession("company-1", session.id);
       expect(service.isSessionTerminal(canceled!)).toBe(true);
+    });
+  });
+
+  // ── ingestAgentExecutionResult ────────────────────────────────────────────
+
+  describe("ingestAgentExecutionResult", () => {
+    async function createPreparedSession(taskId?: string) {
+      const session = await service.createExecutionSession({
+        companyId: "company-1",
+        taskId: taskId ?? null,
+      });
+      await service.prepareExecutionSession("company-1", session.id, "# Brief");
+      return session;
+    }
+
+    it("records a completed result and moves task to in-review", async () => {
+      const session = await createPreparedSession("task-1");
+
+      const outcome = await service.ingestAgentExecutionResult({
+        companyId: "company-1",
+        sessionId: session.id,
+        status: "completed",
+        resultSummary: "Implementation done.",
+        filesChanged: "src/lib/foo.ts\nsrc/lib/foo.test.ts",
+        validationOutput: "✅ all pass",
+        errorMessage: null,
+      });
+
+      expect(outcome.session.status).toBe("completed");
+      expect(outcome.session.completedAt).toBeInstanceOf(Date);
+      expect(outcome.newTaskStatus).toBe("in-review");
+      expect(outcome.taskStatusChanged).toBe(true);
+
+      const task = await prisma.task.findUnique({ where: { id: "task-1" }, select: { status: true } });
+      expect(task?.status).toBe("in-review");
+    });
+
+    it("records a failed result and leaves task actionable (todo)", async () => {
+      const session = await createPreparedSession("task-1");
+
+      const outcome = await service.ingestAgentExecutionResult({
+        companyId: "company-1",
+        sessionId: session.id,
+        status: "failed",
+        resultSummary: null,
+        filesChanged: [],
+        validationOutput: null,
+        errorMessage: "tsc failed: type error in foo.ts",
+      });
+
+      expect(outcome.session.status).toBe("failed");
+      expect(outcome.session.errorMessage).toBe("tsc failed: type error in foo.ts");
+      expect(outcome.newTaskStatus).toBe("todo");
+
+      const task = await prisma.task.findUnique({ where: { id: "task-1" }, select: { status: true } });
+      expect(task?.status).toBe("todo");
+    });
+
+    it("records needs_clarification and leaves task actionable", async () => {
+      const session = await createPreparedSession("task-1");
+
+      const outcome = await service.ingestAgentExecutionResult({
+        companyId: "company-1",
+        sessionId: session.id,
+        status: "needs_clarification",
+        resultSummary: "Unclear requirement in acceptance criteria.",
+        filesChanged: "",
+        validationOutput: null,
+        errorMessage: null,
+      });
+
+      expect(outcome.session.status).toBe("needs_clarification");
+      expect(outcome.newTaskStatus).toBe("todo");
+    });
+
+    it("auto-starts a prepared session before recording the result", async () => {
+      const session = await createPreparedSession();
+
+      expect(session.status).toBe("queued");
+
+      const outcome = await service.ingestAgentExecutionResult({
+        companyId: "company-1",
+        sessionId: session.id,
+        status: "completed",
+        resultSummary: "Done.",
+        filesChanged: [],
+        validationOutput: null,
+        errorMessage: null,
+      });
+
+      expect(outcome.session.status).toBe("completed");
+      expect(outcome.session.startedAt).toBeInstanceOf(Date);
+    });
+
+    it("parses filesChanged from newline-separated string", async () => {
+      const session = await createPreparedSession();
+
+      const outcome = await service.ingestAgentExecutionResult({
+        companyId: "company-1",
+        sessionId: session.id,
+        status: "completed",
+        resultSummary: null,
+        filesChanged: "src/lib/a.ts\nsrc/lib/b.ts\n",
+        validationOutput: null,
+        errorMessage: null,
+      });
+
+      const files = service.getSessionFilesChanged(outcome.session);
+      expect(files).toEqual(["src/lib/a.ts", "src/lib/b.ts"]);
+    });
+
+    it("parses filesChanged from an array", async () => {
+      const session = await createPreparedSession();
+
+      const outcome = await service.ingestAgentExecutionResult({
+        companyId: "company-1",
+        sessionId: session.id,
+        status: "failed",
+        resultSummary: null,
+        filesChanged: ["src/lib/x.ts"],
+        validationOutput: null,
+        errorMessage: null,
+      });
+
+      const files = service.getSessionFilesChanged(outcome.session);
+      expect(files).toEqual(["src/lib/x.ts"]);
+    });
+
+    it("throws when the session is not found", async () => {
+      await expect(
+        service.ingestAgentExecutionResult({
+          companyId: "company-1",
+          sessionId: "nonexistent",
+          status: "completed",
+          resultSummary: null,
+          filesChanged: [],
+          validationOutput: null,
+          errorMessage: null,
+        })
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("throws when the session is already in a terminal state", async () => {
+      const session = await createPreparedSession();
+      await service.cancelExecutionSession("company-1", session.id);
+
+      await expect(
+        service.ingestAgentExecutionResult({
+          companyId: "company-1",
+          sessionId: session.id,
+          status: "completed",
+          resultSummary: null,
+          filesChanged: [],
+          validationOutput: null,
+          errorMessage: null,
+        })
+      ).rejects.toThrow(/terminal/);
+    });
+
+    it("does not change task status when no task is linked", async () => {
+      const session = await createPreparedSession();
+
+      const outcome = await service.ingestAgentExecutionResult({
+        companyId: "company-1",
+        sessionId: session.id,
+        status: "completed",
+        resultSummary: null,
+        filesChanged: [],
+        validationOutput: null,
+        errorMessage: null,
+      });
+
+      expect(outcome.newTaskStatus).toBeNull();
+      expect(outcome.taskStatusChanged).toBe(false);
+    });
+
+    it("does not mark review or QA complete — task moves only to in-review", async () => {
+      const session = await createPreparedSession("task-1");
+
+      await service.ingestAgentExecutionResult({
+        companyId: "company-1",
+        sessionId: session.id,
+        status: "completed",
+        resultSummary: null,
+        filesChanged: [],
+        validationOutput: null,
+        errorMessage: null,
+      });
+
+      const task = await prisma.task.findUnique({ where: { id: "task-1" }, select: { status: true } });
+      expect(task?.status).toBe("in-review");
+      expect(task?.status).not.toBe("done");
     });
   });
 });

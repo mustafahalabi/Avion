@@ -13,6 +13,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { TaskStatusSelect } from "./task-status-select";
 import { TaskBriefSection } from "./task-brief-section";
+import { ExecutionResultForm } from "./execution-result-form";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -88,13 +89,27 @@ export default async function TaskDetailPage({ params }: Props) {
 
   if (!task) notFound();
 
-  // Latest prepared execution session for this task (if any) — used to surface
-  // an existing brief without regenerating.
-  const latestPreparedSession = await prisma.executionSession.findFirst({
-    where: { companyId: company.id, taskId: id, status: "prepared" },
-    orderBy: { createdAt: "desc" },
-    select: { taskBrief: true },
-  });
+  // Fetch both the latest prepared session (for existing brief display) and the
+  // latest active session (for the result ingestion form) in parallel.
+  const [latestPreparedSession, activeSession] = await Promise.all([
+    // Latest prepared execution session — surfaces an existing brief without regenerating.
+    prisma.executionSession.findFirst({
+      where: { companyId: company.id, taskId: id, status: "prepared" },
+      orderBy: { createdAt: "desc" },
+      select: { taskBrief: true },
+    }),
+    // Latest active session (prepared or running) — shown when agent has the brief
+    // but has not yet reported back.
+    prisma.executionSession.findFirst({
+      where: {
+        companyId: company.id,
+        taskId: id,
+        status: { in: ["prepared", "running"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true },
+    }),
+  ]);
 
   // Quality gate: find latest review and QA for this task
   const [latestReview, latestQA] = await Promise.all([
@@ -291,6 +306,21 @@ export default async function TaskDetailPage({ params }: Props) {
           taskStatus={task.status}
           existingBrief={latestPreparedSession?.taskBrief ?? null}
         />
+
+        {/* Execution Result Ingestion */}
+        {activeSession && (
+          <section>
+            <SectionLabel>Record Execution Result</SectionLabel>
+            <p className="mt-1 mb-3 text-xs text-neutral-600">
+              Session{" "}
+              <code className="rounded bg-neutral-800 px-1 text-neutral-500">
+                {activeSession.status}
+              </code>{" "}
+              — paste the agent result when it completes.
+            </p>
+            <ExecutionResultForm sessionId={activeSession.id} taskId={task.id} />
+          </section>
+        )}
 
         {/* Subtasks */}
         {task.subtasks.length > 0 && (
