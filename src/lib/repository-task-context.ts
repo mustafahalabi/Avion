@@ -1,4 +1,5 @@
 import { deriveBranchName, isProtectedBranch } from "@/lib/implementation-brief";
+import { buildRepositoryIntelligenceUrl } from "@/lib/repository-intelligence-view";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,8 @@ export interface RepositoryTaskContextInput {
   readonly baseBranch?: string | null;
   /** Repository attached to the task. Null when no repo is connected. */
   readonly repository?: RepositoryInput | null;
+  /** Repository identifier for linking to the intelligence dashboard. */
+  readonly repositoryId?: string | null;
 }
 
 /**
@@ -92,6 +95,8 @@ export interface RepositoryTaskContext {
   readonly hasAnalysis: boolean;
   /** Raw analysisStatus from the repository record, or null when no repo attached. */
   readonly analysisStatus: string | null;
+  /** Deep link to the repository intelligence dashboard, when repositoryId is known. */
+  readonly intelligenceDashboardUrl: string | null;
 }
 
 // ─── Core Function ────────────────────────────────────────────────────────────
@@ -161,6 +166,9 @@ export function generateRepositoryTaskContext(
       warnings,
       hasAnalysis: false,
       analysisStatus: null,
+      intelligenceDashboardUrl: input.repositoryId
+        ? buildRepositoryIntelligenceUrl(input.repositoryId)
+        : null,
     };
   }
 
@@ -234,6 +242,9 @@ export function generateRepositoryTaskContext(
     warnings,
     hasAnalysis,
     analysisStatus: repo.analysisStatus,
+    intelligenceDashboardUrl: input.repositoryId
+      ? buildRepositoryIntelligenceUrl(input.repositoryId)
+      : null,
   };
 }
 
@@ -270,6 +281,10 @@ export function formatRepositoryTaskContext(ctx: RepositoryTaskContext): string 
     `- **Stack:** ${ctx.techStack.length > 0 ? ctx.techStack.join(", ") : "_(not detected)_"}`,
     `- **Analysis Status:** ${ctx.analysisStatus ?? "_(no repository)_"}`
   );
+
+  if (ctx.intelligenceDashboardUrl) {
+    lines.push(`- **Repository Intelligence:** ${ctx.intelligenceDashboardUrl}`);
+  }
 
   if (ctx.relevantFiles.length > 0) {
     lines.push("", "**Key files to inspect:**");

@@ -304,4 +304,16 @@ describe("formatRepositoryTaskContext", () => {
     const md = formatRepositoryTaskContext(ctx);
     expect(md).toContain("Constraints:");
   });
+
+  it("includes repository intelligence dashboard link when repositoryId is provided", () => {
+    const ctx = generateRepositoryTaskContext({
+      ...BASE_INPUT,
+      repositoryId: "repo-123",
+    });
+    expect(ctx.intelligenceDashboardUrl).toBe(
+      "/work/repositories/repo-123#repository-intelligence"
+    );
+    const md = formatRepositoryTaskContext(ctx);
+    expect(md).toContain("/work/repositories/repo-123#repository-intelligence");
+  });
 });
