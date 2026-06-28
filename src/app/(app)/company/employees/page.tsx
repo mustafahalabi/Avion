@@ -4,13 +4,7 @@ import { redirect } from "next/navigation";
 import { ArrowLeft, Users } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-
-const STATUS_STYLES: Record<string, string> = {
-  active: "bg-emerald-950 text-emerald-400 border-emerald-900",
-  planned: "bg-neutral-900 text-neutral-500 border-neutral-700",
-  unavailable: "bg-amber-950 text-amber-400 border-amber-900",
-  retired: "bg-neutral-900 text-neutral-600 border-neutral-800",
-};
+import { EmployeeStatusIndicator } from "@/components/ui/status-indicator";
 
 const DEPT_COLORS: Record<string, string> = {
   executive: "bg-violet-950/50 border-violet-900/50",
@@ -140,15 +134,16 @@ export default async function EmployeesPage() {
                           <p className="text-sm font-medium text-neutral-200 truncate">
                             {emp.name}
                           </p>
-                          <span
-                            className={cn(
-                              "shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
-                              STATUS_STYLES[emp.status] ??
-                                STATUS_STYLES["planned"]
-                            )}
-                          >
-                            {emp.status}
-                          </span>
+                          <EmployeeStatusIndicator
+                            status={
+                              (["active", "idle", "working", "unavailable"].includes(emp.status)
+                                ? emp.status
+                                : "idle") as "active" | "idle" | "working" | "unavailable"
+                            }
+                            showLabel={true}
+                            size="xs"
+                            className="shrink-0"
+                          />
                         </div>
                         <p className="mt-0.5 text-xs text-neutral-500 truncate">
                           {emp.role?.name ?? emp.title ?? "—"}
