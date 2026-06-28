@@ -95,6 +95,7 @@ export interface FileTreeSummary {
   readonly byCategory: Record<string, number>;
   readonly byExtension: Record<string, number>;
   readonly topLevelDirs: readonly string[];
+  readonly importantPaths: readonly string[];
 }
 
 export interface PackageManagerInfo {
@@ -227,7 +228,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
   }
 
   const entries = walkDirectory(localPath, localPath, 0, { count: 0 });
-  const fileTree = buildFileTreeSummary(entries, localPath);
+  const fileTreeBase = buildFileTreeSummary(entries, localPath);
   const packageManager = detectPackageManager(localPath);
   const { scripts, dependencies, devDependencies, frameworks, techStack, primaryLanguage } = parseManifests(localPath);
   const routes = detectRoutes(localPath, entries);
@@ -239,6 +240,10 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
   const testFiles = detectTestFiles(entries);
   const fileFingerprints = buildFileFingerprints(entries);
   const importantFiles = buildImportantFiles(localPath, entries, prismaModels);
+  const fileTree: FileTreeSummary = {
+    ...fileTreeBase,
+    importantPaths: importantFiles,
+  };
   const risks = buildRisks({
     entries,
     testFiles,
@@ -475,7 +480,7 @@ function buildFileTreeSummary(entries: FileEntry[], root: string): FileTreeSumma
     }
   }
 
-  return { totalFiles, totalDirs, byCategory, byExtension, topLevelDirs: topLevelDirEntries };
+  return { totalFiles, totalDirs, byCategory, byExtension, topLevelDirs: topLevelDirEntries, importantPaths: [] };
 }
 
 // ─── Package Manager Detection ────────────────────────────────────────────────
