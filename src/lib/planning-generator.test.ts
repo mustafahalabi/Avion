@@ -71,6 +71,12 @@ const REPOSITORIES = [
     importantFiles: ["prisma/schema.prisma", "src/app/actions/runtime.ts"],
     analysisStatus: "analyzed",
     analysisNotes: "Current repository metadata is available.",
+    latestChangeSummary: "Overall impact: MEDIUM. 1 impact item(s) identified across: routing.",
+    latestChangeImpactLevel: "medium",
+    latestChangeAffectedAreas: ["routing"],
+    latestChangeRecommendedActions: [
+      "QA Engineer should smoke-test all new pages and verify that navigation and access control are working correctly.",
+    ],
   },
 ] as const;
 
@@ -131,6 +137,18 @@ describe("generateDeterministicPlanningDraft", () => {
     expect(taskTitles).toContain("Generate repository risk report");
     expect(taskTitles).toContain("Expose repository intelligence summary in UI");
     expect(taskTitles).toContain("Add QA coverage for repository analysis");
+  });
+
+  it("includes recent repository change context in planning summaries", () => {
+    const result = generateDeterministicPlanningDraft(buildInput());
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+
+    expect(result.draft.summary).toContain("Latest changes: medium impact across routing");
+    expect(result.draft.generatedProjects[0]?.description).toContain(
+      "Overall impact: MEDIUM"
+    );
   });
 
   it("fails gracefully for an empty outcome", () => {

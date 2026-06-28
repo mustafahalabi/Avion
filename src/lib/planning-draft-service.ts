@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getLatestRepositoryChangeIntelligence } from "@/lib/repository-change-intelligence";
 import {
   generateDeterministicPlanningDraft,
   parseJsonStringArray,
@@ -122,6 +123,10 @@ export async function createOrUpdatePlanningDraftForOutcome(
     }),
   ]);
 
+  const planningRepositories = await Promise.all(
+    repositories.map((repository) => toPlanningRepositoryContext(repository, input.companyId))
+  );
+
   const generation = generateDeterministicPlanningDraft({
     companyId: outcome.companyId,
     outcomeId: outcome.id,
@@ -138,7 +143,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
       roleName: employee.role?.name ?? null,
       responsibilities: employee.responsibilities,
     })),
-    repositories: repositories.map(toPlanningRepositoryContext),
+    repositories: planningRepositories,
   });
 
   return persistPlanningGeneration({
@@ -158,7 +163,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
  * ```
  * @returns Repository context with parsed JSON metadata arrays.
  */
-function toPlanningRepositoryContext(repository: {
+async function toPlanningRepositoryContext(repository: {
   readonly id: string;
   readonly name: string;
   readonly description: string | null;
@@ -169,7 +174,14 @@ function toPlanningRepositoryContext(repository: {
   readonly importantFiles: string;
   readonly analysisStatus: string;
   readonly analysisNotes: string | null;
-}): PlanningRepositoryContext {
+}, companyId: string): Promise<PlanningRepositoryContext> {
+  const changeIntelligence = await getLatestRepositoryChangeIntelligence({
+    repositoryId: repository.id,
+    companyId,
+  });
+  const impact = changeIntelligence.impact;
+  const impactSummary = impact && !("error" in impact) ? impact.summary : null;
+
   return {
     id: repository.id,
     name: repository.name,
@@ -181,6 +193,13 @@ function toPlanningRepositoryContext(repository: {
     importantFiles: parseJsonStringArray(repository.importantFiles),
     analysisStatus: repository.analysisStatus,
     analysisNotes: repository.analysisNotes,
+    latestChangeSummary: impactSummary,
+    latestChangeImpactLevel: impact && !("error" in impact) ? impact.overallImpactLevel : null,
+    latestChangeAffectedAreas: impact && !("error" in impact) ? impact.affectedAreas : [],
+    latestChangeRecommendedActions:
+      impact && !("error" in impact)
+        ? impact.recommendedActions.map((action) => action.action)
+        : [],
   };
 }
 

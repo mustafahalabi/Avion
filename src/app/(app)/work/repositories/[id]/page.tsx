@@ -1,13 +1,21 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { getLatestRepositoryChangeIntelligence } from "@/lib/repository-change-intelligence";
+import { analyzeRepository } from "@/app/actions/repository";
+import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
 import {
+  Activity,
+  AlertTriangle,
   ArrowLeft,
   GitBranch,
+  GitCompareArrows,
   CheckCircle2,
   Clock,
   ExternalLink,
   FileCode,
+  RefreshCw,
+  Route,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -22,6 +30,23 @@ const ANALYSIS_COLORS: Record<string, string> = {
   analyzing: "bg-blue-950 text-blue-400 border-blue-900",
   failed: "bg-red-950 text-red-400 border-red-900",
 };
+
+const IMPACT_COLORS: Record<string, string> = {
+  none: "bg-neutral-900 text-neutral-500 border-neutral-700",
+  low: "bg-emerald-950 text-emerald-400 border-emerald-900",
+  medium: "bg-amber-950 text-amber-400 border-amber-900",
+  high: "bg-orange-950 text-orange-400 border-orange-900",
+  critical: "bg-red-950 text-red-400 border-red-900",
+};
+
+function formatSnapshotDate(date: Date): string {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
 export default async function RepositoryDetailPage({ params }: Props) {
   const { id } = await params;
@@ -40,6 +65,24 @@ export default async function RepositoryDetailPage({ params }: Props) {
   });
 
   if (!repo) notFound();
+
+  const changeIntelligence = await getLatestRepositoryChangeIntelligence({
+    repositoryId: repo.id,
+    companyId: company.id,
+  });
+  const comparison = changeIntelligence.comparison;
+  const impact = changeIntelligence.impact;
+  const comparisonResult = comparison && !("error" in comparison) ? comparison : null;
+  const comparisonError = comparison && "error" in comparison ? comparison : null;
+  const impactResult = impact && !("error" in impact) ? impact : null;
+  const impactError = impact && "error" in impact ? impact : null;
+
+  async function runAnalysis(formData: FormData) {
+    "use server";
+
+    await analyzeRepository(undefined, formData);
+    revalidatePath(`/work/repositories/${id}`);
+  }
 
   const techStack: string[] = JSON.parse(repo.techStack || "[]");
   const frameworks: string[] = JSON.parse(repo.frameworks || "[]");
@@ -64,7 +107,7 @@ export default async function RepositoryDetailPage({ params }: Props) {
         </h1>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-3xl">
+      <div className="flex max-w-5xl flex-col gap-8 p-6">
         {/* Header */}
         <section className="flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-neutral-700 bg-neutral-800">
@@ -164,6 +207,161 @@ export default async function RepositoryDetailPage({ params }: Props) {
           </section>
         )}
 
+        <section>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SectionLabel>Repository Change Intelligence</SectionLabel>
+            <span className="rounded-full border border-neutral-800 bg-neutral-900 px-2 py-1 text-[11px] font-medium text-neutral-400">
+              {changeIntelligence.snapshotCount} snapshots
+            </span>
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            <DetailCard
+              label="Latest Snapshot"
+              value={
+                changeIntelligence.latestSnapshot
+                  ? `${changeIntelligence.latestSnapshot.status} · ${formatSnapshotDate(
+                      changeIntelligence.latestSnapshot.createdAt
+                    )}`
+                  : "No snapshots"
+              }
+            />
+            <DetailCard
+              label="Comparison"
+              value={
+                comparisonResult
+                  ? comparisonResult.hasChanges
+                    ? "Changes detected"
+                    : "No changes"
+                  : comparisonError
+                    ? "Comparison failed"
+                    : "Needs two snapshots"
+              }
+            />
+            <DetailCard
+              label="Impact"
+              value={impactResult ? impactResult.overallImpactLevel : "Unavailable"}
+            />
+          </div>
+
+          <form
+            action={runAnalysis}
+            className="mt-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4"
+          >
+            <input type="hidden" name="repositoryId" value={repo.id} />
+            <label
+              htmlFor="localPath"
+              className="text-xs font-semibold uppercase tracking-wider text-neutral-500"
+            >
+              Analyze local repository path
+            </label>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input
+                id="localPath"
+                name="localPath"
+                type="text"
+                placeholder="/absolute/path/to/repository"
+                className="min-h-11 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-200 outline-none transition-colors placeholder:text-neutral-700 focus:border-neutral-500"
+                required
+              />
+              <button
+                type="submit"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 px-4 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-700"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Analyze
+              </button>
+            </div>
+          </form>
+
+          {comparisonResult && (
+            <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+              <div className="flex items-start gap-3">
+                <GitCompareArrows className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-neutral-200">
+                    {comparisonResult.summary}
+                  </p>
+                  {comparisonResult.affectedAreas.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {comparisonResult.affectedAreas.map((area) => (
+                        <span
+                          key={area}
+                          className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1 text-xs text-neutral-400"
+                        >
+                          {area}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    <ChangeCount label="Files" value={comparisonResult.changeCounts.addedImportantFiles + comparisonResult.changeCounts.removedImportantFiles + comparisonResult.changeCounts.changedFiles} />
+                    <ChangeCount label="Routes" value={comparisonResult.changeCounts.addedRoutes + comparisonResult.changeCounts.removedRoutes + comparisonResult.changeCounts.changedRoutes} />
+                    <ChangeCount label="Risks" value={comparisonResult.changeCounts.newRisks + comparisonResult.changeCounts.resolvedRisks} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {comparisonError && (
+            <InlineNotice icon="compare" tone="warning" title="Comparison unavailable">
+              {comparisonError.reason}
+            </InlineNotice>
+          )}
+
+          {impactResult && (
+            <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <Activity className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
+                  <div>
+                    <p className="text-sm font-medium text-neutral-200">
+                      {impactResult.summary}
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Confidence: {impactResult.confidence}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    "rounded-full border px-2 py-1 text-[11px] font-medium",
+                    IMPACT_COLORS[impactResult.overallImpactLevel] ?? IMPACT_COLORS.none
+                  )}
+                >
+                  {impactResult.overallImpactLevel}
+                </span>
+              </div>
+
+              {impactResult.affectedRoles.length > 0 && (
+                <TagBlock title="Who should care" tags={impactResult.affectedRoles} />
+              )}
+              {impactResult.qaFocusAreas.length > 0 && (
+                <TagBlock title="QA focus" tags={impactResult.qaFocusAreas} />
+              )}
+              {impactResult.recommendedActions.length > 0 && (
+                <ListBlock
+                  title="Recommended Actions"
+                  items={impactResult.recommendedActions.map((action) => action.action)}
+                />
+              )}
+              {impactResult.evidence.length > 0 && (
+                <ListBlock title="Evidence" items={impactResult.evidence.slice(0, 8)} mono />
+              )}
+              {impactResult.releaseRisks.length > 0 && (
+                <ListBlock title="Release Risks" items={impactResult.releaseRisks} />
+              )}
+            </div>
+          )}
+
+          {impactError && (
+            <InlineNotice icon="impact" tone="warning" title="Impact unavailable">
+              {impactError.reason}
+            </InlineNotice>
+          )}
+        </section>
+
         {/* Empty state */}
         {techStack.length === 0 &&
           frameworks.length === 0 &&
@@ -178,6 +376,95 @@ export default async function RepositoryDetailPage({ params }: Props) {
               </p>
             </div>
           )}
+      </div>
+    </div>
+  );
+}
+
+function ChangeCount({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-neutral-600">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-neutral-200">{value}</p>
+    </div>
+  );
+}
+
+function TagBlock({ title, tags }: { title: string; tags: readonly string[] }) {
+  return (
+    <div className="mt-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+        {title}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1 text-xs text-neutral-400"
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ListBlock({
+  title,
+  items,
+  mono = false,
+}: {
+  title: string;
+  items: readonly string[];
+  mono?: boolean;
+}) {
+  return (
+    <div className="mt-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+        {title}
+      </p>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {items.map((item) => (
+          <div
+            key={item}
+            className={cn(
+              "rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs leading-relaxed text-neutral-400",
+              mono && "font-mono"
+            )}
+          >
+            {item}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function InlineNotice({
+  icon,
+  tone,
+  title,
+  children,
+}: {
+  icon: "compare" | "impact";
+  tone: "warning";
+  title: string;
+  children: React.ReactNode;
+}) {
+  const Icon = icon === "compare" ? Route : AlertTriangle;
+
+  return (
+    <div
+      className={cn(
+        "mt-3 flex items-start gap-3 rounded-lg border p-4",
+        tone === "warning" && "border-amber-900 bg-amber-950/40"
+      )}
+    >
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+      <div>
+        <p className="text-sm font-medium text-amber-200">{title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-amber-300/80">{children}</p>
       </div>
     </div>
   );

@@ -70,4 +70,16 @@ Callable server actions in `src/app/actions/repository.ts` expose the service pa
 - `compareLatestRepositorySnapshots`
 - `analyzeLatestRepositorySnapshotImpact`
 
-No dedicated UI is implemented in this slice. UI can consume the existing actions or call the service directly from a future repository detail panel, planner workflow, or release gate.
+`src/lib/repository-change-intelligence.ts` exposes the read-only latest change intelligence path for UI and planning code. It loads the latest two snapshots for a repository/company, runs deterministic comparison and impact analysis, and returns snapshot summary, comparison, and impact output without importing the filesystem analyzer.
+
+Current product surfaces:
+
+- Repository detail pages show snapshot count, latest snapshot state, latest comparison summary, impact level, affected areas, evidence, release risks, and recommended actions.
+- Repository detail pages include a local-path analysis form for creating a new snapshot from an accessible server-side repository path.
+- Planning draft generation includes recent repository change context in generated plan summaries and project descriptions when at least two comparable snapshots exist.
+
+Known UI limits:
+
+- There is no historical snapshot timeline beyond the latest two snapshots.
+- There is no remote clone/fetch flow.
+- There is no commit or pull request metadata linkage yet.

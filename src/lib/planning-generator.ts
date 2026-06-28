@@ -103,6 +103,10 @@ export interface PlanningRepositoryContext {
   readonly importantFiles: readonly string[];
   readonly analysisStatus: string;
   readonly analysisNotes: string | null;
+  readonly latestChangeSummary: string | null;
+  readonly latestChangeImpactLevel: string | null;
+  readonly latestChangeAffectedAreas: readonly string[];
+  readonly latestChangeRecommendedActions: readonly string[];
 }
 
 export interface OutcomePlanningInput {
@@ -1419,8 +1423,12 @@ function summarizeRepositories(repositories: readonly PlanningRepositoryContext[
       .filter((item): item is string => typeof item === "string" && item.length > 0)
       .slice(0, 4)
       .join(", ");
+    const latestChange =
+      repo.latestChangeSummary && repo.latestChangeImpactLevel
+        ? ` Latest changes: ${repo.latestChangeImpactLevel} impact across ${repo.latestChangeAffectedAreas.join(", ") || "unclassified areas"} - ${repo.latestChangeSummary}`
+        : "";
 
-    return stack.length > 0 ? `${repo.name} (${stack})` : repo.name;
+    return stack.length > 0 ? `${repo.name} (${stack}).${latestChange}` : `${repo.name}.${latestChange}`;
   });
 
   return `Attached repository context: ${summaries.join("; ")}.`;
