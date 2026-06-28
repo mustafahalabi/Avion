@@ -56,13 +56,22 @@ export default async function ProjectsPage() {
           <span className="text-neutral-700">/</span>
           <h1 className="text-sm font-semibold text-neutral-100">Projects</h1>
         </div>
-        <Link
-          href="/work/projects/new"
-          className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/work/outcomes/new"
+            className="flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-900 hover:bg-neutral-100 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Submit outcome
+          </Link>
+          <Link
+            href="/work/projects/new"
+            className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New project
+          </Link>
+        </div>
       </header>
 
       <div className="flex flex-col gap-4 p-6">
