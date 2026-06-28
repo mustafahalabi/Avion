@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getCurrentUser } from "@/lib/current-user";
 import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
+import { approvePlanningDraft, applyApprovedPlan } from "@/lib/plan-application-service";
 import { prisma } from "@/lib/prisma";
 
 const generatePlanningDraftSchema = z.object({
@@ -76,5 +77,102 @@ export async function generatePlanningDraftForOutcome(
     return {
       message: error instanceof Error ? error.message : "Unable to generate planning draft.",
     };
+  }
+}
+
+// ─── Approve planning draft ───────────────────────────────────────────────────
+
+export type ApprovePlanState =
+  | undefined
+  | { error: string }
+  | { success: true; status: string };
+
+export async function approvePlan(
+  _prev: ApprovePlanState,
+  formData: FormData
+): Promise<ApprovePlanState> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const planningDraftId = formData.get("planningDraftId");
+  const notes = formData.get("notes");
+  if (!planningDraftId || typeof planningDraftId !== "string") {
+    return { error: "Planning draft ID is required." };
+  }
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) return { error: "No company found." };
+
+  try {
+    const result = await approvePlanningDraft({
+      companyId: company.id,
+      planningDraftId,
+      actorId: user.id,
+      notes: typeof notes === "string" ? notes : undefined,
+    });
+
+    revalidatePath("/inbox");
+    revalidatePath("/dashboard");
+    revalidatePath("/timeline");
+
+    return { success: true, status: result.status };
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : "Failed to approve plan." };
+  }
+}
+
+// ─── Apply approved plan ──────────────────────────────────────────────────────
+
+export type ApplyPlanState =
+  | undefined
+  | { error: string }
+  | {
+      success: true;
+      projectsCreated: number;
+      featuresCreated: number;
+      tasksCreated: number;
+    };
+
+export async function applyPlan(
+  _prev: ApplyPlanState,
+  formData: FormData
+): Promise<ApplyPlanState> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const planningDraftId = formData.get("planningDraftId");
+  if (!planningDraftId || typeof planningDraftId !== "string") {
+    return { error: "Planning draft ID is required." };
+  }
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) return { error: "No company found." };
+
+  try {
+    const result = await applyApprovedPlan({
+      companyId: company.id,
+      planningDraftId,
+      actorId: user.id,
+    });
+
+    revalidatePath("/inbox");
+    revalidatePath("/dashboard");
+    revalidatePath("/work");
+    revalidatePath("/timeline");
+
+    return {
+      success: true,
+      projectsCreated: result.projectsCreated,
+      featuresCreated: result.featuresCreated,
+      tasksCreated: result.tasksCreated,
+    };
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : "Failed to apply plan." };
   }
 }
