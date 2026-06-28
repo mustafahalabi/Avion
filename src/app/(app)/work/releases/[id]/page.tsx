@@ -18,6 +18,8 @@ import { ReleaseButton } from "./release-button";
 import { ReleaseTasksSection } from "./release-tasks-section";
 import { CeoReleaseSummaryPanel } from "./ceo-release-summary-panel";
 import { getCeoReleaseSummary } from "@/lib/release-summary-service";
+import { ReleaseCandidateEvidence } from "./release-candidate-evidence";
+import { parseReleaseCandidateMetadata } from "@/lib/release-candidate-service";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -93,6 +95,7 @@ export default async function ReleaseDetailPage({ params }: Props) {
 
   const readyCount = checklist.filter((c) => c.checked).length;
   const allReady = readyCount === checklist.length && checklist.length > 0;
+  const candidateMetadata = parseReleaseCandidateMetadata(release.description);
 
   const ceoSummary = await getCeoReleaseSummary(company.id, release.id);
 
@@ -149,15 +152,17 @@ export default async function ReleaseDetailPage({ params }: Props) {
           )}
         </section>
 
-        {/* Description */}
-        {release.description && (
+        {/* Description / candidate evidence */}
+        {candidateMetadata ? (
+          <ReleaseCandidateEvidence description={release.description} />
+        ) : release.description ? (
           <section>
             <SectionLabel>Description</SectionLabel>
             <p className="mt-2 text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap">
               {release.description}
             </p>
           </section>
-        )}
+        ) : null}
 
         {/* Readiness checklist */}
         <section>
