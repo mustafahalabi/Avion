@@ -127,6 +127,18 @@ export interface RouteInfo {
 export interface PrismaModelInfo {
   readonly name: string;
   readonly schemaPath: string;
+  readonly ownershipFields: readonly string[];
+}
+
+export interface DatabaseLayerSummary {
+  readonly technology: "prisma" | "drizzle" | "typeorm" | "mongoose" | "none";
+  readonly ormEvidence: readonly string[];
+  readonly schemaPaths: readonly string[];
+  readonly migrationPaths: readonly string[];
+  readonly seedPaths: readonly string[];
+  readonly models: readonly PrismaModelInfo[];
+  readonly ownershipRisks: readonly string[];
+  readonly unknowns: readonly string[];
 }
 
 export interface RiskFinding {
@@ -160,6 +172,7 @@ export interface RepositoryAnalysisResult {
   readonly serverActions: readonly string[];
   readonly apiRoutes: readonly string[];
   readonly prismaModels: readonly PrismaModelInfo[];
+  readonly databaseLayer: DatabaseLayerSummary;
   readonly testFiles: readonly string[];
   readonly fileFingerprints: readonly FileFingerprint[];
   readonly risks: readonly RiskFinding[];
@@ -207,6 +220,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
   const serverActions = detectServerActions(localPath, entries);
   const apiRoutes = routes.filter((r) => r.type === "api").map((r) => r.path);
   const prismaModels = detectPrismaModels(localPath);
+  const databaseLayer = detectDatabaseLayer(localPath, dependencies, devDependencies, prismaModels);
   const testFiles = detectTestFiles(entries);
   const fileFingerprints = buildFileFingerprints(entries);
   const importantFiles = buildImportantFiles(localPath, entries, prismaModels);
@@ -226,6 +240,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
     serverActions,
     apiRoutes,
     prismaModels,
+    databaseLayer,
     testFiles,
     risks,
     fileTree,
@@ -247,6 +262,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
     serverActions,
     apiRoutes,
     prismaModels,
+    databaseLayer,
     testFiles,
     fileFingerprints,
     risks,
@@ -744,6 +760,150 @@ export function detectServerActions(root: string, entries: FileEntry[]): readonl
 
 // ─── Prisma Model Detection ───────────────────────────────────────────────────
 
+// ─── Database Layer Detection ─────────────────────────────────────────────────
+
+const OWNERSHIP_FIELD_NAMES = ["companyId", "tenantId", "organizationId"] as const;
+const OWNERSHIP_EXEMPT_MODELS = new Set([
+  "User",
+  "Company",
+  "Department",
+  "Role",
+  "Employee",
+  "CompanySettings",
+  "Session",
+  "Account",
+  "VerificationToken",
+]);
+
+/**
+ * Parses ownership-related scalar fields declared on a Prisma model block.
+ *
+ * @param modelBody - Prisma model block body without the outer braces.
+ * @returns Detected ownership field names.
+ */
+export function parsePrismaModelOwnershipFields(modelBody: string): readonly string[] {
+  return OWNERSHIP_FIELD_NAMES.filter((fieldName) =>
+    new RegExp(`^\\s*${fieldName}\\s+`, "m").test(modelBody)
+  );
+}
+
+/**
+ * Detects database technology, schema paths, migrations, seeds, models, and ownership risks.
+ *
+ * @param root - Repository root path.
+ * @param dependencies - Runtime dependency names.
+ * @param devDependencies - Development dependency names.
+ * @param models - Parsed Prisma model metadata.
+ * @returns Structured database layer summary for planning and repository intelligence output.
+ */
+export function detectDatabaseLayer(
+  root: string,
+  dependencies: readonly string[],
+  devDependencies: readonly string[],
+  models: readonly PrismaModelInfo[]
+): DatabaseLayerSummary {
+  const allDeps = new Set([...dependencies, ...devDependencies]);
+  const schemaPaths: string[] = [];
+  const migrationPaths: string[] = [];
+  const seedPaths: string[] = [];
+  const ormEvidence: string[] = [];
+  const unknowns: string[] = [];
+  let technology: DatabaseLayerSummary["technology"] = "none";
+
+  if (allDeps.has("prisma") || allDeps.has("@prisma/client")) {
+    technology = "prisma";
+    ormEvidence.push("prisma or @prisma/client in dependencies");
+  } else if (allDeps.has("drizzle-orm")) {
+    technology = "drizzle";
+    ormEvidence.push("drizzle-orm in dependencies");
+  } else if (allDeps.has("typeorm")) {
+    technology = "typeorm";
+    ormEvidence.push("typeorm in dependencies");
+  } else if (allDeps.has("mongoose")) {
+    technology = "mongoose";
+    ormEvidence.push("mongoose in dependencies");
+  }
+
+  for (const candidate of ["prisma/schema.prisma", "schema.prisma"]) {
+    if (existsSync(join(root, candidate))) schemaPaths.push(candidate);
+  }
+
+  const migrationsDir = join(root, "prisma", "migrations");
+  if (existsSync(migrationsDir)) {
+    try {
+      for (const entry of readdirSync(migrationsDir).sort()) {
+        if (statSync(join(migrationsDir, entry)).isDirectory()) {
+          migrationPaths.push(`prisma/migrations/${entry}`);
+        }
+      }
+    } catch {
+      unknowns.push("prisma/migrations exists but migration folders could not be read.");
+    }
+  }
+
+  for (const seedCandidate of ["prisma/seed.ts", "prisma/seed.js", "prisma/seed.mjs"]) {
+    if (existsSync(join(root, seedCandidate))) seedPaths.push(seedCandidate);
+  }
+
+  const pkg = readJsonFile(join(root, "package.json"));
+  const prismaSeed = pkg?.prisma;
+  if (
+    prismaSeed &&
+    typeof prismaSeed === "object" &&
+    !Array.isArray(prismaSeed) &&
+    typeof (prismaSeed as { seed?: unknown }).seed === "string"
+  ) {
+    seedPaths.push(`package.json#prisma.seed:${(prismaSeed as { seed: string }).seed}`);
+  }
+
+  if (technology === "none" && schemaPaths.length > 0) {
+    technology = "prisma";
+    ormEvidence.push("Prisma schema file detected without prisma dependency declaration");
+  }
+
+  if (technology === "prisma" && schemaPaths.length === 0) {
+    unknowns.push("Prisma dependency detected but no schema.prisma file was found.");
+  }
+
+  if (technology === "prisma" && schemaPaths.length > 0 && migrationPaths.length === 0) {
+    unknowns.push("Prisma schema detected without a prisma/migrations directory.");
+  }
+
+  const ownershipRisks = buildDatabaseOwnershipRisks(models);
+
+  return {
+    technology,
+    ormEvidence,
+    schemaPaths,
+    migrationPaths,
+    seedPaths: [...new Set(seedPaths)].sort(),
+    models,
+    ownershipRisks,
+    unknowns,
+  };
+}
+
+/**
+ * Builds ownership risk messages when company-scoped models coexist with unscoped entities.
+ *
+ * @param models - Parsed model metadata.
+ * @returns Ownership risk descriptions.
+ */
+function buildDatabaseOwnershipRisks(models: readonly PrismaModelInfo[]): readonly string[] {
+  const companyScopedModels = models.filter((model) => model.ownershipFields.includes("companyId"));
+  if (companyScopedModels.length === 0) return [];
+
+  const risks: string[] = [];
+  for (const model of models) {
+    if (model.ownershipFields.length > 0 || OWNERSHIP_EXEMPT_MODELS.has(model.name)) continue;
+    risks.push(
+      `Model ${model.name} has no companyId/tenantId/organizationId field while other models are company-scoped.`
+    );
+  }
+
+  return risks.sort();
+}
+
 export function detectPrismaModels(root: string): readonly PrismaModelInfo[] {
   const schemaCandidates = [
     join(root, "prisma", "schema.prisma"),
@@ -757,13 +917,14 @@ export function detectPrismaModels(root: string): readonly PrismaModelInfo[] {
     if (!content) continue;
 
     const models: PrismaModelInfo[] = [];
-    const modelRegex = /^model\s+(\w+)\s*\{/gm;
+    const modelBlockRegex = /^model\s+(\w+)\s*\{([\s\S]*?)\n\}/gm;
     let match;
 
-    while ((match = modelRegex.exec(content)) !== null) {
+    while ((match = modelBlockRegex.exec(content)) !== null) {
       models.push({
         name: match[1],
         schemaPath: relative(root, schemaPath).replace(/\\/g, "/"),
+        ownershipFields: parsePrismaModelOwnershipFields(match[2]),
       });
     }
 
@@ -929,6 +1090,7 @@ function buildIntelligenceSummary(input: {
   serverActions: readonly string[];
   apiRoutes: readonly string[];
   prismaModels: readonly PrismaModelInfo[];
+  databaseLayer: DatabaseLayerSummary;
   testFiles: readonly string[];
   risks: readonly RiskFinding[];
   fileTree: FileTreeSummary;
@@ -940,6 +1102,7 @@ function buildIntelligenceSummary(input: {
     serverActions,
     apiRoutes,
     prismaModels,
+    databaseLayer,
     testFiles,
     risks,
     fileTree,
@@ -973,6 +1136,14 @@ function buildIntelligenceSummary(input: {
 
   if (prismaModels.length > 0) {
     parts.push(`Prisma schema with ${prismaModels.length} model(s): ${prismaModels.map((m) => m.name).join(", ")}.`);
+  }
+
+  if (databaseLayer.ownershipRisks.length > 0) {
+    parts.push(`Database ownership risks: ${databaseLayer.ownershipRisks.length} model(s) need review.`);
+  }
+
+  if (databaseLayer.unknowns.length > 0) {
+    parts.push(`Database unknowns: ${databaseLayer.unknowns.join(" ")}`);
   }
 
   if (testFiles.length > 0) {
