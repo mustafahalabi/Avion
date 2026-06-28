@@ -1,7 +1,9 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getLatestRepositoryChangeIntelligence } from "@/lib/repository-change-intelligence";
+import { getRepositoryIntelligenceView } from "@/lib/repository-intelligence-service";
 import { analyzeRepository } from "@/app/actions/repository";
+import { RepositoryIntelligenceDashboard } from "@/components/repositories/repository-intelligence-dashboard";
 import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
 import {
@@ -67,6 +69,10 @@ export default async function RepositoryDetailPage({ params }: Props) {
   if (!repo) notFound();
 
   const changeIntelligence = await getLatestRepositoryChangeIntelligence({
+    repositoryId: repo.id,
+    companyId: company.id,
+  });
+  const intelligenceView = await getRepositoryIntelligenceView({
     repositoryId: repo.id,
     companyId: company.id,
   });
@@ -145,6 +151,8 @@ export default async function RepositoryDetailPage({ params }: Props) {
             )}
           </div>
         </section>
+
+        {intelligenceView && <RepositoryIntelligenceDashboard intelligence={intelligenceView} />}
 
         {/* Tech summary */}
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
