@@ -10,6 +10,11 @@ import {
   type ReviewVerdict,
   type ReviewFinding,
 } from "@/lib/review-service";
+import {
+  generateQaChecklist,
+  serializeChecklist,
+  countChecklist,
+} from "@/lib/qa-checklist";
 
 export type CreateReviewState =
   | undefined
@@ -207,6 +212,20 @@ export async function updateQAStatus(qaId: string, status: string, notes: string
   });
   if (!qa) return;
 
+  // Review gate: QA cannot be marked passed before review approval.
+  if (status === "passed" && qa.entityType === "task") {
+    const approvedReview = await prisma.review.findFirst({
+      where: {
+        companyId: company.id,
+        entityType: "task",
+        entityId: qa.entityId,
+        status: "approved",
+      },
+      select: { id: true },
+    });
+    if (!approvedReview) return; // silently block — caller should check gate status
+  }
+
   await prisma.qAResult.update({
     where: { id: qaId },
     data: { status, notes, updatedAt: new Date() },
@@ -226,4 +245,171 @@ export async function updateQAStatus(qaId: string, status: string, notes: string
   }
 
   revalidatePath("/work/quality");
+}
+
+export type GenerateQaChecklistState =
+  | undefined
+  | { error: string }
+  | { success: true; qaId: string; count: number };
+
+/**
+ * Generates a QA checklist from task acceptance criteria, review output,
+ * files changed, and validation commands. Stores the result in the pending
+ * QAResult for the task.
+ *
+ * Requires an approved review to exist for the task (review gate).
+ */
+export async function generateQaChecklistForTask(
+  _prev: GenerateQaChecklistState,
+  formData: FormData
+): Promise<GenerateQaChecklistState> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) return { error: "Company not found." };
+
+  const taskId = formData.get("taskId");
+  if (!taskId || typeof taskId !== "string") return { error: "Task ID required." };
+
+  // Validate task ownership
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, companyId: company.id },
+    include: { planningDraft: { select: { generatedTasks: true } } },
+  });
+  if (!task) return { error: "Task not found or not accessible." };
+
+  // Review gate: must have an approved review
+  const approvedReview = await prisma.review.findFirst({
+    where: {
+      companyId: company.id,
+      entityType: "task",
+      entityId: taskId,
+      status: "approved",
+    },
+    select: {
+      id: true,
+      notes: true,
+      findings: true,
+    },
+  });
+  if (!approvedReview) {
+    return { error: "QA checklist requires an approved review. No approved review found for this task." };
+  }
+
+  // Fetch latest completed session for files changed and validation output
+  const session = await prisma.executionSession.findFirst({
+    where: {
+      companyId: company.id,
+      taskId,
+      status: { in: ["completed", "failed"] },
+    },
+    orderBy: { completedAt: "desc" },
+    select: { filesChanged: true, validationOutput: true },
+  });
+
+  // Extract acceptance criteria from planning draft or fall back to description
+  let acceptanceCriteria: string[] = [];
+  if (task.planningDraft?.generatedTasks && task.planItemId) {
+    try {
+      const parsed = JSON.parse(task.planningDraft.generatedTasks) as unknown[];
+      const payload = parsed.find(
+        (item) =>
+          typeof item === "object" &&
+          item !== null &&
+          (item as Record<string, unknown>).planItemId === task.planItemId
+      ) as Record<string, unknown> | undefined;
+      if (payload?.acceptanceCriteria && Array.isArray(payload.acceptanceCriteria)) {
+        acceptanceCriteria = payload.acceptanceCriteria as string[];
+      }
+    } catch {
+      acceptanceCriteria = [];
+    }
+  }
+  if (acceptanceCriteria.length === 0 && task.description) {
+    acceptanceCriteria = [task.description];
+  }
+
+  // Parse files changed
+  let filesChanged: string[] = [];
+  try {
+    filesChanged = JSON.parse(session?.filesChanged ?? "[]") as string[];
+  } catch {
+    filesChanged = [];
+  }
+
+  // Parse review findings
+  type RawFinding = { severity: string; description: string };
+  let reviewFindings: RawFinding[] = [];
+  try {
+    reviewFindings = JSON.parse(approvedReview.findings ?? "[]") as RawFinding[];
+  } catch {
+    reviewFindings = [];
+  }
+
+  // Standard validation commands (always include)
+  const validationCommands = [
+    "npx prisma validate",
+    "npx tsc --noEmit",
+    "npm run lint",
+    "npm run build",
+    "npm run test",
+  ];
+
+  const checklist = generateQaChecklist({
+    acceptanceCriteria,
+    reviewNotes: approvedReview.notes ?? null,
+    reviewFindings,
+    filesChanged,
+    validationCommands,
+  });
+
+  const checksJson = serializeChecklist(checklist);
+  const { passed, failed } = countChecklist(checklist);
+
+  // Find or create a pending QAResult for this task
+  const existingQa = await prisma.qAResult.findFirst({
+    where: {
+      companyId: company.id,
+      entityType: "task",
+      entityId: taskId,
+      status: "pending",
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+
+  let qaId: string;
+  if (existingQa) {
+    await prisma.qAResult.update({
+      where: { id: existingQa.id },
+      data: {
+        checks: checksJson,
+        passedCount: passed,
+        failedCount: failed,
+        updatedAt: new Date(),
+      },
+    });
+    qaId = existingQa.id;
+  } else {
+    const newQa = await prisma.qAResult.create({
+      data: {
+        companyId: company.id,
+        entityType: "task",
+        entityId: taskId,
+        status: "pending",
+        checks: checksJson,
+        passedCount: passed,
+        failedCount: failed,
+      },
+    });
+    qaId = newQa.id;
+  }
+
+  revalidatePath("/work/quality");
+  revalidatePath(`/work/tasks/${taskId}`);
+  return { success: true, qaId, count: checklist.length };
 }
