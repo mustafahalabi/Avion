@@ -26,6 +26,12 @@ const STATUS_CONFIG: Record<
     color: "text-amber-400",
     icon: AlertCircle,
   },
+  blocked: { label: "Blocked", color: "text-red-400", icon: AlertCircle },
+  needs_clarification: {
+    label: "Needs Clarification",
+    color: "text-blue-400",
+    icon: Clock,
+  },
   in_progress: { label: "In Progress", color: "text-blue-400", icon: Clock },
 };
 
@@ -51,6 +57,14 @@ export default async function ReviewDetailPage({ params }: Props) {
   const cfg = STATUS_CONFIG[review.status] ?? STATUS_CONFIG["pending"];
   const Icon = cfg.icon;
   const isTerminal = ["approved"].includes(review.status);
+
+  type ReviewFinding = { severity: string; description: string; actionable: boolean };
+  let parsedFindings: ReviewFinding[] = [];
+  try {
+    parsedFindings = JSON.parse(review.findings ?? "[]") as ReviewFinding[];
+  } catch {
+    parsedFindings = [];
+  }
 
   // Try to find the linked task if entityType is "task"
   const task =
@@ -125,6 +139,40 @@ export default async function ReviewDetailPage({ params }: Props) {
             <p className="mt-2 text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap">
               {review.notes}
             </p>
+          </section>
+        )}
+
+        {/* Findings */}
+        {parsedFindings.length > 0 && (
+          <section>
+            <SectionLabel>Findings</SectionLabel>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {parsedFindings.map((f, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex items-start gap-2 rounded-lg border px-3.5 py-3",
+                    f.severity === "blocker"
+                      ? "border-red-900/40 bg-red-950/10"
+                      : "border-neutral-800 bg-neutral-900/50"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      f.severity === "blocker"
+                        ? "bg-red-900/40 text-red-400"
+                        : "bg-neutral-800 text-neutral-500"
+                    )}
+                  >
+                    {f.severity === "blocker" ? "Blocker" : "Non-blocker"}
+                  </span>
+                  <p className="text-sm text-neutral-300 leading-relaxed">
+                    {f.description}
+                  </p>
+                </div>
+              ))}
+            </div>
           </section>
         )}
 
