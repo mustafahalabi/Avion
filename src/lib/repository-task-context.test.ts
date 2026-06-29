@@ -43,9 +43,10 @@ describe("generateRepositoryTaskContext", () => {
       expect(ctx.warnings.some((w) => /no repository/i.test(w))).toBe(true);
     });
 
-    it("still provides standard validation commands", () => {
+    it("still provides fallback validation commands when no repo attached", () => {
       const ctx = generateRepositoryTaskContext({ taskId: "T-1", taskTitle: "Do something" });
-      expect(ctx.validationCommands).toContain("npx tsc --noEmit");
+      // No repo → GENERIC_PROFILE is used (npm run build + npm run test)
+      expect(ctx.validationCommands).toContain("npm run build");
       expect(ctx.validationCommands).toContain("npm run test");
     });
 

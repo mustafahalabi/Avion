@@ -1,17 +1,6 @@
 import { deriveBranchName, isProtectedBranch } from "@/lib/implementation-brief";
 import { buildRepositoryIntelligenceUrl } from "@/lib/repository-intelligence-view";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const STANDARD_VALIDATION_COMMANDS = [
-  "npx prisma validate",
-  "npx prisma format --check",
-  "npx prisma generate",
-  "npx tsc --noEmit",
-  "npm run lint",
-  "npm run build",
-  "npm run test",
-] as const;
+import { getCommandsForRepo } from "./check-command-profile";
 
 const STANDARD_CONSTRAINTS = [
   "Implement only this ticket. Do not expand scope.",
@@ -160,7 +149,7 @@ export function generateRepositoryTaskContext(
       primaryLanguage: null,
       techStack: [],
       relevantFiles: [],
-      validationCommands: [...STANDARD_VALIDATION_COMMANDS],
+      validationCommands: getCommandsForRepo({}).map((c) => c.command),
       environmentNotes: [],
       constraints: [...STANDARD_CONSTRAINTS],
       warnings,
@@ -209,10 +198,15 @@ export function generateRepositoryTaskContext(
   const relevantFiles = repo.importantFiles.filter(Boolean);
 
   // ── Validation commands ───────────────────────────────────────────────────
+  const profileCommands = getCommandsForRepo({
+    primaryLanguage: repo.primaryLanguage,
+    frameworks: repo.frameworks,
+    techStack: repo.techStack,
+  }).map((c) => c.command);
   const extraCommands = (repo.validationCommands ?? []).filter(
-    (cmd) => !STANDARD_VALIDATION_COMMANDS.includes(cmd as typeof STANDARD_VALIDATION_COMMANDS[number])
+    (cmd) => !profileCommands.includes(cmd)
   );
-  const validationCommands = [...STANDARD_VALIDATION_COMMANDS, ...extraCommands];
+  const validationCommands = [...profileCommands, ...extraCommands];
 
   // ── Environment notes ─────────────────────────────────────────────────────
   const environmentNotes: string[] = [];
