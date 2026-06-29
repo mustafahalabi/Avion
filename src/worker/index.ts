@@ -1,5 +1,13 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { ClaudeCodeAdapter } from "@/lib/adapters/claude-code-adapter";
 import type { PermissionLevel } from "@/lib/adapters/execution-adapter";
+import { getCommandsForRepo } from "@/lib/check-command-profile";
+import {
+  runValidationCommands,
+  type RunValidationResult,
+} from "@/lib/validation-runner";
 import {
   ingestAgentExecutionResult,
   type PrStatus,
@@ -37,6 +45,50 @@ let activeCleanup: (() => Promise<void>) | null = null;
  */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Parses a JSON string array column (e.g. repository.frameworks) into a string[].
+ *
+ * @param value - JSON string or null.
+ * @returns Parsed string array, or [] on any parse failure.
+ */
+function parseJsonArray(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((v): v is string => typeof v === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Joins existing validation output with an additional block.
+ *
+ * @param existing - Prior validation output (agent-reported), or null.
+ * @param addition - Block to append.
+ * @returns Combined output.
+ */
+function appendValidation(existing: string | null, addition: string): string {
+  return [existing, addition].filter(Boolean).join("\n\n");
+}
+
+/**
+ * Renders a {@link RunValidationResult} as a readable markdown block for the PR body and QA gate.
+ *
+ * @param validation - The validation run result.
+ * @returns A markdown summary of each command's outcome.
+ */
+function summarizeValidation(validation: RunValidationResult): string {
+  const lines = validation.results.map((r) =>
+    r.skipped
+      ? `- [skipped] ${r.kind}: ${r.command}${r.skipReason ? ` (${r.skipReason})` : ""}`
+      : `- [${r.passed ? "pass" : "fail"}] ${r.kind}: ${r.command} (exit ${r.exitCode})`
+  );
+  return `## Validation commands (allPassed: ${validation.allPassed})\n${lines.join("\n")}`;
 }
 
 /**
@@ -132,6 +184,47 @@ async function processSession(sessionId: string): Promise<void> {
       `Agent ${result.success ? "completed" : "failed"} in ${durationMs}ms. Files changed: ${result.filesChanged.length}`
     );
 
+    // ── Run the repository's real validation commands (close-the-loop) ────────
+    // Best-effort: capture real lint/typecheck/test/build results as additional
+    // signal for the PR body and the QA gate. Skipped when dependencies are not
+    // installed in the checkout (so a missing environment never produces false
+    // failures), and never crashes the worker.
+    let combinedValidationOutput: string | null = result.validationOutput;
+    if (result.success) {
+      try {
+        const commands = getCommandsForRepo({
+          primaryLanguage: repo.primaryLanguage ?? undefined,
+          frameworks: parseJsonArray(repo.frameworks),
+          techStack: parseJsonArray(repo.techStack),
+        });
+        if (commands.length === 0) {
+          // No validation commands detected for this repository profile.
+        } else if (!existsSync(join(checkout.path, "node_modules"))) {
+          combinedValidationOutput = appendValidation(
+            combinedValidationOutput,
+            "## Validation commands\nSkipped: dependencies not installed in the checkout."
+          );
+        } else {
+          const validation = await runValidationCommands({
+            repoPath: checkout.path,
+            commands,
+            timeoutSeconds: WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS,
+            permissions,
+          });
+          combinedValidationOutput = appendValidation(
+            combinedValidationOutput,
+            summarizeValidation(validation)
+          );
+          workerLogger.info(
+            `Ran ${validation.results.length} validation command(s): allPassed=${validation.allPassed}`
+          );
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        workerLogger.info(`Validation run skipped: ${message}`);
+      }
+    }
+
     // Pre-push guardrail gate (MUS-213): enforce protected paths, protected
     // branches, and denied/dangerous git commands BEFORE any commit/push. This
     // is enforced independently of the agent's claude -p permission mode — a
@@ -211,7 +304,7 @@ async function processSession(sessionId: string): Promise<void> {
               taskTitle: fullSession.task?.title ?? branchName,
               summary: result.resultSummary,
               filesChanged: result.filesChanged,
-              validationOutput: result.validationOutput,
+              validationOutput: combinedValidationOutput,
             }),
           });
           prUrl = pr.prUrl;
@@ -236,7 +329,7 @@ async function processSession(sessionId: string): Promise<void> {
       status: result.success ? "completed" : "failed",
       resultSummary: result.resultSummary,
       filesChanged: result.filesChanged,
-      validationOutput: result.validationOutput,
+      validationOutput: combinedValidationOutput,
       errorMessage: combinedError,
       commitSha,
       prUrl,
