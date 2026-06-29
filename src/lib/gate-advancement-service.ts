@@ -19,6 +19,7 @@
  */
 
 import { authorizeAutonomyAction } from "@/lib/autonomy-policy";
+import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import {
   generateQaChecklist,
@@ -130,6 +131,7 @@ export async function advanceTaskGates(
     where: { companyId, entityType: "task", entityId: taskId },
     orderBy: { createdAt: "desc" },
   });
+  const createdReview = review === null;
 
   if (!review) {
     const brief = generateReviewBrief({
@@ -153,6 +155,10 @@ export async function advanceTaskGates(
 
   if (review.status === "pending") {
     if (!reviewAllowed) {
+      // Notify the CEO once, when the checkpoint is first raised.
+      if (createdReview) {
+        await notifyCheckpoint(companyId, taskId, task.title, "review");
+      }
       return {
         status: "awaiting_review",
         reason: "Awaiting CEO review decision (needs CEO action).",
@@ -218,6 +224,8 @@ export async function advanceTaskGates(
   });
 
   if (!qaAllowed) {
+    // First time we pause at QA (checklist not yet attached) → notify once.
+    const qaFirstPause = qa.checks === "[]" || qa.checks === "";
     // Attach the checklist for the human and halt at the QA checkpoint.
     await prisma.qAResult.update({
       where: { id: qa.id },
@@ -226,6 +234,9 @@ export async function advanceTaskGates(
     await writeTimelineEntry(taskId, "qa_requested", "QA requested.", {
       qaResultId: qa.id,
     });
+    if (qaFirstPause) {
+      await notifyCheckpoint(companyId, taskId, task.title, "qa");
+    }
     return {
       status: "awaiting_qa",
       reason: "Awaiting CEO QA decision (needs CEO action).",
@@ -317,6 +328,45 @@ function toBriefSession(
     prNumber: session?.prNumber ?? null,
     prStatus: session?.prStatus ?? null,
   };
+}
+
+/**
+ * Notifies the company owner that a task is awaiting their review/QA decision,
+ * with a deep link to the inbox approvals. Best-effort — never throws (so a
+ * missing notifications surface can't break gate advancement).
+ *
+ * @param companyId - Owning company.
+ * @param taskId - Task awaiting a decision.
+ * @param taskTitle - Task title for the message.
+ * @param kind - "review" or "qa".
+ */
+async function notifyCheckpoint(
+  companyId: string,
+  taskId: string,
+  taskTitle: string,
+  kind: "review" | "qa"
+): Promise<void> {
+  try {
+    const company = await prisma.company.findFirst({
+      where: { id: companyId },
+      select: { ownerId: true },
+    });
+    if (!company) return;
+    const label = kind === "review" ? "review" : "QA";
+    await notify({
+      userId: company.ownerId,
+      companyId,
+      title: `Approval needed: ${label}`,
+      body: `"${taskTitle}" is awaiting your ${label} decision.`,
+      type: "decision",
+      priority: "high",
+      entityType: "task",
+      entityId: taskId,
+      actionUrl: "/inbox",
+    });
+  } catch {
+    // Notifications are best-effort.
+  }
 }
 
 /** Writes a timeline entry for a gate transition (best-effort, never throws). */
