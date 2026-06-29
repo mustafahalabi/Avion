@@ -1,11 +1,16 @@
 import { ClaudeCodeAdapter } from "@/lib/adapters/claude-code-adapter";
 import type { PermissionLevel } from "@/lib/adapters/execution-adapter";
 import { ingestAgentExecutionResult } from "@/lib/execution-session-service";
+import { isProtectedBranch } from "@/lib/implementation-brief";
 import { prisma } from "@/lib/prisma";
 import { getProviderConnection } from "@/lib/provider-connection-service";
 import { getWorkerPermissions } from "@/lib/worker-permissions";
 
-import { checkoutRepository } from "./repo-manager";
+import {
+  buildAgentCommitMessage,
+  checkoutRepository,
+  commitAndPushSessionBranch,
+} from "./repo-manager";
 import { claimNextSession, releaseSession } from "./session-claimer";
 import { validateConfig, WORKER_CONFIG } from "./worker-config";
 import { workerLogger } from "./worker-logger";
@@ -115,6 +120,33 @@ async function processSession(sessionId: string): Promise<void> {
       `Agent ${result.success ? "completed" : "failed"} in ${durationMs}ms. Files changed: ${result.filesChanged.length}`
     );
 
+    // Persist the agent's work: commit any working-tree changes on the session
+    // branch and push it to origin. Only attempt this on a successful run and
+    // never on a protected branch.
+    let commitSha: string | null = null;
+    const branchName = fullSession.branchName ?? "main";
+    if (result.success && isProtectedBranch(branchName)) {
+      workerLogger.warn(
+        `Skipping commit/push: session branch "${branchName}" is protected.`
+      );
+    } else if (result.success) {
+      const pushResult = commitAndPushSessionBranch({
+        checkoutPath: checkout.path,
+        branchName,
+        commitMessage: buildAgentCommitMessage(
+          fullSession.task?.title ?? null,
+          fullSession.taskId
+        ),
+        baseCommitSha: checkout.baseCommitSha,
+      });
+      commitSha = pushResult.commitSha;
+      workerLogger.info(
+        pushResult.pushed
+          ? `Pushed branch ${branchName} @ ${commitSha}`
+          : `No agent changes to push for branch ${branchName}`
+      );
+    }
+
     const outcome = await ingestAgentExecutionResult({
       companyId: fullSession.companyId,
       sessionId: fullSession.id,
@@ -123,6 +155,7 @@ async function processSession(sessionId: string): Promise<void> {
       filesChanged: result.filesChanged,
       validationOutput: result.validationOutput,
       errorMessage: result.errorMessage,
+      commitSha,
     });
 
     workerLogger.info(
