@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { RunModeConfig } from "@/lib/run-mode";
-import { DEFAULT_RUN_MODE_CONFIG } from "@/lib/run-mode";
+import { DEFAULT_RUN_MODE_CONFIG, getRunModeConfig } from "@/lib/run-mode";
 
 const STORAGE_KEY = "engineering-os:run-mode-config";
 
@@ -16,25 +16,39 @@ export interface UseRunModeSettingsReturn {
 /**
  * Reads and persists RunModeConfig from localStorage.
  *
- * SSR-safe: `loaded` starts as false so callers can avoid rendering
- * config-dependent UI until the client has hydrated.
+ * On first use (no stored value) the config is seeded from `autonomyLevel`
+ * via `getRunModeConfig`, so new users get a sensible default that matches
+ * their company's autonomy setting instead of a hard-coded fallback.
+ *
+ * SSR-safe: `loaded` starts as false so callers can suppress config-
+ * dependent UI until the client has hydrated.
  */
-export function useRunModeSettings(): UseRunModeSettingsReturn {
-  const [config, setConfig] = useState<RunModeConfig>(DEFAULT_RUN_MODE_CONFIG);
+export function useRunModeSettings(autonomyLevel?: string): UseRunModeSettingsReturn {
+  const seedConfig = autonomyLevel
+    ? getRunModeConfig(autonomyLevel)
+    : DEFAULT_RUN_MODE_CONFIG;
+
+  const [config, setConfig] = useState<RunModeConfig>(seedConfig);
   const [loaded, setLoaded] = useState(false);
 
-  // Read stored config once on mount
+  // Read stored config once on mount; fall back to the autonomy-level seed
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<RunModeConfig>;
         setConfig((prev) => ({ ...prev, ...parsed }));
+      } else if (autonomyLevel) {
+        // No stored value yet — persist the seeded defaults so subsequent
+        // loads don't recalculate from autonomy level after the user may
+        // have changed their company setting.
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(seedConfig));
       }
     } catch {
-      // Corrupt storage — silently ignore and keep default
+      // localStorage unavailable or corrupt — keep the in-memory seed
     }
     setLoaded(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateConfig = useCallback((updates: Partial<RunModeConfig>) => {

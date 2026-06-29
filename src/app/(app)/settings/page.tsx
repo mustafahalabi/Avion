@@ -55,7 +55,7 @@ export default async function SettingsPage() {
           <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
             Execution
           </h2>
-          <ExecutionSettingsForm />
+          <ExecutionSettingsForm autonomyLevel={company.settings?.autonomyLevel ?? "assist"} />
         </section>
       </div>
     </div>
