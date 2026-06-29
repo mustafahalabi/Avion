@@ -12,7 +12,8 @@
     "worker": "tsx src/worker/index.ts",
     "worker:dev": "tsx watch src/worker/index.ts",
     "driver": "tsx src/worker/driver.ts",
-    "driver:dev": "tsx watch src/worker/driver.ts"
+    "driver:dev": "tsx watch src/worker/driver.ts",
+    "dogfood:local": "tsx scripts/dogfood-local.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.9",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
