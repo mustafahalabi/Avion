@@ -363,7 +363,7 @@ function matchesGlob(filePath: string, pattern: string): boolean {
   // is never caught by the single-* replacement rule.
   const DS = "\x00DS\x00"; // placeholder for **; null bytes cannot appear in file paths
 
-  let regexStr = pattern
+  const regexStr = pattern
     // Step 1: replace ** with placeholder before any other processing
     .replace(/\*\*/g, DS)
     // Step 2: escape regex metacharacters (. + ^ $ { } ( ) | [ ] \)
