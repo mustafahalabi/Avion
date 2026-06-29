@@ -895,4 +895,36 @@ describe("execution-session-service", () => {
       expect(task?.status).not.toBe("done");
     });
   });
+
+  // ── buildTimelineDescription ──────────────────────────────────────────────
+  describe("buildTimelineDescription", () => {
+    it("references the PR URL for a completed execution", () => {
+      const description = service.buildTimelineDescription(
+        "completed",
+        "Added /health endpoint",
+        "https://github.com/org/repo/pull/42"
+      );
+
+      expect(description).toBe(
+        "Implementation completed: Added /health endpoint (PR: https://github.com/org/repo/pull/42)"
+      );
+    });
+
+    it("omits the PR reference when no URL is provided", () => {
+      const description = service.buildTimelineDescription("completed", "done");
+      expect(description).toBe("Implementation completed: done");
+      expect(description).not.toContain("PR:");
+    });
+
+    it("still references the PR when there is no summary", () => {
+      const description = service.buildTimelineDescription(
+        "completed",
+        null,
+        "https://github.com/org/repo/pull/7"
+      );
+      expect(description).toBe(
+        "Implementation completed (PR: https://github.com/org/repo/pull/7)"
+      );
+    });
+  });
 });

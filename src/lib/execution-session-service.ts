@@ -631,7 +631,8 @@ export async function ingestAgentExecutionResult(
           input.companyId,
           updated.taskId,
           input.status,
-          input.resultSummary
+          input.resultSummary,
+          input.prUrl ?? null
         );
       } catch {
         // Timeline event creation is best-effort; do not fail the main ingestion flow.
@@ -668,12 +669,14 @@ function parseFilesInput(files: string | readonly string[]): string[] {
  * @param taskId - Task to trace to its RuntimeRequest.
  * @param executionStatus - Final execution status.
  * @param resultSummary - Optional result summary for the event description.
+ * @param prUrl - Pull request URL to reference in the event, when available.
  */
 async function writeTimelineEventForTask(
   companyId: string,
   taskId: string,
   executionStatus: string,
-  resultSummary: string | null
+  resultSummary: string | null,
+  prUrl: string | null = null
 ): Promise<void> {
   const task = await prisma.task.findFirst({
     where: { id: taskId, companyId },
@@ -692,7 +695,7 @@ async function writeTimelineEventForTask(
   });
   if (!requestExists) return;
 
-  const description = buildTimelineDescription(executionStatus, resultSummary);
+  const description = buildTimelineDescription(executionStatus, resultSummary, prUrl);
 
   await prisma.runtimeEvent.create({
     data: {
@@ -709,22 +712,29 @@ async function writeTimelineEventForTask(
  *
  * @param executionStatus - Final execution status.
  * @param resultSummary - Optional agent-provided summary.
+ * @param prUrl - Pull request URL appended to the description when present.
  * @returns Short, consistent description string for the RuntimeEvent.
  */
-function buildTimelineDescription(executionStatus: string, resultSummary: string | null): string {
+export function buildTimelineDescription(
+  executionStatus: string,
+  resultSummary: string | null,
+  prUrl: string | null = null
+): string {
   const summarySnippet =
     resultSummary && resultSummary.trim().length > 0
       ? `: ${resultSummary.trim().slice(0, 120)}`
       : "";
 
+  const prSnippet = prUrl && prUrl.trim().length > 0 ? ` (PR: ${prUrl.trim()})` : "";
+
   switch (executionStatus) {
     case "completed":
-      return `Implementation completed${summarySnippet}`;
+      return `Implementation completed${summarySnippet}${prSnippet}`;
     case "failed":
-      return `Implementation failed${summarySnippet}`;
+      return `Implementation failed${summarySnippet}${prSnippet}`;
     case "needs_clarification":
-      return `Implementation needs clarification${summarySnippet}`;
+      return `Implementation needs clarification${summarySnippet}${prSnippet}`;
     default:
-      return `Execution result recorded: ${executionStatus}${summarySnippet}`;
+      return `Execution result recorded: ${executionStatus}${summarySnippet}${prSnippet}`;
   }
 }
