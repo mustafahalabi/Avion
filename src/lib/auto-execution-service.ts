@@ -53,25 +53,31 @@ export async function prepareExecutionSessionForTask(
   companyId: string,
   taskId: string
 ): Promise<PrepareTaskExecutionResult | { readonly error: string }> {
+  const repoInclude = {
+    workspace: {
+      include: {
+        repositories: { take: 1, orderBy: { updatedAt: "desc" as const } },
+      },
+    },
+  };
   const task = await prisma.task.findFirst({
     where: { id: taskId, companyId },
     include: {
       planningDraft: { select: { id: true, generatedTasks: true } },
-      project: {
-        include: {
-          workspace: {
-            include: {
-              repositories: { take: 1, orderBy: { updatedAt: "desc" } },
-            },
-          },
-        },
-      },
+      project: { include: repoInclude },
+      // AI-planned tasks are attached to a feature (no direct project), so resolve the
+      // repository via the feature's project as a fallback — without this, applied-plan
+      // tasks could never find a repo to run against.
+      feature: { include: { project: { include: repoInclude } } },
     },
   });
 
   if (!task) return { error: "Task not found." };
 
-  const repoRow = resolveTaskRepository(task.project?.workspace?.repositories);
+  const repoRow =
+    resolveTaskRepository(task.project?.workspace?.repositories) ??
+    resolveTaskRepository(task.feature?.project?.workspace?.repositories);
+  const resolvedProjectId = task.projectId ?? task.feature?.projectId ?? null;
   const repo = repoRow ? toBriefRepositoryContext(repoRow) : null;
 
   const { brief, branchName } = generateClaudeImplementationBrief({
@@ -92,7 +98,7 @@ export async function prepareExecutionSessionForTask(
     companyId,
     taskId: task.id,
     taskTitle: task.title,
-    projectId: task.projectId ?? null,
+    projectId: resolvedProjectId,
     repositoryId: repoRow?.id ?? null,
     planningDraftId: task.planningDraftId ?? null,
     agentType: "claude_code",
