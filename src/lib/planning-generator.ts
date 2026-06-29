@@ -228,7 +228,7 @@ export interface PlanningReleasePlan {
 }
 
 export interface DeterministicPlanningDraft {
-  readonly generatorVersion: typeof PLANNING_GENERATOR_VERSION;
+  readonly generatorVersion: string;
   readonly title: string;
   readonly summary: string;
   readonly status: PlanningDraftStatus;
