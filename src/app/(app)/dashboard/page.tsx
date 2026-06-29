@@ -29,6 +29,7 @@ import {
   getPlanningLifecycleTimeline,
   getRecentlyApprovedPlanningDrafts,
 } from "@/lib/outcome-planning-lifecycle";
+import { countPendingCheckpoints } from "@/lib/approval-checkpoints";
 import { PlanningDashboardSections } from "@/components/planning/planning-dashboard-sections";
 
 const RUNTIME_STATUS: Record<
@@ -144,7 +145,7 @@ export default async function DashboardPage() {
   const blockedTasks = allTasks.filter((t) => t.status === "blocked");
 
   // Fetch execution session counts and pending plan approvals in parallel
-  const [recentEvents, executionCounts, pendingPlanCount, pendingPlans, approvedPlans, planningTimeline] =
+  const [recentEvents, executionCounts, pendingPlanCount, pendingPlans, approvedPlans, planningTimeline, pendingApprovalCount] =
     await Promise.all([
       prisma.runtimeEvent.findMany({
         where: { request: { companyId: company.id } },
@@ -161,6 +162,7 @@ export default async function DashboardPage() {
       getPendingPlanningDrafts(company.id),
       getRecentlyApprovedPlanningDrafts(company.id),
       getPlanningLifecycleTimeline(company.id, 8),
+      countPendingCheckpoints(company.id),
     ]);
 
   const execByStatus = Object.fromEntries(
@@ -241,6 +243,28 @@ export default async function DashboardPage() {
               : "No active requests."}
           </p>
         </section>
+
+        {/* Pending approvals — autonomy-gated review/QA checkpoints awaiting the CEO */}
+        {pendingApprovalCount > 0 && (
+          <Link
+            href="/inbox"
+            className="group flex items-center justify-between gap-4 rounded-lg border border-amber-900/50 bg-amber-950/20 px-4 py-3.5 transition-colors hover:border-amber-800"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
+              <p className="text-sm text-neutral-200">
+                <span className="font-semibold text-amber-300">
+                  {pendingApprovalCount} task{pendingApprovalCount === 1 ? "" : "s"}
+                </span>{" "}
+                awaiting your review/QA approval
+              </p>
+            </div>
+            <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-amber-400">
+              Review in inbox
+              <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </Link>
+        )}
 
         {/* Recommended next action — surfaced early as the primary CEO signal */}
         {primaryAction && (

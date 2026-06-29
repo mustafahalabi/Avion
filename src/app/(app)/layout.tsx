@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/current-user";
+import { countPendingCheckpoints } from "@/lib/approval-checkpoints";
+import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/nav/sidebar";
 import { UserMenu } from "@/components/nav/user-menu";
 
@@ -11,10 +13,24 @@ export default async function AppLayout({
   const user = await getCurrentUser();
   if (!user) redirect("/sign-in");
 
+  // Sidebar badges: unread notifications (bell) and pending approvals (inbox).
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  const [unreadNotifications, pendingApprovals] = await Promise.all([
+    prisma.notification.count({ where: { userId: user.id, read: false } }),
+    company ? countPendingCheckpoints(company.id) : Promise.resolve(0),
+  ]);
+  const navBadges: Record<string, number> = {
+    "/notifications": unreadNotifications,
+    "/inbox": pendingApprovals,
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-neutral-950 text-neutral-100">
       <div className="relative flex flex-col">
-        <Sidebar />
+        <Sidebar badges={navBadges} />
         <div className="absolute bottom-0 left-0 right-0 h-12 border-t border-neutral-800 flex items-center px-2">
           <UserMenu user={user} />
         </div>

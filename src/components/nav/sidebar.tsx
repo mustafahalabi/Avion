@@ -71,11 +71,13 @@ function NavItem({
   href,
   icon: Icon,
   isActive,
+  badge,
 }: {
   label: string;
   href: string;
   icon: React.ElementType;
   isActive: boolean;
+  badge?: number;
 }) {
   return (
     <Link
@@ -100,11 +102,19 @@ function NavItem({
         aria-hidden="true"
       />
       {label}
+      {typeof badge === "number" && badge > 0 && (
+        <span
+          className="ml-auto inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold text-amber-400"
+          aria-label={`${badge} pending`}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </Link>
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ badges = {} }: { badges?: Record<string, number> }) {
   const pathname = usePathname();
 
   function isActive(href: string) {
@@ -148,6 +158,7 @@ export function Sidebar() {
                 href={href}
                 icon={icon}
                 isActive={isActive(href)}
+                badge={badges[href]}
               />
             ))}
           </div>
@@ -163,6 +174,7 @@ export function Sidebar() {
             href={href}
             icon={icon}
             isActive={isActive(href)}
+            badge={badges[href]}
           />
         ))}
       </nav>
