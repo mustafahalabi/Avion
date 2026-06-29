@@ -1,5 +1,9 @@
 import type { GeneratedPlanningTask } from "@/lib/planning-generator";
-import { getCommandsForRepo } from "./check-command-profile";
+import {
+  formatRepositoryTaskContext,
+  generateRepositoryTaskContext,
+  type RepositoryInput,
+} from "@/lib/repository-task-context";
 
 /** Review/QA handoff requirements injected into every brief. */
 const REVIEW_QA_HANDOFF = [
@@ -181,52 +185,46 @@ function bulletList(items: readonly string[]): string {
  * @param commands - Shell commands to render.
  * @returns Markdown fenced shell code block.
  */
-function commandBlock(commands: readonly string[]): string {
-  return "```sh\n" + commands.join("\n") + "\n```";
+/**
+ * Maps brief repository metadata to repository task context input.
+ *
+ * @param repo - Repository metadata from the task workspace.
+ * @returns Repository input for `generateRepositoryTaskContext`.
+ */
+function toRepositoryInput(repo: BriefRepositoryContext): RepositoryInput {
+  return {
+    name: repo.name,
+    url: repo.url,
+    primaryLanguage: repo.primaryLanguage,
+    frameworks: repo.frameworks,
+    techStack: repo.techStack,
+    importantFiles: repo.importantFiles,
+    analysisStatus: repo.analysisStatus,
+  };
 }
 
 /**
- * Builds the repository context section of the brief.
+ * Builds the repository-safe context section via the canonical task context service.
  *
- * @param repo - Repository metadata when available.
- * @returns Markdown section for the repository context.
+ * @param input - Full brief input including task and repository metadata.
+ * @param branchName - Resolved implementation branch name.
+ * @param baseBranch - Base branch to branch from.
+ * @returns Markdown section for repository context, branches, and validation commands.
  */
-function buildRepositorySection(repo: BriefRepositoryContext | null): string {
-  if (!repo) {
-    return [
-      "## Repository Context",
-      "",
-      "> ⚠️  No repository is attached to this task. Confirm the target repository before starting implementation.",
-      "",
-      "- Repository: _(not attached)_",
-      "- URL: _(not available)_",
-      "- Language: _(unknown)_",
-      "- Frameworks: _(unknown)_",
-    ].join("\n");
-  }
+function buildRepositoryContextSection(
+  input: ImplementationBriefInput,
+  branchName: string,
+  baseBranch: string
+): string {
+  const ctx = generateRepositoryTaskContext({
+    taskId: input.taskId,
+    taskTitle: input.taskTitle,
+    branchName,
+    baseBranch,
+    repository: input.repository ? toRepositoryInput(input.repository) : null,
+  });
 
-  const frameworks = repo.frameworks.filter(Boolean);
-  const techStack = repo.techStack.filter(Boolean);
-  const importantFiles = repo.importantFiles.filter(Boolean);
-  const stackLine =
-    [...frameworks, ...techStack].filter(Boolean).join(", ") || "_(not detected)_";
-
-  const lines: string[] = [
-    "## Repository Context",
-    "",
-    `- **Repository:** ${repo.name}`,
-    `- **URL:** ${repo.url ?? "_(not available)_"}`,
-    `- **Primary Language:** ${repo.primaryLanguage ?? "_(not detected)_"}`,
-    `- **Stack:** ${stackLine}`,
-    `- **Analysis Status:** ${repo.analysisStatus}`,
-  ];
-
-  if (importantFiles.length > 0) {
-    lines.push("", "**Key files to be aware of:**");
-    importantFiles.slice(0, 12).forEach((f) => lines.push(`- \`${f}\``));
-  }
-
-  return lines.join("\n");
+  return formatRepositoryTaskContext(ctx);
 }
 
 /**
@@ -372,12 +370,10 @@ export function generateClaudeImplementationBrief(
 
   const sections: string[] = [
     buildHeader(input, branchName, baseBranch),
-    buildRepositorySection(input.repository),
-    buildBranchSection(branchName, baseBranch),
+    buildRepositoryContextSection(input, branchName, baseBranch),
     buildConstraintsSection(),
     buildFilesToInspectSection(taskPayload, input.repository),
     buildAcceptanceCriteriaSection(taskPayload, input.taskDescription),
-    buildValidationSection(input.repository),
     buildLinearUpdateSection(input.taskId, input.linearTicketUrl, branchName),
     buildReviewQaHandoffSection(reviewRequirements),
   ];
@@ -441,22 +437,6 @@ function extractRoleHint(
   return null;
 }
 
-function buildBranchSection(branchName: string, baseBranch: string): string {
-  return [
-    "## Branch",
-    "",
-    `Create and work on branch \`${branchName}\` from \`${baseBranch}\`:`,
-    "",
-    "```sh",
-    `git checkout ${baseBranch}`,
-    `git pull`,
-    `git checkout -b ${branchName}`,
-    "```",
-    "",
-    "Do not commit to any other branch. Do not modify protected branches.",
-  ].join("\n");
-}
-
 function buildConstraintsSection(): string {
   return [
     "## Implementation Constraints",
@@ -464,19 +444,6 @@ function buildConstraintsSection(): string {
     "The following rules are **non-negotiable**:",
     "",
     bulletList(IMPLEMENTATION_CONSTRAINTS),
-  ].join("\n");
-}
-
-function buildValidationSection(repo: BriefRepositoryContext | null): string {
-  const commands = getCommandsForRepo(repo ?? {});
-  return [
-    "## Validation Commands",
-    "",
-    "Before committing, run **all** of the following and fix every error:",
-    "",
-    commandBlock(commands.map((c) => c.command)),
-    "",
-    "Do not commit if any command fails. Fix the root cause — do not suppress errors.",
   ].join("\n");
 }
 

@@ -282,7 +282,7 @@ export class WorkerAuditLog {
       // Guard against null or non-object entries in the events array
       if (event === null || typeof event !== "object") continue;
       // Enforce envelope sessionId to prevent mismatched events
-      (event as Record<string, unknown>).sessionId = envelope.sessionId;
+      (event as unknown as Record<string, unknown>).sessionId = envelope.sessionId;
       // Push directly to bypass UUID generation — restore originals
       instance._events.push(event as AuditEvent);
     }

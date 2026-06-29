@@ -21,6 +21,13 @@ import { ReviewBriefSection } from "./review-brief-section";
 import { ExecutionResultForm } from "./execution-result-form";
 import { generateReviewBrief } from "@/lib/review-brief";
 import { extractPlanningTaskPayload } from "@/lib/implementation-brief";
+import { GithubWorkflowProgress } from "@/components/github-workflow-progress";
+import { TaskRepositoryContextPanel } from "@/components/task-repository-context-panel";
+import { buildGithubWorkflowPhaseStates } from "@/lib/github-workflow-status";
+import {
+  buildTaskRepositoryContext,
+  resolveTaskRepository,
+} from "@/lib/task-repository-context";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -82,7 +89,30 @@ export default async function TaskDetailPage({ params }: Props) {
           project: { select: { id: true, name: true } },
         },
       },
-      project: { select: { id: true, name: true } },
+      project: {
+        select: {
+          id: true,
+          name: true,
+          workspace: {
+            select: {
+              repositories: {
+                take: 1,
+                orderBy: { updatedAt: "desc" },
+                select: {
+                  id: true,
+                  name: true,
+                  url: true,
+                  primaryLanguage: true,
+                  frameworks: true,
+                  techStack: true,
+                  importantFiles: true,
+                  analysisStatus: true,
+                },
+              },
+            },
+          },
+        },
+      },
       subtasks: { orderBy: { createdAt: "asc" } },
       planningDraft: { select: { generatedTasks: true } },
     },
@@ -92,7 +122,8 @@ export default async function TaskDetailPage({ params }: Props) {
 
   // Fetch prepared session (for brief display), active session (for result ingestion),
   // and latest completed session (for branch/PR info display) in parallel.
-  const [latestPreparedSession, activeSession, latestCompletedSession] = await Promise.all([
+  const [latestPreparedSession, activeSession, latestCompletedSession, latestSession] =
+    await Promise.all([
     // Latest prepared execution session — surfaces an existing brief without regenerating.
     prisma.executionSession.findFirst({
       where: { companyId: company.id, taskId: id, status: "prepared" },
@@ -139,6 +170,17 @@ export default async function TaskDetailPage({ params }: Props) {
         resultSummary: true,
         filesChanged: true,
         validationOutput: true,
+      },
+    }),
+    prisma.executionSession.findFirst({
+      where: { companyId: company.id, taskId: id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        status: true,
+        branchName: true,
+        baseBranch: true,
+        prStatus: true,
+        mergeStatus: true,
       },
     }),
   ]);
@@ -201,6 +243,25 @@ export default async function TaskDetailPage({ params }: Props) {
   const Icon = cfg.icon;
   const subtasksDone = task.subtasks.filter((s) => s.completed).length;
 
+  const attachedRepository = resolveTaskRepository(
+    task.project?.workspace?.repositories
+  );
+  const repositoryContext = buildTaskRepositoryContext({
+    taskId: task.id,
+    taskTitle: task.title,
+    branchName: latestSession?.branchName ?? null,
+    baseBranch: latestSession?.baseBranch ?? null,
+    repository: attachedRepository,
+  });
+  const workflowPhases = buildGithubWorkflowPhaseStates({
+    taskStatus: task.status,
+    sessionStatus: latestSession?.status ?? null,
+    prStatus: latestSession?.prStatus ?? latestCompletedSession?.prStatus ?? null,
+    mergeStatus:
+      latestSession?.mergeStatus ?? latestCompletedSession?.mergeStatus ?? null,
+    reviewStatus: latestReview?.status ?? null,
+  });
+
   return (
     <div className="flex flex-1 flex-col overflow-auto">
       <header className="flex h-12 items-center gap-3 border-b border-neutral-800 px-6">
@@ -244,6 +305,15 @@ export default async function TaskDetailPage({ params }: Props) {
       </header>
 
       <div className="flex flex-col gap-8 p-6 max-w-2xl">
+        <section>
+          <SectionLabel>GitHub Workflow</SectionLabel>
+          <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-4">
+            <GithubWorkflowProgress phases={workflowPhases} />
+          </div>
+        </section>
+
+        <TaskRepositoryContextPanel context={repositoryContext} />
+
         {/* Title + status */}
         <section className="flex items-start gap-3">
           <Icon
