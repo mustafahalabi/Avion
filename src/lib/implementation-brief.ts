@@ -1,17 +1,5 @@
 import type { GeneratedPlanningTask } from "@/lib/planning-generator";
-
-// ─── Constants ─────────────────────────────────────────────────────────────────
-
-/** Standard validation commands run against this repository. */
-const STANDARD_VALIDATION_COMMANDS = [
-  "npx prisma validate",
-  "npx prisma format --check",
-  "npx prisma generate",
-  "npx tsc --noEmit",
-  "npm run lint",
-  "npm run build",
-  "npm run test",
-] as const;
+import { getCommandsForRepo } from "./check-command-profile";
 
 /** Review/QA handoff requirements injected into every brief. */
 const REVIEW_QA_HANDOFF = [
@@ -389,7 +377,7 @@ export function generateClaudeImplementationBrief(
     buildConstraintsSection(),
     buildFilesToInspectSection(taskPayload, input.repository),
     buildAcceptanceCriteriaSection(taskPayload, input.taskDescription),
-    buildValidationSection(),
+    buildValidationSection(input.repository),
     buildLinearUpdateSection(input.taskId, input.linearTicketUrl, branchName),
     buildReviewQaHandoffSection(reviewRequirements),
   ];
@@ -479,13 +467,14 @@ function buildConstraintsSection(): string {
   ].join("\n");
 }
 
-function buildValidationSection(): string {
+function buildValidationSection(repo: BriefRepositoryContext | null): string {
+  const commands = getCommandsForRepo(repo ?? {});
   return [
     "## Validation Commands",
     "",
     "Before committing, run **all** of the following and fix every error:",
     "",
-    commandBlock(STANDARD_VALIDATION_COMMANDS),
+    commandBlock(commands.map((c) => c.command)),
     "",
     "Do not commit if any command fails. Fix the root cause — do not suppress errors.",
   ].join("\n");

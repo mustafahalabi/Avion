@@ -136,6 +136,11 @@ describe("GENERIC_PROFILE", () => {
     expect(commands).toContain("npm run build");
     expect(commands).toContain("npm run test");
   });
+
+  it("has npm run test with failOnError: false so non-Node repos do not hard-fail", () => {
+    const testCmd = GENERIC_PROFILE.commands.find((c) => c.id === "test");
+    expect(testCmd?.failOnError).toBe(false);
+  });
 });
 
 // ─── detectProfile ─────────────────────────────────────────────────────────────
@@ -254,6 +259,39 @@ describe("detectProfile", () => {
         frameworks: ["nextjs"],
       });
       expect(profile.id).toBe("nextjs-typescript");
+    });
+  });
+
+  describe("TypeScript-only (no Next.js framework) does not match nextjs-typescript profile", () => {
+    it("returns GENERIC_PROFILE for a plain TypeScript repo with no framework", () => {
+      const profile = detectProfile({ primaryLanguage: "TypeScript" });
+      expect(profile.id).toBe("generic");
+    });
+
+    it("returns GENERIC_PROFILE for TypeScript with unrecognised frameworks", () => {
+      const profile = detectProfile({
+        primaryLanguage: "TypeScript",
+        frameworks: ["angular"],
+      });
+      expect(profile.id).toBe("generic");
+    });
+  });
+
+  describe("Python profile is checked before Node.js profile", () => {
+    it("returns python profile for a python framework, not nodejs", () => {
+      const profile = detectProfile({ frameworks: ["fastapi"] });
+      expect(profile.id).toBe("python");
+    });
+
+    it("prefers Python over Node when both python and node appear in techStack", () => {
+      // 'python' is in PYTHON_PROFILE.applicableFrameworks and 'node' is in
+      // NODEJS_PROFILE.applicableFrameworks.  PYTHON_PROFILE must be checked
+      // first so that repos with mixed stacks resolve correctly.
+      const profile = detectProfile({
+        frameworks: ["django"],
+        techStack: ["node"],
+      });
+      expect(profile.id).toBe("python");
     });
   });
 });

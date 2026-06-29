@@ -72,7 +72,7 @@ export const NEXTJS_TYPESCRIPT_PROFILE: CheckCommandProfile = {
   description:
     "Validation profile for Next.js projects using TypeScript and Prisma.",
   applicableFrameworks: ["nextjs", "next.js", "next"],
-  applicableLanguages: ["typescript"],
+  applicableLanguages: [],
   commands: [
     {
       id: "prisma-validate",
@@ -247,7 +247,7 @@ export const GENERIC_PROFILE: CheckCommandProfile = {
       id: "test",
       command: "npm run test",
       description: "Runs the test suite.",
-      failOnError: true,
+      failOnError: false,
       timeoutSeconds: 300,
       order: 20,
     },
@@ -260,8 +260,8 @@ export const GENERIC_PROFILE: CheckCommandProfile = {
  */
 const ALL_PROFILES: CheckCommandProfile[] = [
   NEXTJS_TYPESCRIPT_PROFILE,
-  NODEJS_PROFILE,
   PYTHON_PROFILE,
+  NODEJS_PROFILE,
   // GENERIC_PROFILE is the explicit fallback — not included here.
 ];
 
@@ -272,8 +272,8 @@ const ALL_PROFILES: CheckCommandProfile[] = [
  */
 export interface RepoMetadata {
   primaryLanguage?: string | null;
-  frameworks?: string[] | null;
-  techStack?: string[] | null;
+  frameworks?: readonly string[] | null;
+  techStack?: readonly string[] | null;
 }
 
 /**
