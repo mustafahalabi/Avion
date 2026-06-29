@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   WorkerAuditLog,
+  buildSessionAuditView,
   createWorkerAuditLog,
+  extractAuditEventsFromSession,
+  isSafetyBlockEventType,
   parseAuditLogFromSession,
 } from "./worker-audit-log";
-import type { AuditEvent, AuditEventType, AuditSeverity } from "./worker-audit-log";
+import type { AuditEventType, AuditSeverity } from "./worker-audit-log";
 
 // ─── WorkerAuditLog constructor ───────────────────────────────────────────────
 
@@ -544,5 +547,129 @@ describe("full session lifecycle integration", () => {
 
     const summary = log.getSummary();
     expect(summary).toContain("2 errors");
+  });
+});
+
+// ─── CEO audit view (MUS-215) ─────────────────────────────────────────────────
+
+describe("isSafetyBlockEventType()", () => {
+  it("flags command_blocked and guardrail_triggered as safety blocks", () => {
+    expect(isSafetyBlockEventType("command_blocked")).toBe(true);
+    expect(isSafetyBlockEventType("guardrail_triggered")).toBe(true);
+  });
+
+  it("does not flag normal events", () => {
+    expect(isSafetyBlockEventType("file_written")).toBe(false);
+    expect(isSafetyBlockEventType("session_completed")).toBe(false);
+  });
+});
+
+describe("extractAuditEventsFromSession()", () => {
+  it("reads a serialized log from validationOutput", () => {
+    const log = createWorkerAuditLog("ses_v1");
+    log.log("guardrail_triggered", { path: ".env" }, "error", "system");
+    const events = extractAuditEventsFromSession({
+      validationOutput: log.serialize(),
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("guardrail_triggered");
+  });
+
+  it("falls back to resultSummary when validationOutput is plain text", () => {
+    const log = createWorkerAuditLog("ses_v2");
+    log.log("session_completed", {});
+    const events = extractAuditEventsFromSession({
+      validationOutput: "tsc passed",
+      resultSummary: log.serialize(),
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("session_completed");
+  });
+
+  it("returns empty when neither field holds a serialized log", () => {
+    expect(
+      extractAuditEventsFromSession({
+        validationOutput: "tsc passed",
+        resultSummary: "done",
+      })
+    ).toEqual([]);
+  });
+});
+
+describe("buildSessionAuditView()", () => {
+  it("surfaces serialized audit-log events and flags safety blocks", () => {
+    const log = createWorkerAuditLog("ses_blocked");
+    log.log("session_started", {}, "info", "system");
+    log.log(
+      "guardrail_triggered",
+      { path: ".env", message: "protected path" },
+      "error",
+      "system"
+    );
+    log.log(
+      "command_blocked",
+      { command: "git push --force", message: "force push" },
+      "error",
+      "system"
+    );
+
+    const view = buildSessionAuditView({
+      status: "failed",
+      validationOutput: log.serialize(),
+    });
+
+    expect(view.source).toBe("audit_log");
+    expect(view.hasSafetyBlock).toBe(true);
+    expect(view.blockedCount).toBe(2);
+    expect(view.events).toHaveLength(3);
+
+    const blocked = view.events.filter((e) => e.isSafetyBlock);
+    expect(blocked.map((e) => e.type)).toEqual([
+      "guardrail_triggered",
+      "command_blocked",
+    ]);
+    // Detail strings include the offending path/command.
+    expect(blocked[0].detail).toContain(".env");
+    expect(blocked[1].detail).toContain("git push --force");
+  });
+
+  it("derives a gap-free trail from session facts when no log exists", () => {
+    const view = buildSessionAuditView({
+      status: "completed",
+      filesChanged: JSON.stringify(["src/a.ts", "src/b.ts"]),
+      commitSha: "abcdef1234567",
+      prUrl: "https://github.com/x/y/pull/9",
+      prNumber: 9,
+      validationOutput: "tsc, lint, test all pass",
+    });
+
+    expect(view.source).toBe("derived");
+    expect(view.hasSafetyBlock).toBe(false);
+
+    const types = view.events.map((e) => e.type);
+    expect(types).toContain("session_started");
+    expect(types).toContain("files_changed");
+    expect(types).toContain("command_executed");
+    expect(types).toContain("pr_opened");
+    expect(types).toContain("session_completed");
+  });
+
+  it("derives a failed outcome with the error message", () => {
+    const view = buildSessionAuditView({
+      status: "failed",
+      errorMessage: "Push blocked by 1 guardrail violation: .env",
+    });
+
+    expect(view.source).toBe("derived");
+    const failure = view.events.find((e) => e.type === "session_failed");
+    expect(failure?.severity).toBe("error");
+    expect(failure?.detail).toContain(".env");
+  });
+
+  it("returns no events for an empty session", () => {
+    const view = buildSessionAuditView({ status: null });
+    // Only a session_started marker is derived; nothing else.
+    expect(view.events.map((e) => e.type)).toEqual(["session_started"]);
+    expect(view.hasSafetyBlock).toBe(false);
   });
 });
