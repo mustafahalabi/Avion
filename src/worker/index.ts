@@ -10,15 +10,18 @@ import {
   openOrReusePullRequest,
   parseGitHubRepoUrl,
 } from "@/lib/github-pull-request";
-import { isProtectedBranch } from "@/lib/implementation-brief";
 import { prisma } from "@/lib/prisma";
 import { getProviderConnection } from "@/lib/provider-connection-service";
+import { createWorkerAuditLog } from "@/lib/worker-audit-log";
 import { getWorkerPermissions } from "@/lib/worker-permissions";
 
 import {
   buildAgentCommitMessage,
   checkoutRepository,
   commitAndPushSessionBranch,
+  evaluatePrePushGuardrails,
+  recordPrePushViolations,
+  summarizePrePushBlock,
 } from "./repo-manager";
 import { claimNextSession, releaseSession } from "./session-claimer";
 import { validateConfig, WORKER_CONFIG } from "./worker-config";
@@ -129,16 +132,35 @@ async function processSession(sessionId: string): Promise<void> {
       `Agent ${result.success ? "completed" : "failed"} in ${durationMs}ms. Files changed: ${result.filesChanged.length}`
     );
 
-    // Persist the agent's work: commit any working-tree changes on the session
-    // branch and push it to origin. Only attempt this on a successful run and
-    // never on a protected branch.
+    // Pre-push guardrail gate (MUS-213): enforce protected paths, protected
+    // branches, and denied/dangerous git commands BEFORE any commit/push. This
+    // is enforced independently of the agent's claude -p permission mode — a
+    // bypassPermissions run still cannot push protected paths or branches.
+    const auditLog = createWorkerAuditLog(fullSession.id);
     let commitSha: string | null = null;
     const branchName = fullSession.branchName ?? "main";
-    if (result.success && isProtectedBranch(branchName)) {
-      workerLogger.warn(
-        `Skipping commit/push: session branch "${branchName}" is protected.`
-      );
-    } else if (result.success) {
+
+    if (result.success) {
+      const guard = evaluatePrePushGuardrails({
+        checkoutPath: checkout.path,
+        branchName,
+        permissions,
+      });
+
+      if (!guard.passed) {
+        recordPrePushViolations(auditLog, guard);
+        const reason = summarizePrePushBlock(guard);
+        auditLog.log("session_failed", { reason }, "error", "system");
+        workerLogger.error(reason);
+        workerLogger.info(auditLog.getSummary());
+        await prisma.executionSession.update({
+          where: { id: fullSession.id },
+          data: { validationOutput: auditLog.serialize() },
+        });
+        await releaseSession(fullSession.id, "failed", reason);
+        return;
+      }
+
       const pushResult = commitAndPushSessionBranch({
         checkoutPath: checkout.path,
         branchName,

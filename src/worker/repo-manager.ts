@@ -3,7 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { decryptCredentials } from "@/lib/credentials-crypto";
-import { checkBranchGuardrail } from "@/lib/repository-guardrails";
+import {
+  checkBranchGuardrail,
+  checkCommandGuardrail,
+  checkFileGuardrails,
+} from "@/lib/repository-guardrails";
+import {
+  validateCommand,
+  type WorkerPermissions,
+} from "@/lib/worker-permissions";
+import type { WorkerAuditLog } from "@/lib/worker-audit-log";
 
 /** Repository metadata required for checkout. */
 export interface CheckoutRepositoryInput {
@@ -214,6 +223,201 @@ function getHeadSha(checkoutPath: string): string {
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
   }).trim();
+}
+
+// ─── Pre-push guardrail enforcement (MUS-213) ────────────────────────────────
+
+/** A single blocking or warning reason produced by the pre-push gate. */
+export interface PrePushViolation {
+  /** Machine-readable rule identifier. */
+  readonly rule: string;
+  /** `block` prevents the push; `warn` is advisory. */
+  readonly severity: "block" | "warn";
+  /** Human-readable explanation. */
+  readonly message: string;
+  /** Offending file path, when the violation is path-based. */
+  readonly path?: string;
+  /** Offending branch, when the violation is branch-based. */
+  readonly branch?: string;
+  /** Offending command, when the violation is command-based. */
+  readonly command?: string;
+}
+
+/** Aggregate result of the pre-push guardrail evaluation. */
+export interface PrePushGuardResult {
+  /** True only when there are zero `block`-severity violations. */
+  readonly passed: boolean;
+  /** Files the agent changed in the working tree (the evaluated set). */
+  readonly changedFiles: string[];
+  /** All violations discovered, in evaluation order. */
+  readonly violations: PrePushViolation[];
+}
+
+/** Input for {@link evaluatePrePushGuardrails}. */
+export interface PrePushGuardInput {
+  /** Local checkout path. */
+  readonly checkoutPath: string;
+  /** Session branch that would be pushed. */
+  readonly branchName: string;
+  /** Resolved worker permission profile (autonomy-derived, not agent mode). */
+  readonly permissions: WorkerPermissions;
+  /**
+   * Canonical git commands the worker intends to run. Defaults to the
+   * add/commit/push sequence used by {@link commitAndPushSessionBranch}.
+   */
+  readonly intendedCommands?: readonly string[];
+}
+
+/**
+ * Canonical git commands the worker runs to persist agent work. Used for
+ * command guardrail / permission evaluation (config `-c` flags are omitted —
+ * they do not change the command's identity for safety purposes).
+ */
+export function defaultIntendedGitCommands(branchName: string): string[] {
+  return ["git add -A", "git commit", `git push origin ${branchName}`];
+}
+
+/**
+ * Hard gate run *before* any commit/push. Evaluates the agent's changed file
+ * set, the target branch, and the intended git commands against the
+ * Engineering-OS guardrails (`repository-guardrails`) and the worker permission
+ * profile (`worker-permissions`).
+ *
+ * This is enforced independently of the agent's own `claude -p` permission mode
+ * (including `bypassPermissions`): a profile that lets the agent edit freely
+ * still cannot push protected paths, push to a protected branch, or run a
+ * denied/dangerous git command.
+ *
+ * @param input - Checkout path, branch, permission profile, and commands.
+ * @returns Pass/fail with the evaluated file set and all violations.
+ */
+export function evaluatePrePushGuardrails(
+  input: PrePushGuardInput
+): PrePushGuardResult {
+  const changedFiles = getChangedFiles(input.checkoutPath);
+  const violations: PrePushViolation[] = [];
+
+  // Protected paths (repository-guardrails) — absolute, profile-independent.
+  for (const v of checkFileGuardrails(changedFiles).violations) {
+    violations.push({
+      rule: v.rule,
+      severity: v.severity,
+      message: v.message,
+      path: v.path,
+    });
+  }
+
+  // Protected branch (repository-guardrails) — never push to master/release/etc.
+  for (const v of checkBranchGuardrail(input.branchName).violations) {
+    violations.push({
+      rule: v.rule,
+      severity: v.severity,
+      message: v.message,
+      branch: v.branch,
+    });
+  }
+
+  // Intended git commands: dangerous-command + allow/deny permission checks.
+  const commands =
+    input.intendedCommands ?? defaultIntendedGitCommands(input.branchName);
+  for (const command of commands) {
+    for (const v of checkCommandGuardrail(command).violations) {
+      violations.push({
+        rule: v.rule,
+        severity: v.severity,
+        message: v.message,
+        command,
+      });
+    }
+
+    const permission = validateCommand(command, input.permissions);
+    if (!permission.allowed) {
+      violations.push({
+        rule: "command-not-permitted",
+        severity: "block",
+        message: permission.reason,
+        command,
+      });
+    }
+  }
+
+  const passed = violations.every((v) => v.severity !== "block");
+  return { passed, changedFiles, violations };
+}
+
+/**
+ * Records every blocking pre-push violation into the worker audit log.
+ *
+ * Command violations are logged as `command_blocked`; path/branch violations as
+ * `guardrail_triggered`. All blocks are recorded at `error` severity.
+ *
+ * @param auditLog - Audit log for the current session.
+ * @param result - Pre-push guard result to record.
+ */
+export function recordPrePushViolations(
+  auditLog: WorkerAuditLog,
+  result: PrePushGuardResult
+): void {
+  for (const v of result.violations) {
+    if (v.severity !== "block") continue;
+    if (v.command !== undefined) {
+      auditLog.log(
+        "command_blocked",
+        { rule: v.rule, command: v.command, message: v.message },
+        "error",
+        "system"
+      );
+    } else {
+      auditLog.log(
+        "guardrail_triggered",
+        { rule: v.rule, path: v.path, branch: v.branch, message: v.message },
+        "error",
+        "system"
+      );
+    }
+  }
+}
+
+/**
+ * Builds a concise, human-readable summary of the blocking violations,
+ * suitable for the session's error message.
+ *
+ * @param result - Pre-push guard result.
+ * @returns Single-line reason listing offending paths/branches/commands.
+ */
+export function summarizePrePushBlock(result: PrePushGuardResult): string {
+  const blocks = result.violations.filter((v) => v.severity === "block");
+  const details = blocks
+    .map((v) => v.path ?? v.branch ?? v.command ?? v.rule)
+    .join(", ");
+  return `Push blocked by ${blocks.length} guardrail violation${
+    blocks.length === 1 ? "" : "s"
+  }: ${details}`;
+}
+
+/**
+ * Returns the relative paths of all files changed in the working tree
+ * (staged, unstaged, and untracked), resolving renames to their new path.
+ *
+ * @param checkoutPath - Local repository path.
+ * @returns Changed file paths.
+ */
+function getChangedFiles(checkoutPath: string): string[] {
+  const output = execSync("git status --porcelain", {
+    cwd: checkoutPath,
+    encoding: "utf-8",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const files: string[] = [];
+  for (const rawLine of output.split("\n")) {
+    if (rawLine.trim().length === 0) continue;
+    // Porcelain v1: two status chars + a space, then the path.
+    const pathPart = rawLine.slice(3);
+    const renameIdx = pathPart.indexOf(" -> ");
+    files.push(renameIdx >= 0 ? pathPart.slice(renameIdx + 4) : pathPart);
+  }
+  return files;
 }
 
 /**

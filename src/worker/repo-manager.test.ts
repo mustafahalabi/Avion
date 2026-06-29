@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createWorkerAuditLog } from "@/lib/worker-audit-log";
+import { getWorkerPermissions } from "@/lib/worker-permissions";
+
 import {
   buildAgentCommitMessage,
   commitAndPushSessionBranch,
+  evaluatePrePushGuardrails,
+  recordPrePushViolations,
+  summarizePrePushBlock,
+  type PrePushGuardResult,
 } from "./repo-manager";
 
 const mockExecSync = vi.fn();
@@ -139,5 +146,157 @@ describe("commitAndPushSessionBranch", () => {
     expect(() =>
       commitAndPushSessionBranch({ ...BASE_INPUT, branchName: "release/v2" })
     ).toThrow(/Refusing to push agent changes/);
+  });
+});
+
+/** Configures the porcelain output returned for `git status --porcelain`. */
+function configurePorcelain(porcelain: string): void {
+  mockExecSync.mockImplementation((command: string) => {
+    if (command.includes("git status --porcelain")) return porcelain;
+    return "";
+  });
+}
+
+describe("evaluatePrePushGuardrails", () => {
+  // "assist" autonomy → execute profile (git add/commit/push allowed).
+  const permissions = getWorkerPermissions("assist");
+
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("passes for in-scope source edits on a feature branch (clean pass)", () => {
+    configurePorcelain(" M src/lib/foo.ts\n M src/lib/foo.test.ts\n");
+
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "feature/MUS-213-enforce",
+      permissions,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.violations).toEqual([]);
+    expect(result.changedFiles).toEqual([
+      "src/lib/foo.ts",
+      "src/lib/foo.test.ts",
+    ]);
+  });
+
+  it("blocks when the agent edits a protected path", () => {
+    configurePorcelain(" M src/lib/foo.ts\n M .env\n");
+
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "feature/MUS-213-enforce",
+      permissions,
+    });
+
+    expect(result.passed).toBe(false);
+    const offendingPaths = result.violations
+      .filter((v) => v.path !== undefined)
+      .map((v) => v.path);
+    expect(offendingPaths).toContain(".env");
+  });
+
+  it("blocks a push to a protected branch", () => {
+    configurePorcelain(" M src/lib/foo.ts\n");
+
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "master",
+      permissions,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations.some((v) => v.rule === "protected-branch")).toBe(
+      true
+    );
+  });
+
+  it("blocks a dangerous git command (force-push)", () => {
+    configurePorcelain(" M src/lib/foo.ts\n");
+
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "feature/MUS-213-enforce",
+      permissions,
+      intendedCommands: ["git push --force origin feature/MUS-213-enforce"],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations.some((v) => v.rule === "no-force-push")).toBe(true);
+  });
+
+  it("blocks commands the permission profile does not allow", () => {
+    configurePorcelain(" M src/lib/foo.ts\n");
+
+    // "manual" autonomy → read_only profile: no commands permitted.
+    const readOnly = getWorkerPermissions("manual");
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "feature/MUS-213-enforce",
+      permissions: readOnly,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(
+      result.violations.some((v) => v.rule === "command-not-permitted")
+    ).toBe(true);
+  });
+
+  it("enforces guardrails regardless of a broad (full) permission profile", () => {
+    // Even with maximum autonomy, a protected path is still blocked.
+    configurePorcelain(" M prisma/migrations/0001_init/migration.sql\n");
+
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "feature/MUS-213-enforce",
+      permissions: getWorkerPermissions("autonomous"),
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations.some((v) => v.rule === "protected-file")).toBe(
+      true
+    );
+  });
+});
+
+describe("recordPrePushViolations / summarizePrePushBlock", () => {
+  const blockedResult: PrePushGuardResult = {
+    passed: false,
+    changedFiles: [".env"],
+    violations: [
+      { rule: "protected-file", severity: "block", message: "env blocked", path: ".env" },
+      {
+        rule: "no-force-push",
+        severity: "block",
+        message: "force push blocked",
+        command: "git push --force origin x",
+      },
+      { rule: "advisory", severity: "warn", message: "just a warning" },
+    ],
+  };
+
+  it("records each block in the audit log (paths and commands)", () => {
+    const log = createWorkerAuditLog("ses_audit");
+
+    recordPrePushViolations(log, blockedResult);
+
+    expect(log.getEventsByType("guardrail_triggered")).toHaveLength(1);
+    expect(log.getEventsByType("command_blocked")).toHaveLength(1);
+    // Warn-severity violations are not recorded as blocks.
+    expect(log.getEvents()).toHaveLength(2);
+    expect(log.getEvents().every((e) => e.severity === "error")).toBe(true);
+  });
+
+  it("summarizes blocks with the offending paths and commands", () => {
+    const reason = summarizePrePushBlock(blockedResult);
+    expect(reason).toContain(".env");
+    expect(reason).toContain("git push --force origin x");
+    expect(reason).toContain("2 guardrail violations");
   });
 });
