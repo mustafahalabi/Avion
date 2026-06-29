@@ -79,6 +79,7 @@ export default async function DashboardPage() {
       },
       workspaces: {
         include: {
+          _count: { select: { repositories: true } },
           projects: {
             include: {
               features: {
@@ -126,6 +127,10 @@ export default async function DashboardPage() {
   const activeProjects = projects.filter(
     (p) => p.status === "active" || p.status === "planning"
   ).length;
+  const repositoryCount = company.workspaces.reduce(
+    (n, w) => n + (w._count?.repositories ?? 0),
+    0
+  );
 
   const awaitingApproval = company.runtimeRequests.filter(
     (r) => r.status === "awaiting_approval"
@@ -203,6 +208,25 @@ export default async function DashboardPage() {
       </header>
 
       <div className="flex flex-col gap-8 p-6 max-w-4xl">
+        {/* Setup banner — shown while company has no repositories */}
+        {repositoryCount === 0 && (
+          <section className="flex items-center justify-between gap-4 rounded-lg border border-violet-900/40 bg-violet-950/10 px-4 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
+              <p className="text-sm text-neutral-300 truncate">
+                Complete your company setup — connect a repository and configure
+                your company style.
+              </p>
+            </div>
+            <Link
+              href="/setup"
+              className="shrink-0 rounded-md border border-violet-800/60 bg-violet-950/30 px-3 py-1.5 text-xs font-medium text-violet-300 hover:bg-violet-950/60 transition-colors"
+            >
+              Complete setup
+            </Link>
+          </section>
+        )}
+
         {/* Greeting */}
         <section>
           <h2 className="text-xl font-semibold text-neutral-100">
