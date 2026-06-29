@@ -12,6 +12,8 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { RequestForm } from "./request-form";
+import { ApprovalActions } from "./approval-actions";
+import { listPendingCheckpoints } from "@/lib/approval-checkpoints";
 
 const REQUEST_STATUS: Record<
   string,
@@ -63,6 +65,8 @@ export default async function InboxPage() {
 
   if (!company) redirect("/onboarding");
 
+  const pendingCheckpoints = await listPendingCheckpoints(company.id);
+
   const active = company.runtimeRequests.filter(
     (r) => !["complete", "cancelled"].includes(r.status)
   );
@@ -84,6 +88,37 @@ export default async function InboxPage() {
           </div>
           <RequestForm />
         </section>
+
+        {/* Needs your approval (autonomy-gated review/QA checkpoints) */}
+        {pendingCheckpoints.length > 0 && (
+          <section>
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium text-amber-400">
+              <AlertCircle className="h-3.5 w-3.5" />
+              Needs your approval ({pendingCheckpoints.length})
+            </div>
+            <div className="grid gap-2">
+              {pendingCheckpoints.map((cp) => (
+                <div
+                  key={`${cp.kind}-${cp.id}`}
+                  className="flex items-center gap-3 rounded-lg border border-amber-900/60 bg-amber-950/20 px-4 py-3.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/work/tasks/${cp.taskId}`}
+                      className="block truncate text-sm font-medium text-neutral-200 hover:text-white"
+                    >
+                      {cp.taskTitle}
+                    </Link>
+                    <p className="mt-0.5 text-xs text-neutral-500">
+                      Awaiting {cp.kind === "review" ? "code review" : "QA"} approval
+                    </p>
+                  </div>
+                  <ApprovalActions kind={cp.kind} id={cp.id} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Active requests */}
         {active.length > 0 && (
