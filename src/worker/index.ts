@@ -1,6 +1,15 @@
 import { ClaudeCodeAdapter } from "@/lib/adapters/claude-code-adapter";
 import type { PermissionLevel } from "@/lib/adapters/execution-adapter";
-import { ingestAgentExecutionResult } from "@/lib/execution-session-service";
+import {
+  ingestAgentExecutionResult,
+  type PrStatus,
+} from "@/lib/execution-session-service";
+import {
+  buildPullRequestBody,
+  buildPullRequestTitle,
+  openOrReusePullRequest,
+  parseGitHubRepoUrl,
+} from "@/lib/github-pull-request";
 import { isProtectedBranch } from "@/lib/implementation-brief";
 import { prisma } from "@/lib/prisma";
 import { getProviderConnection } from "@/lib/provider-connection-service";
@@ -147,6 +156,58 @@ async function processSession(sessionId: string): Promise<void> {
       );
     }
 
+    // Open (or reuse) a pull request for the pushed branch. Only when there is
+    // a commit to review. A PR failure is recorded on the session, not dropped.
+    let prUrl: string | null = null;
+    let prNumber: number | null = null;
+    let prStatus: PrStatus | null = null;
+    let prError: string | null = null;
+
+    if (commitSha) {
+      const parsedRepo = parseGitHubRepoUrl(repo.url);
+      const githubToken =
+        githubConnection?.tokens.accessToken ??
+        githubConnection?.tokens.manualToken ??
+        null;
+
+      if (!parsedRepo) {
+        prError = `Could not parse GitHub owner/repo from URL "${repo.url}".`;
+        workerLogger.error(prError);
+      } else if (!githubToken) {
+        prError = "No GitHub token available to open a pull request.";
+        workerLogger.error(prError);
+      } else {
+        try {
+          const pr = await openOrReusePullRequest({
+            token: githubToken,
+            owner: parsedRepo.owner,
+            repo: parsedRepo.repo,
+            head: branchName,
+            base: fullSession.baseBranch ?? "master",
+            title: buildPullRequestTitle(fullSession.task?.title ?? null),
+            body: buildPullRequestBody({
+              taskTitle: fullSession.task?.title ?? branchName,
+              summary: result.resultSummary,
+              filesChanged: result.filesChanged,
+              validationOutput: result.validationOutput,
+            }),
+          });
+          prUrl = pr.prUrl;
+          prNumber = pr.prNumber;
+          prStatus = pr.prStatus;
+          workerLogger.info(
+            `${pr.reused ? "Reused" : "Opened"} PR #${pr.prNumber}: ${pr.prUrl}`
+          );
+        } catch (err: unknown) {
+          prError = err instanceof Error ? err.message : String(err);
+          workerLogger.error(`Failed to open pull request: ${prError}`);
+        }
+      }
+    }
+
+    const combinedError =
+      [result.errorMessage, prError].filter(Boolean).join(" | ") || null;
+
     const outcome = await ingestAgentExecutionResult({
       companyId: fullSession.companyId,
       sessionId: fullSession.id,
@@ -154,8 +215,11 @@ async function processSession(sessionId: string): Promise<void> {
       resultSummary: result.resultSummary,
       filesChanged: result.filesChanged,
       validationOutput: result.validationOutput,
-      errorMessage: result.errorMessage,
+      errorMessage: combinedError,
       commitSha,
+      prUrl,
+      prNumber,
+      prStatus,
     });
 
     workerLogger.info(
