@@ -1,13 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { getLatestRepositoryChangeIntelligence } from "@/lib/repository-change-intelligence";
 import {
-  generateDeterministicPlanningDraft,
   parseJsonStringArray,
   type DeterministicPlanningDraft,
   type PlanningGenerationFailure,
   type PlanningGenerationResult,
   type PlanningRepositoryContext,
 } from "@/lib/planning-generator";
+import { resolvePlanningAdapter } from "@/lib/planning/planning-provider";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 import { OUTCOME_PLANNING_EVENT_TYPES } from "@/lib/outcome-planning-lifecycle";
 
@@ -128,7 +128,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
     repositories.map((repository) => toPlanningRepositoryContext(repository, input.companyId))
   );
 
-  const generation = generateDeterministicPlanningDraft({
+  const generation = await resolvePlanningAdapter().generate({
     companyId: outcome.companyId,
     outcomeId: outcome.id,
     title: outcome.title,
