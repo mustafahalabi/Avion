@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { evaluateAutonomyCheckpoint } from "@/lib/autonomy-policy";
 import { getCurrentUser } from "@/lib/current-user";
 import {
   generateClaudeImplementationBrief,
@@ -110,9 +111,23 @@ export async function generateTaskBrief(
 
   const company = await prisma.company.findFirst({
     where: { ownerId: user.id },
-    select: { id: true },
+    select: { id: true, settings: { select: { autonomyLevel: true } } },
   });
   if (!company) return { message: "No company found." };
+
+  // Consult the single autonomy policy that the autonomous driver (MUS-205)
+  // also consults, so the manual and driven paths authorize identically. A
+  // CEO-initiated brief generation is the human-supplied approval for the
+  // create_session checkpoint; we only refuse if the level denies it outright.
+  const authorization = evaluateAutonomyCheckpoint({
+    level: company.settings?.autonomyLevel,
+    action: "create_session",
+    context: { taskId: parsed.data.taskId, summary: "Prepare execution session for task" },
+    hasApproval: true,
+  });
+  if (authorization.type === "blocked") {
+    return { message: authorization.decision.reason };
+  }
 
   const task = await prisma.task.findFirst({
     where: { id: parsed.data.taskId, companyId: company.id },
