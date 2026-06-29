@@ -4,7 +4,10 @@ import { redirect } from "next/navigation";
 import { ArrowLeft, Users } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { EmployeeStatusIndicator } from "@/components/ui/status-indicator";
+import {
+  EmployeeStatusIndicator,
+  isEmployeeStatus,
+} from "@/components/ui/status-indicator";
 
 const DEPT_COLORS: Record<string, string> = {
   executive: "bg-violet-950/50 border-violet-900/50",
@@ -136,9 +139,7 @@ export default async function EmployeesPage() {
                           </p>
                           <EmployeeStatusIndicator
                             status={
-                              (["active", "idle", "working", "unavailable"].includes(emp.status)
-                                ? emp.status
-                                : "idle") as "active" | "idle" | "working" | "unavailable"
+                              isEmployeeStatus(emp.status) ? emp.status : "idle"
                             }
                             showLabel={true}
                             size="xs"

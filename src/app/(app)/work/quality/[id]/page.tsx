@@ -29,7 +29,7 @@ const STATUS_CONFIG: Record<
   blocked: { label: "Blocked", color: "text-red-400", icon: AlertCircle },
   needs_clarification: {
     label: "Needs Clarification",
-    color: "text-blue-400",
+    color: "text-amber-400",
     icon: Clock,
   },
   in_progress: { label: "In Progress", color: "text-blue-400", icon: Clock },

@@ -3,15 +3,25 @@ import { cn } from "@/lib/utils";
 
 // ── Type definitions ────────────────────────────────────────────────────────
 
-export type EmployeeStatus = "active" | "idle" | "working" | "unavailable";
+export const EMPLOYEE_STATUSES = [
+  "active",
+  "idle",
+  "working",
+  "unavailable",
+] as const;
 
-export type TaskStatus =
-  | "todo"
-  | "in-progress"
-  | "in-review"
-  | "done"
-  | "cancelled"
-  | "blocked";
+export type EmployeeStatus = (typeof EMPLOYEE_STATUSES)[number];
+
+export const TASK_STATUSES = [
+  "todo",
+  "in-progress",
+  "in-review",
+  "done",
+  "cancelled",
+  "blocked",
+] as const;
+
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export type ExecutionSessionStatus =
   | "queued"
@@ -44,56 +54,68 @@ export type AnyStatus =
 
 type DotSize = "xs" | "sm" | "md";
 
-// ── Color mapping ───────────────────────────────────────────────────────────
+interface StatusConfigEntry {
+  color: string;
+  animate: boolean;
+  label: string;
+}
 
-const DOT_COLOR: Record<string, string> = {
-  // Green — active / live / success
-  active: "bg-emerald-400",
-  running: "bg-emerald-400",
-  connected: "bg-emerald-400",
-  "in-progress": "bg-emerald-400",
-
-  // Green (solid, no pulse) — finished / done
-  done: "bg-emerald-500",
-  completed: "bg-emerald-500",
-  complete: "bg-emerald-500",
-
-  // Gray — idle / queued / not started
-  idle: "bg-neutral-500",
-  queued: "bg-neutral-500",
-  pending: "bg-neutral-500",
-  todo: "bg-neutral-500",
-  disconnected: "bg-neutral-600",
-
-  // Blue — working / prepared
-  working: "bg-blue-400",
-  prepared: "bg-blue-400",
-  syncing: "bg-blue-400",
-
-  // Purple / violet — in review
-  "in-review": "bg-violet-400",
-
-  // Amber / orange — blocked / needs clarification
-  blocked: "bg-amber-400",
-  needs_clarification: "bg-amber-400",
-
-  // Red — failed / error / cancelled
-  failed: "bg-red-400",
-  error: "bg-red-400",
-  cancelled: "bg-red-400",
-  canceled: "bg-red-400",
-
-  // Analyzing — blue-ish pulse
-  analyzing: "bg-blue-400",
+const STATUS_CONFIG: Record<string, StatusConfigEntry> = {
+  active: { color: "bg-emerald-400", animate: true, label: "Active" },
+  running: { color: "bg-emerald-400", animate: true, label: "Running" },
+  connected: { color: "bg-emerald-400", animate: false, label: "Connected" },
+  "in-progress": {
+    color: "bg-emerald-400",
+    animate: false,
+    label: "In Progress",
+  },
+  done: { color: "bg-emerald-500", animate: false, label: "Done" },
+  completed: { color: "bg-emerald-500", animate: false, label: "Completed" },
+  complete: { color: "bg-emerald-500", animate: false, label: "Complete" },
+  idle: { color: "bg-neutral-500", animate: false, label: "Idle" },
+  queued: { color: "bg-neutral-500", animate: false, label: "Queued" },
+  pending: { color: "bg-neutral-500", animate: false, label: "Pending" },
+  todo: { color: "bg-neutral-500", animate: false, label: "To Do" },
+  disconnected: {
+    color: "bg-neutral-600",
+    animate: false,
+    label: "Disconnected",
+  },
+  unavailable: { color: "bg-gray-300", animate: false, label: "Unavailable" },
+  working: { color: "bg-blue-400", animate: false, label: "Working" },
+  prepared: { color: "bg-blue-400", animate: false, label: "Prepared" },
+  syncing: { color: "bg-blue-400", animate: true, label: "Syncing" },
+  "in-review": {
+    color: "bg-violet-400",
+    animate: false,
+    label: "In Review",
+  },
+  blocked: { color: "bg-amber-400", animate: false, label: "Blocked" },
+  needs_clarification: {
+    color: "bg-amber-400",
+    animate: false,
+    label: "Needs Clarification",
+  },
+  failed: { color: "bg-red-400", animate: false, label: "Failed" },
+  error: { color: "bg-red-400", animate: false, label: "Error" },
+  cancelled: { color: "bg-red-400", animate: false, label: "Cancelled" },
+  canceled: { color: "bg-red-400", animate: false, label: "Canceled" },
+  analyzing: { color: "bg-blue-400", animate: true, label: "Analyzing" },
 };
 
-/** Statuses that should pulse to indicate live activity. */
-const ANIMATE_STATUSES = new Set<string>([
-  "running",
-  "syncing",
-  "analyzing",
-  "active",
-]);
+const DOT_COLOR: Record<string, string> = Object.fromEntries(
+  Object.entries(STATUS_CONFIG).map(([status, config]) => [status, config.color])
+);
+
+const ANIMATE_STATUSES = new Set<string>(
+  Object.entries(STATUS_CONFIG)
+    .filter(([, config]) => config.animate)
+    .map(([status]) => status)
+);
+
+const STATUS_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(STATUS_CONFIG).map(([status, config]) => [status, config.label])
+);
 
 const SIZE_CLASSES: Record<DotSize, string> = {
   xs: "h-1.5 w-1.5",
@@ -101,34 +123,25 @@ const SIZE_CLASSES: Record<DotSize, string> = {
   md: "h-2.5 w-2.5",
 };
 
-// ── Label mapping (human-readable) ─────────────────────────────────────────
+/**
+ * Checks whether a string is a valid employee status.
+ *
+ * @param s - Raw status value from the database
+ * @returns True when the value is a known employee status
+ */
+export function isEmployeeStatus(s: string): s is EmployeeStatus {
+  return (EMPLOYEE_STATUSES as readonly string[]).includes(s);
+}
 
-const STATUS_LABEL: Record<string, string> = {
-  active: "Active",
-  idle: "Idle",
-  working: "Working",
-  unavailable: "Unavailable",
-  todo: "To Do",
-  "in-progress": "In Progress",
-  "in-review": "In Review",
-  done: "Done",
-  cancelled: "Cancelled",
-  blocked: "Blocked",
-  queued: "Queued",
-  prepared: "Prepared",
-  running: "Running",
-  completed: "Completed",
-  failed: "Failed",
-  canceled: "Canceled",
-  needs_clarification: "Needs Clarification",
-  connected: "Connected",
-  disconnected: "Disconnected",
-  error: "Error",
-  syncing: "Syncing",
-  pending: "Pending",
-  analyzing: "Analyzing",
-  complete: "Complete",
-};
+/**
+ * Checks whether a string is a valid task status.
+ *
+ * @param s - Raw status value from the database
+ * @returns True when the value is a known task status
+ */
+export function isTaskStatus(s: string): s is TaskStatus {
+  return (TASK_STATUSES as readonly string[]).includes(s);
+}
 
 // ── Components ──────────────────────────────────────────────────────────────
 
@@ -155,6 +168,7 @@ export function StatusDot({
 
   return (
     <span
+      role="img"
       aria-label={STATUS_LABEL[status] ?? status}
       className={cn(
         "inline-block shrink-0 rounded-full",
