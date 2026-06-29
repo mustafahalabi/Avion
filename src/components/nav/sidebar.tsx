@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Gauge,
   LayoutDashboard,
   Building2,
   Layers,
@@ -31,6 +32,7 @@ type NavSection = {
 const navSections: NavSection[] = [
   {
     items: [
+      { label: "Control Center", href: "/control-center", icon: Gauge },
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     ],
   },

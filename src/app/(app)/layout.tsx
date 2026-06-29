@@ -25,6 +25,7 @@ export default async function AppLayout({
   const navBadges: Record<string, number> = {
     "/notifications": unreadNotifications,
     "/inbox": pendingApprovals,
+    "/control-center": pendingApprovals,
   };
 
   return (
