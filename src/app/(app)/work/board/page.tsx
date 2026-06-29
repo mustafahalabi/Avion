@@ -6,7 +6,6 @@ import {
   Clock,
   AlertCircle,
   CheckCircle2,
-  Ban,
   LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
@@ -47,15 +46,15 @@ const COLUMNS: ColumnDef[] = [
     key: "in-review",
     label: "In Review",
     icon: AlertCircle,
-    headerClass: "text-purple-400",
-    countClass: "bg-purple-950 text-purple-400",
+    headerClass: "text-amber-400",
+    countClass: "bg-amber-950 text-amber-400",
   },
   {
     key: "blocked",
     label: "Blocked",
-    icon: Ban,
-    headerClass: "text-orange-400",
-    countClass: "bg-orange-950 text-orange-400",
+    icon: AlertCircle,
+    headerClass: "text-red-400",
+    countClass: "bg-red-950 text-red-400",
   },
   {
     key: "done",
@@ -225,7 +224,7 @@ function TaskCard({ task }: { task: BoardTask }) {
           {task.priority}
         </span>
 
-        {task.assignee && (
+        {task.assignee && task.assignee.name.length > 0 && (
           <span
             className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-700 text-[10px] font-semibold text-neutral-300 shrink-0"
             title={task.assignee.name}
