@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "tsc --noEmit && vitest run",
     "worker": "tsx src/worker/index.ts",
-    "worker:dev": "tsx watch src/worker/index.ts"
+    "worker:dev": "tsx watch src/worker/index.ts",
+    "driver": "tsx src/worker/driver.ts",
+    "driver:dev": "tsx watch src/worker/driver.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.9",

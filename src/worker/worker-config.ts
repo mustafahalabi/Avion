@@ -5,6 +5,8 @@ export interface WorkerConfig {
   readonly WORKER_SESSION_TIMEOUT_SECONDS: number;
   readonly WORKER_PERMISSION_MODE_OVERRIDE: string | null;
   readonly WORKER_MAX_RETRIES: number;
+  /** Interval between driver ticks (the scheduler that enqueues/advances work). */
+  readonly DRIVER_TICK_INTERVAL_MS: number;
 }
 
 /**
@@ -18,6 +20,7 @@ export const WORKER_CONFIG: WorkerConfig = {
   ),
   WORKER_PERMISSION_MODE_OVERRIDE: process.env.WORKER_PERMISSION_MODE ?? null,
   WORKER_MAX_RETRIES: Number(process.env.WORKER_MAX_RETRIES ?? 1),
+  DRIVER_TICK_INTERVAL_MS: Number(process.env.DRIVER_TICK_INTERVAL_MS ?? 15000),
 };
 
 /**
