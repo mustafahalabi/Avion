@@ -122,10 +122,11 @@ async function main(): Promise<void> {
   console.log("   GitHub connection stored (token encrypted)");
 
   // ── One task + brief, then create + prepare the session ────────────────────
+  const taskTitle = process.env.LIVE_TITLE?.trim() || "Apply the requested repository change";
   const task = await prisma.task.create({
     data: {
       companyId: COMPANY_ID,
-      title: "Add ENGINEERING_OS_DEMO.md",
+      title: taskTitle,
       description: goal,
       status: "todo",
       priority: "low",
