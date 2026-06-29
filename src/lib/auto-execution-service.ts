@@ -21,6 +21,7 @@ import {
   findLiveSessionForTask,
   prepareExecutionSession,
 } from "@/lib/execution-session-service";
+import { assessExecutionReadiness } from "@/lib/repository-readiness-gate";
 import { generateClaudeImplementationBrief } from "@/lib/implementation-brief";
 import { prisma } from "@/lib/prisma";
 import { selectNextExecutableTaskForCompany } from "@/lib/task-selection-service";
@@ -113,6 +114,7 @@ export type AutoPrepareStatus =
   | "skipped_existing_session"
   | "nothing_to_do"
   | "autonomy_below_threshold"
+  | "blocked_repository"
   | "error";
 
 /** Result of an `autoPrepareNextExecutionSession` run, suitable for logging. */
@@ -177,6 +179,40 @@ export async function autoPrepareNextExecutionSession(
       status: "skipped_existing_session",
       reason: `Task ${taskId} already has a live session (${live.status}).`,
       sessionId: live.id,
+      taskId,
+    };
+  }
+
+  // Fail-fast on bad environments (close-the-loop): don't launch an autonomous run
+  // against a repository we can't validate. Only a "blocked" readiness halts here;
+  // "partial"/"unknown" still proceed.
+  const taskRepo = await prisma.task.findFirst({
+    where: { id: taskId, companyId },
+    select: {
+      project: {
+        select: {
+          workspace: {
+            select: {
+              repositories: {
+                take: 1,
+                orderBy: { updatedAt: "desc" },
+                select: { id: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  const repositoryId =
+    taskRepo?.project?.workspace?.repositories?.[0]?.id ?? null;
+  const readiness = await assessExecutionReadiness({ companyId, repositoryId });
+  if (!readiness.ready) {
+    return {
+      status: "blocked_repository",
+      reason: `Repository not ready for execution (${readiness.readiness}): ${
+        readiness.reasons.join("; ") || "blocked"
+      }`,
       taskId,
     };
   }

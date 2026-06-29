@@ -29,6 +29,7 @@ import {
 } from "@/lib/gate-advancement-service";
 import { ingestCompanyMemory } from "@/lib/memory/memory-ingestion-service";
 import { promoteRecurringLessons } from "@/lib/memory/memory-learning-service";
+import { ingestPullRequestFeedbackForCompany } from "@/lib/pr-feedback-ingestion-service";
 import { prisma } from "@/lib/prisma";
 import { getRunModeConfig } from "@/lib/run-mode";
 
@@ -51,6 +52,16 @@ export interface DriverTickResult {
    * recurring lessons promoted to standards. Best-effort — null when the step errored.
    */
   readonly memory?: { readonly written: number; readonly promoted: number } | null;
+  /**
+   * PR feedback ingested this tick: open PRs polled for CI + review results. CI failure /
+   * changes-requested opens a change request and re-loops the task; merged PRs are recorded.
+   * Best-effort — null when the step errored (e.g. no GitHub token).
+   */
+  readonly prFeedback?: {
+    readonly sessionsChecked: number;
+    readonly changeRequestsOpened: number;
+    readonly merged: number;
+  } | null;
 }
 
 /**
@@ -76,6 +87,21 @@ export async function runDriverTickForCompany(
       status: { in: [...LIVE_EXECUTION_SESSION_STATUSES] },
     },
   });
+
+  // ── Respond to real PR feedback first (best-effort; never breaks the tick) ─
+  // Poll open PRs for CI + review results so a CI failure / changes-requested moves the
+  // task back to in-progress (with a change request) before we decide what to enqueue.
+  let prFeedback: DriverTickResult["prFeedback"] = null;
+  try {
+    const ingested = await ingestPullRequestFeedbackForCompany(companyId);
+    prFeedback = {
+      sessionsChecked: ingested.sessionsChecked,
+      changeRequestsOpened: ingested.changeRequestsOpened,
+      merged: ingested.merged,
+    };
+  } catch {
+    prFeedback = null;
+  }
 
   // ── Enqueue up to the concurrency limit ──────────────────────────────────
   const enqueued: AutoPrepareResult[] = [];
@@ -117,7 +143,7 @@ export async function runDriverTickForCompany(
     memory = null;
   }
 
-  return { companyId, liveSessionsBefore, concurrencyLimit, enqueued, advanced, memory };
+  return { companyId, liveSessionsBefore, concurrencyLimit, enqueued, advanced, memory, prFeedback };
 }
 
 /**
