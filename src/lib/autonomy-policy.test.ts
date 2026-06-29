@@ -33,6 +33,8 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         push: "requires_approval",
         open_pr: "requires_approval",
         auto_merge: "deny",
+        auto_review: "requires_approval",
+        auto_qa: "requires_approval",
       },
       suggest: {
         create_session: "allow",
@@ -40,6 +42,8 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         push: "requires_approval",
         open_pr: "requires_approval",
         auto_merge: "deny",
+        auto_review: "requires_approval",
+        auto_qa: "requires_approval",
       },
       assist: {
         create_session: "allow",
@@ -47,6 +51,8 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         push: "allow",
         open_pr: "allow",
         auto_merge: "requires_approval",
+        auto_review: "requires_approval",
+        auto_qa: "requires_approval",
       },
       delegate: {
         create_session: "allow",
@@ -54,6 +60,8 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         push: "allow",
         open_pr: "allow",
         auto_merge: "requires_approval",
+        auto_review: "allow",
+        auto_qa: "allow",
       },
       autonomous: {
         create_session: "allow",
@@ -61,6 +69,8 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         push: "allow",
         open_pr: "allow",
         auto_merge: "allow",
+        auto_review: "allow",
+        auto_qa: "allow",
       },
     };
 
