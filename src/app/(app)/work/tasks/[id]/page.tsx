@@ -14,7 +14,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PriorityBadge } from "@/components/ui/badge";
-import { StatusDot, type TaskStatus } from "@/components/ui/status-indicator";
+import { StatusDot, isTaskStatus } from "@/components/ui/status-indicator";
 import { TaskStatusSelect } from "./task-status-select";
 import { TaskBriefSection } from "./task-brief-section";
 import { ReviewBriefSection } from "./review-brief-section";
@@ -234,7 +234,7 @@ export default async function TaskDetailPage({ params }: Props) {
           );
         })()}
         <StatusDot
-          status={task.status as TaskStatus}
+          status={isTaskStatus(task.status) ? task.status : "todo"}
           size="xs"
           className="shrink-0"
         />
