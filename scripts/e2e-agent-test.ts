@@ -264,8 +264,16 @@ async function main(): Promise<void> {
   }
 
   console.log("\nStep 8: Checking for PR...");
+  if (finalSession.commitSha) {
+    console.log(`✅ Commit pushed: ${finalSession.commitSha}`);
+  } else {
+    console.log("⚠️  No commit SHA recorded");
+  }
   if (finalSession.prUrl) {
     console.log(`✅ PR opened: ${finalSession.prUrl}`);
+    console.log(
+      `   PR #${finalSession.prNumber ?? "?"} (status: ${finalSession.prStatus ?? "unknown"})`
+    );
   } else {
     console.log(
       `⚠️  No PR URL recorded — check repo manually for branch: ${finalSession.branchName}`
@@ -281,6 +289,7 @@ async function main(): Promise<void> {
   console.log(`Session ID:    ${finalSession.id}`);
   console.log(`Duration:      ~${durationMin} minutes`);
   console.log(`Files changed: ${filesChanged.length}`);
+  console.log(`Commit SHA:    ${finalSession.commitSha ?? "not recorded"}`);
   console.log(`PR:            ${finalSession.prUrl ?? "not recorded"}`);
   console.log();
   console.log("🎉 End-to-end test PASSED");
