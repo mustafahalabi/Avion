@@ -32,6 +32,8 @@ import type { AutonomyLevel } from "@/lib/worker-permissions";
  * - `push`           — push the agent's branch to origin.
  * - `open_pr`        — open a pull request from the session branch.
  * - `auto_merge`     — merge the PR without human review.
+ * - `auto_review`    — drive an automated code review without human sign-off.
+ * - `auto_qa`        — drive automated QA and pass the gate without human sign-off.
  */
 export const AUTONOMY_ACTIONS = [
   "create_session",
@@ -39,6 +41,8 @@ export const AUTONOMY_ACTIONS = [
   "push",
   "open_pr",
   "auto_merge",
+  "auto_review",
+  "auto_qa",
 ] as const;
 
 export type AutonomyAction = (typeof AUTONOMY_ACTIONS)[number];
@@ -67,6 +71,8 @@ export type AutonomyActionMatrix = Readonly<Record<AutonomyAction, AutonomyDispo
  * | push            | appr.  | appr.   | allow  | allow    | allow      |
  * | open_pr         | appr.  | appr.   | allow  | allow    | allow      |
  * | auto_merge      | deny   | deny    | appr.  | appr.    | allow      |
+ * | auto_review     | appr.  | appr.   | appr.  | allow    | allow      |
+ * | auto_qa         | appr.  | appr.   | appr.  | allow    | allow      |
  *
  * (`appr.` = requires_approval). Rationale:
  * - manual: a human performs each step; every agent action is gated and merges
@@ -74,8 +80,9 @@ export type AutonomyActionMatrix = Readonly<Record<AutonomyAction, AutonomyDispo
  * - suggest: the agent may prepare work freely but running/pushing/opening a PR
  *   is gated; merges are never automated.
  * - assist: the agent executes with a confirmation gate before running; pushing
- *   and opening a PR proceed, merging stays gated.
- * - delegate: supervised — everything proceeds except auto-merge, which is gated.
+ *   and opening a PR proceed, merging and review/QA sign-off stay gated.
+ * - delegate: supervised — everything proceeds (incl. automated review/QA)
+ *   except auto-merge, which is gated.
  * - autonomous: fully automated, including auto-merge (still within guardrails).
  */
 export const AUTONOMY_POLICY_MATRIX: Readonly<
@@ -87,6 +94,8 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     push: "requires_approval",
     open_pr: "requires_approval",
     auto_merge: "deny",
+    auto_review: "requires_approval",
+    auto_qa: "requires_approval",
   },
   suggest: {
     create_session: "allow",
@@ -94,6 +103,8 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     push: "requires_approval",
     open_pr: "requires_approval",
     auto_merge: "deny",
+    auto_review: "requires_approval",
+    auto_qa: "requires_approval",
   },
   assist: {
     create_session: "allow",
@@ -101,6 +112,8 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     push: "allow",
     open_pr: "allow",
     auto_merge: "requires_approval",
+    auto_review: "requires_approval",
+    auto_qa: "requires_approval",
   },
   delegate: {
     create_session: "allow",
@@ -108,6 +121,8 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     push: "allow",
     open_pr: "allow",
     auto_merge: "requires_approval",
+    auto_review: "allow",
+    auto_qa: "allow",
   },
   autonomous: {
     create_session: "allow",
@@ -115,6 +130,8 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     push: "allow",
     open_pr: "allow",
     auto_merge: "allow",
+    auto_review: "allow",
+    auto_qa: "allow",
   },
 };
 
