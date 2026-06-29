@@ -43,6 +43,7 @@ import {
   autoPrepareNextExecutionSession,
   prepareExecutionSessionForTask,
 } from "./auto-execution-service";
+import { resolveTaskRepository } from "@/lib/task-repository-context";
 
 const SELECTED_TASK = {
   id: "task-1",
@@ -187,5 +188,45 @@ describe("prepareExecutionSessionForTask", () => {
     const result = await prepareExecutionSessionForTask("company-1", "task-1");
 
     expect(result).toEqual({ error: "Failed to prepare execution session." });
+  });
+
+  it("resolves the repository via the feature's project when the task has no direct project (AI-planned tasks)", async () => {
+    const REPO = {
+      id: "repo-9",
+      name: "eos-sandbox",
+      url: "https://github.com/x/eos-sandbox",
+      primaryLanguage: null,
+      frameworks: "[]",
+      techStack: "[]",
+      importantFiles: "[]",
+      analysisStatus: "pending",
+    };
+    mockTaskFindFirst.mockResolvedValue({
+      id: "task-2",
+      title: "Write outcome brief",
+      description: null,
+      priority: "medium",
+      projectId: null,
+      featureId: "feat-1",
+      planningDraftId: "draft-1",
+      planItemId: "task:brief",
+      planningDraft: { id: "draft-1", generatedTasks: null },
+      project: null,
+      feature: {
+        projectId: "proj-2",
+        project: { workspace: { repositories: [REPO] } },
+      },
+    });
+    // First call (direct project — none) → null; second (the feature's project) → the repo.
+    vi.mocked(resolveTaskRepository)
+      .mockImplementationOnce(() => null)
+      .mockImplementationOnce(() => REPO);
+
+    const result = await prepareExecutionSessionForTask("company-1", "task-2");
+
+    expect("error" in result).toBe(false);
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      expect.objectContaining({ repositoryId: "repo-9", projectId: "proj-2" })
+    );
   });
 });
