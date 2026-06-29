@@ -2,8 +2,10 @@ import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getLatestRepositoryChangeIntelligence } from "@/lib/repository-change-intelligence";
 import { getRepositoryIntelligenceView } from "@/lib/repository-intelligence-service";
+import { getRepositoryValidationView } from "@/lib/repository-validation-service";
 import { analyzeRepository } from "@/app/actions/repository";
 import { RepositoryIntelligenceDashboard } from "@/components/repositories/repository-intelligence-dashboard";
+import { RepositoryValidationPanel } from "@/components/repositories/repository-validation-panel";
 import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
 import {
@@ -73,6 +75,10 @@ export default async function RepositoryDetailPage({ params }: Props) {
     companyId: company.id,
   });
   const intelligenceView = await getRepositoryIntelligenceView({
+    repositoryId: repo.id,
+    companyId: company.id,
+  });
+  const validationView = await getRepositoryValidationView({
     repositoryId: repo.id,
     companyId: company.id,
   });
@@ -153,6 +159,8 @@ export default async function RepositoryDetailPage({ params }: Props) {
         </section>
 
         {intelligenceView && <RepositoryIntelligenceDashboard intelligence={intelligenceView} />}
+
+        {validationView && <RepositoryValidationPanel assessment={validationView} />}
 
         {/* Tech summary */}
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
