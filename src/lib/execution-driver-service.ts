@@ -27,6 +27,8 @@ import {
   advanceTaskGates,
   type GateAdvanceResult,
 } from "@/lib/gate-advancement-service";
+import { ingestCompanyMemory } from "@/lib/memory/memory-ingestion-service";
+import { promoteRecurringLessons } from "@/lib/memory/memory-learning-service";
 import { prisma } from "@/lib/prisma";
 import { getRunModeConfig } from "@/lib/run-mode";
 
@@ -44,6 +46,11 @@ export interface DriverTickResult {
   readonly enqueued: readonly AutoPrepareResult[];
   /** Results of each gate advancement this tick. */
   readonly advanced: readonly GateAdvanceResult[];
+  /**
+   * Memory compounded this tick: durable lessons written from completed signals and
+   * recurring lessons promoted to standards. Best-effort — null when the step errored.
+   */
+  readonly memory?: { readonly written: number; readonly promoted: number } | null;
 }
 
 /**
@@ -98,7 +105,19 @@ export async function runDriverTickForCompany(
     advanced.push(await advanceTaskGates(companyId, task.id));
   }
 
-  return { companyId, liveSessionsBefore, concurrencyLimit, enqueued, advanced };
+  // ── Compound organizational memory (best-effort; never breaks the tick) ───
+  // Capture durable lessons from completed reviews/QA/releases, then promote
+  // recurring lessons to standards so future AI planning improves over time.
+  let memory: DriverTickResult["memory"] = null;
+  try {
+    const ingested = await ingestCompanyMemory(companyId);
+    const promoted = await promoteRecurringLessons(companyId);
+    memory = { written: ingested.written, promoted: promoted.promoted };
+  } catch {
+    memory = null;
+  }
+
+  return { companyId, liveSessionsBefore, concurrencyLimit, enqueued, advanced, memory };
 }
 
 /**

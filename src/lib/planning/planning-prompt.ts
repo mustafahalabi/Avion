@@ -150,6 +150,19 @@ function renderList(
 }
 
 /**
+ * Renders durable company memory (lessons learned, promoted standards) for the planner.
+ *
+ * @param memory - Retrieved company memory items, if any.
+ * @returns A bullet block, or a no-memory note.
+ */
+function renderMemory(memory: OutcomePlanningInput["companyMemory"]): string {
+  if (!memory || memory.length === 0) {
+    return "(no prior company memory yet)";
+  }
+  return memory.map((item) => `- [${item.category}] ${item.content}`).join("\n");
+}
+
+/**
  * Builds the grounded system/user prompt pair for AI planning.
  *
  * @param input - Company-scoped outcome, employee, and repository context.
@@ -184,8 +197,12 @@ export function buildPlanningPrompt(
     "## Repository intelligence",
     renderRepositories(input.repositories),
     "",
+    "## Company memory (lessons learned from past reviews, QA, and releases)",
+    renderMemory(input.companyMemory),
+    "",
     "## Instructions",
     "- Ground every project, feature, and task in the outcome and the repository intelligence above.",
+    "- Apply the company memory: honor promoted standards and avoid repeating past review/QA findings.",
     "- Only assign recommendedEmployeeId / ownerEmployeeId values that appear in the employee roster; otherwise use null.",
     "- Only reference files in requiredContext that appear in a repository's importantFiles list.",
     "- Set estimatedExecutionOrder to the task planItemId values in the order they should be executed.",

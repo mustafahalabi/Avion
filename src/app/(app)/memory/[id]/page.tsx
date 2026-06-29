@@ -54,7 +54,49 @@ const CATEGORY_CONFIG: Record<
     color: "bg-orange-950/50 border-orange-900/50 text-orange-400",
     icon: "D",
   },
+  standards: {
+    label: "Standards",
+    color: "bg-emerald-950/50 border-emerald-900/50 text-emerald-400",
+    icon: "★",
+  },
+  learnings: {
+    label: "Learnings",
+    color: "bg-amber-950/50 border-amber-900/50 text-amber-400",
+    icon: "L",
+  },
+  review: {
+    label: "Review",
+    color: "bg-blue-950/50 border-blue-900/50 text-blue-400",
+    icon: "R",
+  },
+  qa: {
+    label: "QA",
+    color: "bg-purple-950/50 border-purple-900/50 text-purple-400",
+    icon: "Q",
+  },
+  release: {
+    label: "Release",
+    color: "bg-teal-950/50 border-teal-900/50 text-teal-400",
+    icon: "R",
+  },
 };
+
+/**
+ * Renders a human-friendly provenance label for an auto-captured memory record.
+ *
+ * @param source - The MemoryRecord.source (e.g. "review:abc", "learning:..."), or null.
+ * @returns A readable provenance string.
+ */
+function formatRecordSource(source: string): string {
+  const kind = source.split(":")[0];
+  const labels: Record<string, string> = {
+    review: "Auto-captured from a review",
+    qa: "Auto-captured from QA",
+    release: "Auto-captured from a release",
+    learning: "Promoted standard (learned)",
+  };
+  return labels[kind] ?? `Source: ${source}`;
+}
 
 export default async function MemoryDetailPage({ params }: Props) {
   const { id } = await params;
@@ -155,7 +197,7 @@ export default async function MemoryDetailPage({ params }: Props) {
                   <div className="mt-2 flex items-center gap-3">
                     {record.source && (
                       <span className="text-[11px] text-neutral-600">
-                        Source: {record.source}
+                        {formatRecordSource(record.source)}
                       </span>
                     )}
                     <span className="text-[11px] text-neutral-700">
