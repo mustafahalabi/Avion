@@ -19,6 +19,7 @@ import { TaskStatusSelect } from "./task-status-select";
 import { TaskBriefSection } from "./task-brief-section";
 import { ReviewBriefSection } from "./review-brief-section";
 import { ExecutionResultForm } from "./execution-result-form";
+import { ExecutionAuditTrail } from "./execution-audit-trail";
 import { generateReviewBrief } from "@/lib/review-brief";
 import { extractPlanningTaskPayload } from "@/lib/implementation-brief";
 import { GithubWorkflowProgress } from "@/components/github-workflow-progress";
@@ -122,8 +123,13 @@ export default async function TaskDetailPage({ params }: Props) {
 
   // Fetch prepared session (for brief display), active session (for result ingestion),
   // and latest completed session (for branch/PR info display) in parallel.
-  const [latestPreparedSession, activeSession, latestCompletedSession, latestSession] =
-    await Promise.all([
+  const [
+    latestPreparedSession,
+    activeSession,
+    latestCompletedSession,
+    latestSession,
+    auditSession,
+  ] = await Promise.all([
     // Latest prepared execution session — surfaces an existing brief without regenerating.
     prisma.executionSession.findFirst({
       where: { companyId: company.id, taskId: id, status: "prepared" },
@@ -181,6 +187,21 @@ export default async function TaskDetailPage({ params }: Props) {
         baseBranch: true,
         prStatus: true,
         mergeStatus: true,
+      },
+    }),
+    // Latest session with the fields needed for the CEO audit trail.
+    prisma.executionSession.findFirst({
+      where: { companyId: company.id, taskId: id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        status: true,
+        filesChanged: true,
+        validationOutput: true,
+        resultSummary: true,
+        errorMessage: true,
+        commitSha: true,
+        prUrl: true,
+        prNumber: true,
       },
     }),
   ]);
@@ -445,6 +466,9 @@ export default async function TaskDetailPage({ params }: Props) {
             </section>
           );
         })()}
+
+        {/* Execution audit trail (MUS-215) */}
+        {auditSession && <ExecutionAuditTrail session={auditSession} />}
 
         {/* Quality gate */}
         {(latestReview || latestQA) && (

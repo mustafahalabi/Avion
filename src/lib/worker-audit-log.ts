@@ -390,3 +390,253 @@ export function parseAuditLogFromSession(session: {
     return [];
   }
 }
+
+// ─── CEO-facing read view (MUS-215) ────────────────────────────────────────────
+
+/**
+ * Audit event types that represent a safety block — the agent was prevented from
+ * doing something. These are surfaced distinctly in the CEO audit view.
+ */
+export const SAFETY_BLOCK_EVENT_TYPES: ReadonlySet<AuditEventType> = new Set([
+  "command_blocked",
+  "guardrail_triggered",
+]);
+
+/**
+ * Returns true when an event type represents a safety block.
+ *
+ * @param type - Audit event type.
+ */
+export function isSafetyBlockEventType(type: string): boolean {
+  return SAFETY_BLOCK_EVENT_TYPES.has(type as AuditEventType);
+}
+
+/** A single row in the CEO-facing audit trail. */
+export interface AuditEventView {
+  /** Machine-readable event type (e.g. `command_blocked`). */
+  readonly type: string;
+  /** Human-readable label for the event. */
+  readonly label: string;
+  /** Extra detail (offending path/command, file list, message), if any. */
+  readonly detail: string | null;
+  /** Severity of the event. */
+  readonly severity: AuditSeverity;
+  /** True when the event represents a safety block. */
+  readonly isSafetyBlock: boolean;
+  /** ISO timestamp when recorded, when available. */
+  readonly timestamp: string | null;
+}
+
+/** The complete CEO-facing audit view for one execution session. */
+export interface SessionAuditView {
+  /** Chronological list of audit rows. */
+  readonly events: readonly AuditEventView[];
+  /** True when any safety block occurred. */
+  readonly hasSafetyBlock: boolean;
+  /** Number of safety-block events. */
+  readonly blockedCount: number;
+  /**
+   * Where the trail came from:
+   * - `audit_log`: a serialized WorkerAuditLog recorded by the worker.
+   * - `derived`: reconstructed from the session's recorded facts (no silent gap).
+   */
+  readonly source: "audit_log" | "derived";
+  /** Final session status, when known. */
+  readonly outcomeStatus: string | null;
+}
+
+/** Subset of ExecutionSession fields needed to build the audit view. */
+export interface AuditViewSessionInput {
+  readonly status?: string | null;
+  readonly filesChanged?: string | null;
+  readonly validationOutput?: string | null;
+  readonly resultSummary?: string | null;
+  readonly errorMessage?: string | null;
+  readonly commitSha?: string | null;
+  readonly prUrl?: string | null;
+  readonly prNumber?: number | null;
+}
+
+/** Human-readable labels for known audit event types. */
+const EVENT_LABELS: Record<string, string> = {
+  session_started: "Execution started",
+  session_completed: "Execution completed",
+  session_failed: "Execution failed",
+  file_read: "File read",
+  file_written: "File written",
+  file_deleted: "File deleted",
+  files_changed: "Files changed",
+  command_executed: "Command run",
+  command_blocked: "Command blocked",
+  permission_check: "Permission check",
+  guardrail_triggered: "Guardrail triggered",
+  branch_created: "Branch created",
+  pr_opened: "Pull request opened",
+  validation_run: "Validation run",
+};
+
+/**
+ * Extracts the recorded audit events from a session, checking the dedicated
+ * fields where the worker may have serialized a {@link WorkerAuditLog}
+ * (validationOutput first, then resultSummary).
+ *
+ * @param session - Session with possible serialized audit log.
+ * @returns Parsed audit events, or an empty array when none are present.
+ */
+export function extractAuditEventsFromSession(
+  session: AuditViewSessionInput
+): AuditEvent[] {
+  for (const candidate of [session.validationOutput, session.resultSummary]) {
+    if (!candidate) continue;
+    try {
+      return WorkerAuditLog.deserialize(candidate).getEvents();
+    } catch {
+      // Not a serialized audit log — try the next field.
+    }
+  }
+  return [];
+}
+
+/**
+ * Builds the CEO-facing audit view for an execution session.
+ *
+ * When the worker serialized a {@link WorkerAuditLog} (e.g. on a guardrail
+ * block), its events are surfaced verbatim. Otherwise the trail is derived from
+ * the session's recorded facts (files changed, commit/push, PR, final status)
+ * so there is no silent gap between what the worker did and what is shown.
+ *
+ * @param session - Execution session fields.
+ * @returns The structured audit view.
+ */
+export function buildSessionAuditView(
+  session: AuditViewSessionInput
+): SessionAuditView {
+  const recorded = extractAuditEventsFromSession(session);
+
+  const events: AuditEventView[] =
+    recorded.length > 0
+      ? recorded.map(toEventView)
+      : deriveEventsFromSession(session);
+
+  const blockedCount = events.filter((e) => e.isSafetyBlock).length;
+
+  return {
+    events,
+    hasSafetyBlock: blockedCount > 0,
+    blockedCount,
+    source: recorded.length > 0 ? "audit_log" : "derived",
+    outcomeStatus: session.status ?? null,
+  };
+}
+
+/** Maps a recorded AuditEvent to a view row. */
+function toEventView(event: AuditEvent): AuditEventView {
+  return {
+    type: event.type,
+    label: EVENT_LABELS[event.type] ?? event.type,
+    detail: detailFromEvent(event),
+    severity: event.severity,
+    isSafetyBlock: isSafetyBlockEventType(event.type),
+    timestamp: event.timestamp,
+  };
+}
+
+/** Builds a detail string from an event's structured payload. */
+function detailFromEvent(event: AuditEvent): string | null {
+  const d = event.details;
+  const parts: string[] = [];
+  if (typeof d.command === "string") parts.push(d.command);
+  if (typeof d.path === "string") parts.push(d.path);
+  if (typeof d.branch === "string") parts.push(`branch ${d.branch}`);
+  if (typeof d.message === "string") parts.push(d.message);
+  return parts.length > 0 ? parts.join(" — ") : null;
+}
+
+/**
+ * Reconstructs an ordered audit trail from a session's recorded facts when no
+ * serialized log is present.
+ */
+function deriveEventsFromSession(
+  session: AuditViewSessionInput
+): AuditEventView[] {
+  const events: AuditEventView[] = [];
+
+  events.push({
+    type: "session_started",
+    label: EVENT_LABELS.session_started,
+    detail: null,
+    severity: "info",
+    isSafetyBlock: false,
+    timestamp: null,
+  });
+
+  const files = parseFiles(session.filesChanged);
+  if (files.length > 0) {
+    events.push({
+      type: "files_changed",
+      label: `${EVENT_LABELS.files_changed} (${files.length})`,
+      detail: files.join(", "),
+      severity: "info",
+      isSafetyBlock: false,
+      timestamp: null,
+    });
+  }
+
+  if (session.commitSha) {
+    events.push({
+      type: "command_executed",
+      label: "Committed & pushed",
+      detail: session.commitSha.slice(0, 7),
+      severity: "info",
+      isSafetyBlock: false,
+      timestamp: null,
+    });
+  }
+
+  if (session.prUrl) {
+    events.push({
+      type: "pr_opened",
+      label: EVENT_LABELS.pr_opened,
+      detail: session.prNumber ? `PR #${session.prNumber}` : session.prUrl,
+      severity: "info",
+      isSafetyBlock: false,
+      timestamp: null,
+    });
+  }
+
+  const status = session.status ?? null;
+  if (status === "completed") {
+    events.push({
+      type: "session_completed",
+      label: EVENT_LABELS.session_completed,
+      detail: null,
+      severity: "info",
+      isSafetyBlock: false,
+      timestamp: null,
+    });
+  } else if (status === "failed") {
+    events.push({
+      type: "session_failed",
+      label: EVENT_LABELS.session_failed,
+      detail: session.errorMessage ?? null,
+      severity: "error",
+      isSafetyBlock: false,
+      timestamp: null,
+    });
+  }
+
+  return events;
+}
+
+/** Parses a filesChanged JSON string into an array of paths. */
+function parseFiles(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((f): f is string => typeof f === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
