@@ -3,23 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { prepareExecutionSessionForTask } from "@/lib/auto-execution-service";
 import { evaluateAutonomyCheckpoint } from "@/lib/autonomy-policy";
 import { getCurrentUser } from "@/lib/current-user";
 import {
-  generateClaudeImplementationBrief,
-} from "@/lib/implementation-brief";
-import {
-  createExecutionSession,
   ingestAgentExecutionResult,
-  prepareExecutionSession,
   type MergeStatus,
   type PrStatus,
 } from "@/lib/execution-session-service";
 import { prisma } from "@/lib/prisma";
-import {
-  resolveTaskRepository,
-  toBriefRepositoryContext,
-} from "@/lib/task-repository-context";
 
 // ─── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -129,70 +121,22 @@ export async function generateTaskBrief(
     return { message: authorization.decision.reason };
   }
 
-  const task = await prisma.task.findFirst({
-    where: { id: parsed.data.taskId, companyId: company.id },
-    include: {
-      planningDraft: {
-        select: {
-          id: true,
-          generatedTasks: true,
-        },
-      },
-      project: {
-        include: {
-          workspace: {
-            include: {
-              repositories: {
-                take: 1,
-                orderBy: { updatedAt: "desc" },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
+  // Shared, non-UI preparation core — the same path the autonomous driver uses,
+  // so manual and automated session creation never diverge.
+  const result = await prepareExecutionSessionForTask(
+    company.id,
+    parsed.data.taskId
+  );
+  if ("error" in result) {
+    return { message: result.error };
+  }
 
-  if (!task) return { message: "Task not found." };
-
-  const repoRow = resolveTaskRepository(task.project?.workspace?.repositories);
-  const repo = repoRow ? toBriefRepositoryContext(repoRow) : null;
-
-  const { brief, branchName } = generateClaudeImplementationBrief({
-    taskId: task.id,
-    taskTitle: task.title,
-    taskDescription: task.description ?? null,
-    priority: task.priority,
-    planningDraftId: task.planningDraftId ?? null,
-    planItemId: task.planItemId ?? null,
-    generatedTasksJson: task.planningDraft?.generatedTasks ?? null,
-    repository: repo,
-    branchName: null,
-    baseBranch: "master",
-    linearTicketUrl: null,
-  });
-
-  const session = await createExecutionSession({
-    companyId: company.id,
-    taskId: task.id,
-    taskTitle: task.title,
-    projectId: task.projectId ?? null,
-    repositoryId: repoRow?.id ?? null,
-    planningDraftId: task.planningDraftId ?? null,
-    agentType: "claude_code",
-    branchName,
-    baseBranch: "master",
-  });
-
-  const prepared = await prepareExecutionSession(company.id, session.id, brief);
-  if (!prepared) return { message: "Failed to prepare execution session." };
-
-  revalidatePath(`/work/tasks/${task.id}`);
+  revalidatePath(`/work/tasks/${parsed.data.taskId}`);
 
   return {
-    brief,
-    branchName,
-    sessionId: session.id,
+    brief: result.brief,
+    branchName: result.branchName,
+    sessionId: result.sessionId,
   };
 }
 

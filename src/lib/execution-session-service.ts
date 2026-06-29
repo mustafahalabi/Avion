@@ -272,6 +272,41 @@ export async function prepareExecutionSession(
 }
 
 /**
+ * Session statuses that represent in-flight work that is not yet terminal.
+ * A task with a session in any of these states already has work underway.
+ */
+export const LIVE_EXECUTION_SESSION_STATUSES = [
+  "queued",
+  "prepared",
+  "running",
+] as const;
+
+/**
+ * Returns the most recent live (queued / prepared / running) execution session
+ * for a task, or null when none exists.
+ *
+ * Used to keep automated session creation idempotent: callers should not create
+ * a second session for a task that already has work underway.
+ *
+ * @param companyId - Company ID (ownership guard).
+ * @param taskId - Task to check for a live session.
+ * @returns The live session, or null.
+ */
+export async function findLiveSessionForTask(
+  companyId: string,
+  taskId: string
+): Promise<ExecutionSession | null> {
+  return prisma.executionSession.findFirst({
+    where: {
+      companyId,
+      taskId,
+      status: { in: [...LIVE_EXECUTION_SESSION_STATUSES] },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/**
  * Marks a session as running and records the start timestamp.
  *
  * @param companyId - Company ID (ownership guard)
