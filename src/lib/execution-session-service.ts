@@ -493,6 +493,16 @@ export interface IngestAgentExecutionResultInput {
   readonly validationOutput: string | null;
   /** Error message when status is "failed" or "needs_clarification". */
   readonly errorMessage: string | null;
+  /** Commit SHA from the agent run. */
+  readonly commitSha?: string | null;
+  /** Pull request URL opened for this implementation. */
+  readonly prUrl?: string | null;
+  /** Pull request number. */
+  readonly prNumber?: number | null;
+  /** PR status: open | draft | merged | closed */
+  readonly prStatus?: PrStatus | null;
+  /** Merge status: pending | merged | conflicts */
+  readonly mergeStatus?: MergeStatus | null;
 }
 
 /**
@@ -574,6 +584,13 @@ export async function ingestAgentExecutionResult(
       );
     }
 
+    const branchData: Record<string, unknown> = {};
+    if (input.commitSha) branchData.commitSha = input.commitSha;
+    if (input.prUrl) branchData.prUrl = input.prUrl;
+    if (input.prNumber != null) branchData.prNumber = input.prNumber;
+    if (input.prStatus) branchData.prStatus = input.prStatus;
+    if (input.mergeStatus) branchData.mergeStatus = input.mergeStatus;
+
     const resultSession = await tx.executionSession.update({
       where: { id: current.id },
       data: {
@@ -583,6 +600,7 @@ export async function ingestAgentExecutionResult(
         validationOutput: input.validationOutput ?? null,
         errorMessage: input.errorMessage ?? null,
         completedAt: new Date(),
+        ...branchData,
       },
     });
 

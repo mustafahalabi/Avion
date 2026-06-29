@@ -188,6 +188,68 @@ export function ExecutionResultForm({ sessionId, taskId }: Props) {
         />
       </div>
 
+      <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-3.5 py-3">
+        <p className="text-xs font-medium text-neutral-400">Git / Pull Request (optional)</p>
+        <div className="mt-3 flex flex-col gap-3">
+          <div>
+            <label htmlFor="commitSha" className="block text-xs text-neutral-500">
+              Commit SHA
+            </label>
+            <input
+              id="commitSha"
+              name="commitSha"
+              type="text"
+              placeholder="abc1234"
+              className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-xs text-neutral-200 placeholder:text-neutral-600 outline-none focus:border-neutral-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="prUrl" className="block text-xs text-neutral-500">
+              Pull Request URL
+            </label>
+            <input
+              id="prUrl"
+              name="prUrl"
+              type="url"
+              placeholder="https://github.com/org/repo/pull/42"
+              className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-200 placeholder:text-neutral-600 outline-none focus:border-neutral-500"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="prNumber" className="block text-xs text-neutral-500">
+                PR Number
+              </label>
+              <input
+                id="prNumber"
+                name="prNumber"
+                type="number"
+                min={1}
+                placeholder="42"
+                className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-200 placeholder:text-neutral-600 outline-none focus:border-neutral-500"
+              />
+            </div>
+            <div>
+              <label htmlFor="prStatus" className="block text-xs text-neutral-500">
+                PR Status
+              </label>
+              <select
+                id="prStatus"
+                name="prStatus"
+                defaultValue=""
+                className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-200 outline-none focus:border-neutral-500"
+              >
+                <option value="">Not set</option>
+                <option value="open">Open</option>
+                <option value="draft">Draft</option>
+                <option value="merged">Merged</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Server error */}
       {state?.message && (
         <p className="rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-2 text-xs text-red-400">

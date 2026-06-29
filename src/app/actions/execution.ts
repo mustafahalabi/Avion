@@ -6,15 +6,19 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/current-user";
 import {
   generateClaudeImplementationBrief,
-  type BriefRepositoryContext,
 } from "@/lib/implementation-brief";
 import {
   createExecutionSession,
   ingestAgentExecutionResult,
   prepareExecutionSession,
+  type MergeStatus,
+  type PrStatus,
 } from "@/lib/execution-session-service";
-import { parseJsonStringArray } from "@/lib/planning-generator";
 import { prisma } from "@/lib/prisma";
+import {
+  resolveTaskRepository,
+  toBriefRepositoryContext,
+} from "@/lib/task-repository-context";
 
 // ─── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -32,6 +36,11 @@ const ingestResultSchema = z.object({
   filesChanged: z.string().max(10000).trim().optional(),
   validationOutput: z.string().max(20000).trim().optional(),
   errorMessage: z.string().max(2000).trim().optional(),
+  commitSha: z.string().max(64).trim().optional(),
+  prUrl: z.string().max(500).trim().optional(),
+  prNumber: z.coerce.number().int().positive().optional(),
+  prStatus: z.enum(["open", "draft", "merged", "closed"]).optional(),
+  mergeStatus: z.enum(["pending", "merged", "conflicts"]).optional(),
 });
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -131,7 +140,8 @@ export async function generateTaskBrief(
 
   if (!task) return { message: "Task not found." };
 
-  const repo = extractRepositoryContext(task);
+  const repoRow = resolveTaskRepository(task.project?.workspace?.repositories);
+  const repo = repoRow ? toBriefRepositoryContext(repoRow) : null;
 
   const { brief, branchName } = generateClaudeImplementationBrief({
     taskId: task.id,
@@ -152,7 +162,7 @@ export async function generateTaskBrief(
     taskId: task.id,
     taskTitle: task.title,
     projectId: task.projectId ?? null,
-    repositoryId: repo ? extractRepositoryId(task) : null,
+    repositoryId: repoRow?.id ?? null,
     planningDraftId: task.planningDraftId ?? null,
     agentType: "claude_code",
     branchName,
@@ -204,6 +214,11 @@ export async function ingestExecutionResult(
     filesChanged: formData.get("filesChanged") || undefined,
     validationOutput: formData.get("validationOutput") || undefined,
     errorMessage: formData.get("errorMessage") || undefined,
+    commitSha: formData.get("commitSha") || undefined,
+    prUrl: formData.get("prUrl") || undefined,
+    prNumber: formData.get("prNumber") || undefined,
+    prStatus: formData.get("prStatus") || undefined,
+    mergeStatus: formData.get("mergeStatus") || undefined,
   });
 
   if (!parsed.success) {
@@ -225,6 +240,11 @@ export async function ingestExecutionResult(
       filesChanged: parsed.data.filesChanged ?? "",
       validationOutput: parsed.data.validationOutput ?? null,
       errorMessage: parsed.data.errorMessage ?? null,
+      commitSha: parsed.data.commitSha ?? null,
+      prUrl: parsed.data.prUrl || null,
+      prNumber: parsed.data.prNumber ?? null,
+      prStatus: (parsed.data.prStatus as PrStatus | undefined) ?? null,
+      mergeStatus: (parsed.data.mergeStatus as MergeStatus | undefined) ?? null,
     });
 
     if (outcome.session.taskId) {
@@ -240,79 +260,4 @@ export async function ingestExecutionResult(
     const message = error instanceof Error ? error.message : "Failed to record execution result.";
     return { message };
   }
-}
-
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Extracts a BriefRepositoryContext from a task's project workspace repository.
- *
- * @param task - Task row with included project and workspace context.
- * @returns Repository context when available, null otherwise.
- */
-function extractRepositoryContext(
-  task: TaskWithProjectAndWorkspace
-): BriefRepositoryContext | null {
-  const repositories = task.project?.workspace?.repositories;
-  if (!repositories || repositories.length === 0) return null;
-
-  const repo = repositories[0];
-
-  return {
-    name: repo.name,
-    url: repo.url ?? null,
-    primaryLanguage: repo.primaryLanguage ?? null,
-    frameworks: parseJsonStringArray(repo.frameworks),
-    techStack: parseJsonStringArray(repo.techStack),
-    importantFiles: parseJsonStringArray(repo.importantFiles),
-    analysisStatus: repo.analysisStatus,
-  };
-}
-
-/**
- * Extracts the repository ID from the task's project workspace.
- *
- * @param task - Task row with included project and workspace context.
- * @returns Repository ID when available, null otherwise.
- */
-function extractRepositoryId(task: TaskWithProjectAndWorkspace): string | null {
-  const repositories = task.project?.workspace?.repositories;
-  if (!repositories || repositories.length === 0) return null;
-  return repositories[0].id;
-}
-
-// ─── Local Types ───────────────────────────────────────────────────────────────
-
-interface RepositoryRow {
-  readonly id: string;
-  readonly name: string;
-  readonly url: string | null;
-  readonly primaryLanguage: string | null;
-  readonly frameworks: string;
-  readonly techStack: string;
-  readonly importantFiles: string;
-  readonly analysisStatus: string;
-}
-
-interface WorkspaceRow {
-  readonly repositories: readonly RepositoryRow[];
-}
-
-interface ProjectWithWorkspace {
-  readonly workspace: WorkspaceRow | null;
-}
-
-interface TaskWithProjectAndWorkspace {
-  readonly id: string;
-  readonly title: string;
-  readonly description: string | null;
-  readonly priority: string;
-  readonly projectId: string | null;
-  readonly planningDraftId: string | null;
-  readonly planItemId: string | null;
-  readonly planningDraft: {
-    readonly id: string;
-    readonly generatedTasks: string;
-  } | null;
-  readonly project: ProjectWithWorkspace | null;
 }
