@@ -64,7 +64,7 @@ Dogfood it locally with no external accounts via `npm run dogfood:local` (real D
 
 ## Linear milestone map (18 milestones)
 
-> Note on the three critical-path epics: **MUS-204 (Close the GitHub Execution Loop)**, **MUS-205 (Autonomous Execution Driver)**, and **MUS-206 (Agent Safety and Permissions)** still show as `Backlog` in Linear *even though every child ticket is `Done`*. That is why their milestones read 86 / 89 / 75% rather than 100%. The work is shipped and verified live — only the epic tickets are unclosed.
+**14 of 18 milestones are at 100%.** The three critical-path epics (**MUS-204** Close the GitHub Execution Loop, **MUS-205** Autonomous Execution Driver, **MUS-206** Agent Safety and Permissions) are now closed with their child PRs attached, flipping their milestones (GitHub Workflow Foundation, Agent Execution Engine, Agent Safety and Permissions) to 100%.
 
 **Shipped (100%)**
 - Stabilization and Dogfooding (MUS-171)
@@ -76,18 +76,15 @@ Dogfood it locally with no external accounts via `npm run dogfood:local` (real D
 - Release Automation (MUS-168–170)
 - Integration Authentication (MUS-172–177)
 - Product UX and Visual Design (MUS-180–184, 190, 194, 200)
-- Agent Execution Engine foundation (MUS-146–150, 201–203)
-
-**Built + verified live, epic ticket still open in Linear**
-- GitHub Workflow Foundation → **Close the GitHub Execution Loop** — MUS-204 (207/208/209)
-- Agent Execution Engine → **Autonomous Execution Driver** — MUS-205 (210/211/212)
-- Agent Safety and Permissions — MUS-206 (213/214/215)
+- Agent Execution Engine — foundation (MUS-146–150, 201–203) **+ Autonomous Execution Driver MUS-205 (210/211/212)**
+- GitHub Workflow Foundation — incl. **Close the GitHub Execution Loop MUS-204 (207/208/209)**
+- Agent Safety and Permissions — **MUS-206 (213/214/215)**
+- Product Alerts — **first slice only**: MUS-216 (approval alerts: inbox approve/reject, `decision` notifications, sidebar bell + inbox badge, dashboard card). The milestone reads 100% on that one ticket, but broader app-wide notices for other work states are a natural follow-up.
 
 **Not started (0%) — the roadmap**
 - **Engineering OS Specification v1.0** — the canonical spec (company / employee / work / memory / runtime / repository models, permissions, events, state machines, invariants). *Gates real AI behavior.*
 - **CEO Control Center** — the command center for decisions, alerts, approvals, attention items, and current company state.
 - **Onboarding and Setup** — guided first-run: understand EOS, create a company, connect providers, add repositories, submit the first outcome.
-- **Product Alerts** — app notices/badges/status indicators for work needing action (partially started by the approval-surfacing work above).
 - **Repository Validation and Environment** — validation profiles, env-var inventory, secret references, validation-command detection, real completion gates.
 
 **Loose Backlog tickets (no milestone):** MUS-178 Build CEO home screen, MUS-179 Build activity panel, MUS-181 Design app navigation — feed the CEO Control Center.
@@ -903,7 +900,7 @@ Runtime Architecture:
 
 Platform Implementation:
 
-★★★★★★★★★☆ — 13 of 18 v2 milestones shipped; the autonomous loop (MUS-204/205/206) is built and **verified live** on a real repo
+★★★★★★★★★☆ — 14 of 18 v2 milestones shipped; the autonomous loop (MUS-204/205/206) is closed and **verified live** on a real repo
 
 Production Product:
 
