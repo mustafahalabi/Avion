@@ -1,4 +1,5 @@
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
+import type { CompanyMemoryItem } from "@/lib/memory/memory-types";
 
 export const PLANNING_GENERATOR_VERSION = "deterministic-v2" as const;
 
@@ -123,6 +124,12 @@ export interface OutcomePlanningInput {
   readonly constraints: readonly string[];
   readonly employees: readonly PlanningEmployeeContext[];
   readonly repositories: readonly PlanningRepositoryContext[];
+  /**
+   * Durable company memory (lessons learned, promoted standards) surfaced to the AI planner
+   * so plans incorporate accumulated experience. Optional and ignored by the deterministic
+   * generator, which keeps deterministic behavior unchanged.
+   */
+  readonly companyMemory?: readonly CompanyMemoryItem[];
 }
 
 export interface PlanningMilestone {

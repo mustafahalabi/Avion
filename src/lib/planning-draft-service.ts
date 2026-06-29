@@ -8,6 +8,7 @@ import {
   type PlanningRepositoryContext,
 } from "@/lib/planning-generator";
 import { resolvePlanningAdapter } from "@/lib/planning/planning-provider";
+import { getRelevantCompanyMemory } from "@/lib/memory/memory-retrieval-service";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 import { OUTCOME_PLANNING_EVENT_TYPES } from "@/lib/outcome-planning-lifecycle";
 
@@ -128,6 +129,10 @@ export async function createOrUpdatePlanningDraftForOutcome(
     repositories.map((repository) => toPlanningRepositoryContext(repository, input.companyId))
   );
 
+  // Surface durable company memory (promoted standards + lessons) so the AI planner
+  // compounds prior experience. The deterministic generator ignores it.
+  const companyMemory = await getRelevantCompanyMemory({ companyId: input.companyId });
+
   const generation = await resolvePlanningAdapter().generate({
     companyId: outcome.companyId,
     outcomeId: outcome.id,
@@ -145,6 +150,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
       responsibilities: employee.responsibilities,
     })),
     repositories: planningRepositories,
+    companyMemory,
   });
 
   return persistPlanningGeneration({

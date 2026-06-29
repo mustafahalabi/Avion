@@ -74,4 +74,30 @@ describe("buildPlanningPrompt", () => {
     const { prompt } = buildPlanningPrompt({ ...INPUT, employees: [] });
     expect(prompt).toContain("No employees are available");
   });
+
+  it("includes company memory (lessons learned) when provided", () => {
+    const { prompt } = buildPlanningPrompt({
+      ...INPUT,
+      companyMemory: [
+        {
+          id: "mem_1",
+          category: "standards",
+          bankTitle: "Engineering standards (learned)",
+          content: "Always add idempotency keys to Stripe webhook handlers.",
+          source: "learning:stripe-idempotency",
+          confidence: 0.9,
+          createdAt: new Date("2026-06-01T00:00:00.000Z"),
+        },
+      ],
+    });
+    expect(prompt).toContain("Company memory");
+    expect(prompt).toContain(
+      "Always add idempotency keys to Stripe webhook handlers."
+    );
+  });
+
+  it("notes the absence of company memory when none is provided", () => {
+    const { prompt } = buildPlanningPrompt(INPUT);
+    expect(prompt).toContain("no prior company memory yet");
+  });
 });
