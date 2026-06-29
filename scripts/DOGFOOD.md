@@ -34,6 +34,38 @@ from `prisma/dev.db`, so run `npx prisma migrate dev` once if you don't have it.
 This is the actual self-driving run. It needs **your** credentials, makes real
 commits/PRs, and spends Claude usage, so it is run manually rather than in CI.
 
+### Quick path (scripted)
+
+1. Create a throwaway GitHub sandbox repo (one commit on its default branch) and
+   a PAT with `repo` scope.
+2. Put the secrets in **`.env.live`** (gitignored):
+
+   ```
+   SANDBOX_REPO_URL=https://github.com/<you>/<sandbox>
+   GITHUB_TOKEN=ghp_xxx
+   GITHUB_LOGIN=<you>
+   # optional: LIVE_GOAL=<the change to make>
+   ```
+
+3. Ensure `claude` is authenticated (`claude -p "say hi"` works) and `.env` has
+   `CREDENTIALS_ENCRYPTION_KEY`.
+4. Run:
+
+   ```bash
+   npm run live:prepare      # seed company + repo + encrypted token, prepare one session
+   npm run live:worker       # the real worker: clone → claude -p → commit → push → open PR
+   npm run live:status       # watch it; prints the PR URL when done
+   ```
+
+   The worker auto-detects the sandbox's default branch and opens the PR against
+   it. At `assist` autonomy the task then halts at the review checkpoint
+   (`advanceTaskGates` → `awaiting_review`); raise the company to `delegate`/
+   `autonomous` to have the gates auto-advance to `done`.
+
+   **Revoke the PAT when you're finished.**
+
+### Manual path (UI + smoke-test seeder)
+
 ### Prerequisites
 
 - **Claude Code CLI** installed and authenticated: `claude --version` works.
