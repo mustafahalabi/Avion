@@ -309,7 +309,7 @@ function StepRepository({
         </div>
 
         <Link
-          href="/work/repositories/new?return=/dashboard"
+          href="/work/repositories/new?return=/setup"
           className="flex items-center justify-center gap-2 rounded-lg bg-neutral-800 px-4 py-2.5 text-sm font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
         >
           Connect repository
@@ -338,9 +338,11 @@ function StepRepository({
 function StepDone({
   isPending,
   onFinish,
+  error,
 }: {
   isPending: boolean;
   onFinish: () => void;
+  error: string | null;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -372,6 +374,12 @@ function StepDone({
         </div>
       </div>
 
+      {error && (
+        <p className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-center text-xs text-red-400">
+          {error}
+        </p>
+      )}
+
       <Button
         size="lg"
         loading={isPending}
@@ -401,19 +409,27 @@ export function SetupWizard({
   const [autonomy, setAutonomy] = useState(defaultAutonomy);
   const [culture, setCulture] = useState(defaultCulture);
   const [isPending, startTransition] = useTransition();
+  const [finishError, setFinishError] = useState<string | null>(null);
   const router = useRouter();
 
   const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
   function finish() {
+    setFinishError(null);
     startTransition(async () => {
-      await saveCompanySettings({
-        companyId,
-        autonomyLevel: autonomy,
-        cultureProfile: culture,
-      });
-      router.push("/company");
+      try {
+        await saveCompanySettings({
+          companyId,
+          autonomyLevel: autonomy,
+          cultureProfile: culture,
+        });
+        router.push("/company");
+      } catch (e) {
+        setFinishError(
+          e instanceof Error ? e.message : "Something went wrong. Please try again."
+        );
+      }
     });
   }
 
@@ -445,7 +461,9 @@ export function SetupWizard({
             />
           )}
           {step === 2 && <StepRepository onNext={next} onBack={back} />}
-          {step === 3 && <StepDone isPending={isPending} onFinish={finish} />}
+          {step === 3 && (
+            <StepDone isPending={isPending} onFinish={finish} error={finishError} />
+          )}
         </div>
       </div>
     </div>

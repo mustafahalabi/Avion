@@ -69,7 +69,6 @@ export default async function DashboardPage() {
         select: {
           employees: { where: { status: "active" } },
           memories: true,
-          repositories: true,
         },
       },
       runtimeRequests: {
@@ -79,6 +78,7 @@ export default async function DashboardPage() {
       },
       workspaces: {
         include: {
+          _count: { select: { repositories: true } },
           projects: {
             include: {
               features: {
@@ -126,6 +126,10 @@ export default async function DashboardPage() {
   const activeProjects = projects.filter(
     (p) => p.status === "active" || p.status === "planning"
   ).length;
+  const repositoryCount = company.workspaces.reduce(
+    (n, w) => n + (w._count?.repositories ?? 0),
+    0
+  );
 
   const awaitingApproval = company.runtimeRequests.filter(
     (r) => r.status === "awaiting_approval"
@@ -204,7 +208,7 @@ export default async function DashboardPage() {
 
       <div className="flex flex-col gap-8 p-6 max-w-4xl">
         {/* Setup banner — shown while company has no repositories */}
-        {company._count.repositories === 0 && (
+        {repositoryCount === 0 && (
           <section className="flex items-center justify-between gap-4 rounded-lg border border-violet-900/40 bg-violet-950/10 px-4 py-3">
             <div className="flex items-center gap-3 min-w-0">
               <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
