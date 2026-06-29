@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsc --noEmit && vitest run",
+    "test:count": "node scripts/test-summary.mjs",
     "worker": "tsx src/worker/index.ts",
     "worker:dev": "tsx watch src/worker/index.ts",
     "driver": "tsx src/worker/driver.ts",
