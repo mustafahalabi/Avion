@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PriorityBadge } from "@/components/ui/badge";
+import { StatusDot, type TaskStatus } from "@/components/ui/status-indicator";
 import { TaskStatusSelect } from "./task-status-select";
 import { TaskBriefSection } from "./task-brief-section";
 import { ReviewBriefSection } from "./review-brief-section";
@@ -232,6 +233,11 @@ export default async function TaskDetailPage({ params }: Props) {
             </>
           );
         })()}
+        <StatusDot
+          status={task.status as TaskStatus}
+          size="xs"
+          className="shrink-0"
+        />
         <h1 className="text-sm font-semibold text-neutral-100 truncate">
           {task.title}
         </h1>
