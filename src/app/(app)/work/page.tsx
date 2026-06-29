@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   PackageCheck,
   ClipboardList,
+  LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -118,13 +119,28 @@ export default async function WorkPage() {
     <div className="flex flex-1 flex-col overflow-auto">
       <header className="flex h-12 items-center justify-between border-b border-neutral-800 px-6">
         <h1 className="text-sm font-semibold text-neutral-100">Work</h1>
-        <Link
-          href="/work/projects/new"
-          className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New Project
-        </Link>
+        <div className="flex items-center gap-2">
+          {/* List | Board toggle */}
+          <div className="flex items-center rounded-md border border-neutral-800 overflow-hidden">
+            <span className="px-3 py-1.5 text-xs font-medium text-neutral-100 bg-neutral-800 cursor-default">
+              List
+            </span>
+            <Link
+              href="/work/board"
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
+            >
+              <LayoutGrid className="h-3 w-3" />
+              Board
+            </Link>
+          </div>
+          <Link
+            href="/work/projects/new"
+            className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Project
+          </Link>
+        </div>
       </header>
 
       <div className="flex flex-col gap-8 p-6">
