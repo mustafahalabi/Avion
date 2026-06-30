@@ -17,12 +17,12 @@ import {
   Target,
   ShieldCheck,
   PackageCheck,
-  FolderGit2,
-  Boxes,
   Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand";
+import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
+import type { SwitcherWorkspace } from "@/lib/active-workspace";
 
 type NavSection = {
   label?: string;
@@ -46,8 +46,6 @@ const navSections: NavSection[] = [
     items: [
       { label: "Outcomes", href: "/work/outcomes", icon: Target },
       { label: "Work", href: "/work", icon: Layers },
-      { label: "Workspaces", href: "/work/workspaces", icon: Boxes },
-      { label: "Repositories", href: "/work/repositories", icon: FolderGit2 },
       { label: "Inbox", href: "/inbox", icon: Inbox },
       { label: "Company", href: "/company", icon: Building2 },
     ],
@@ -123,7 +121,15 @@ function NavItem({
   );
 }
 
-export function Sidebar({ badges = {} }: { badges?: Record<string, number> }) {
+export function Sidebar({
+  badges = {},
+  workspaces,
+  activeWorkspaceId,
+}: {
+  badges?: Record<string, number>;
+  workspaces: SwitcherWorkspace[];
+  activeWorkspaceId: string | null;
+}) {
   const pathname = usePathname();
 
   function isActive(href: string) {
@@ -150,6 +156,14 @@ export function Sidebar({ badges = {} }: { badges?: Record<string, number> }) {
         <span className="text-sm font-semibold text-neutral-100 truncate">
           Avion
         </span>
+      </div>
+
+      {/* Workspace context switcher */}
+      <div className="border-b border-neutral-800">
+        <WorkspaceSwitcher
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+        />
       </div>
 
       {/* Navigation sections */}

@@ -71,7 +71,7 @@ export default async function WorkspacesPage() {
             {workspaces.map((ws) => (
               <Link
                 key={ws.id}
-                href={`/work/workspaces/${ws.id}`}
+                href={`/w/${ws.slug}`}
                 className="group flex items-center gap-4 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-4 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
               >
                 <div
