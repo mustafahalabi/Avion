@@ -192,5 +192,8 @@ describe("Repository Intelligence Slice 2 dogfood flow", () => {
     expect(latestChangeIntelligence.latestSnapshot?.status).toBe("completed");
     expect(latestChangeIntelligence.comparison).toEqual(comparison);
     expect(latestChangeIntelligence.impact).toEqual(impact);
-  });
+    // Heavy end-to-end dogfood: copies the repo fixture and persists two full
+    // analyses. Each snapshot is now a series of Postgres round-trips (slower
+    // than the old in-process SQLite), so this one suite needs a longer budget.
+  }, 120_000);
 });
