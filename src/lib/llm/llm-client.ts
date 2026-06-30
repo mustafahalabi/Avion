@@ -1,7 +1,7 @@
 /**
  * Provider-independent LLM abstraction.
  *
- * Engineering OS depends on this interface, never on a concrete model or vendor SDK,
+ * Avion depends on this interface, never on a concrete model or vendor SDK,
  * honoring the "everything is replaceable" principle (LLMs, providers, runtimes are
  * infrastructure, not product identity). The first implementation shells out to the
  * Claude CLI; future implementations (API clients, local models, other CLIs) can be

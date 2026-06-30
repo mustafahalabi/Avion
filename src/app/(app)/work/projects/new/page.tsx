@@ -1,12 +1,43 @@
 import { getCurrentUser } from "@/lib/current-user";
+import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { NewProjectForm } from "./new-project-form";
+import { NewProjectForm, type ProjectRepoOption } from "./new-project-form";
 
-export default async function NewProjectPage() {
+type Props = {
+  searchParams: Promise<{ repository?: string }>;
+};
+
+export default async function NewProjectPage({ searchParams }: Props) {
   const user = await getCurrentUser();
   if (!user) redirect("/sign-in");
+
+  const { repository } = await searchParams;
+
+  const company = await prisma.company.findFirst({
+    where: { ownerId: user.id },
+    select: { id: true },
+  });
+  if (!company) redirect("/onboarding");
+
+  const repoRows = await prisma.repository.findMany({
+    where: { workspace: { companyId: company.id } },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      workspaceId: true,
+      workspace: { select: { name: true } },
+    },
+  });
+
+  const repos: ProjectRepoOption[] = repoRows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    workspaceId: r.workspaceId,
+    workspaceName: r.workspace.name,
+  }));
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
@@ -22,16 +53,17 @@ export default async function NewProjectPage() {
         <h1 className="text-sm font-semibold text-neutral-100">New Project</h1>
       </header>
 
-      <div className="flex flex-col gap-6 p-6 max-w-lg">
+      <div className="flex flex-col gap-6 p-6">
         <div>
           <h2 className="text-base font-semibold text-neutral-100">
             Create a project
           </h2>
           <p className="mt-1 text-sm text-neutral-500">
-            A project is the primary unit of engineering execution.
+            A project is the primary unit of engineering execution. It targets a
+            repository and lives in that repository&apos;s workspace.
           </p>
         </div>
-        <NewProjectForm />
+        <NewProjectForm repos={repos} defaultRepositoryId={repository} />
       </div>
     </div>
   );

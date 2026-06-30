@@ -44,9 +44,9 @@ const EXACT_CONFIG: Record<string, Omit<EventConfig, "label">> = {
     icon: Inbox,
   },
   planning: {
-    color: "text-violet-400",
-    bg: "bg-violet-500/15",
-    ring: "ring-violet-500/30",
+    color: "text-neutral-400",
+    bg: "bg-neutral-500/15",
+    ring: "ring-neutral-500/30",
     icon: Map,
   },
   awaiting_approval: {
@@ -68,9 +68,9 @@ const EXACT_CONFIG: Record<string, Omit<EventConfig, "label">> = {
     icon: Eye,
   },
   in_qa: {
-    color: "text-purple-400",
-    bg: "bg-purple-500/15",
-    ring: "ring-purple-500/30",
+    color: "text-neutral-400",
+    bg: "bg-neutral-500/15",
+    ring: "ring-neutral-500/30",
     icon: Bug,
   },
   complete: {

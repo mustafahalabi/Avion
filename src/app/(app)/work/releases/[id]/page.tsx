@@ -123,7 +123,7 @@ export default async function ReleaseDetailPage({ params }: Props) {
         )}
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-2xl">
+      <div className="flex flex-col gap-8 p-6">
         {/* Status */}
         <section className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">

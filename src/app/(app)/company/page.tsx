@@ -28,7 +28,7 @@ const DEPARTMENT_ICONS: Record<string, string> = {
 };
 
 const DEPARTMENT_COLORS: Record<string, string> = {
-  executive: "bg-violet-950 text-violet-300 border-violet-900",
+  executive: "bg-neutral-950 text-neutral-300 border-neutral-900",
   product: "bg-blue-950 text-blue-300 border-blue-900",
   engineering: "bg-emerald-950 text-emerald-300 border-emerald-900",
   quality: "bg-amber-950 text-amber-300 border-amber-900",
@@ -82,7 +82,7 @@ export default async function CompanyPage() {
                 {company.name}
               </h2>
               <p className="mt-0.5 text-sm text-neutral-500">
-                Your Engineering OS company
+                Your Avion company
               </p>
             </div>
           </div>

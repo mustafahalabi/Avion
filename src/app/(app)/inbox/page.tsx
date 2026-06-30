@@ -20,7 +20,7 @@ const REQUEST_STATUS: Record<
   { label: string; color: string; icon: React.ElementType }
 > = {
   intake: { label: "Intake", color: "text-blue-400", icon: Circle },
-  planning: { label: "Planning", color: "text-violet-400", icon: Clock },
+  planning: { label: "Planning", color: "text-neutral-400", icon: Clock },
   awaiting_approval: {
     label: "Awaiting Approval",
     color: "text-amber-400",
@@ -28,7 +28,7 @@ const REQUEST_STATUS: Record<
   },
   executing: { label: "Executing", color: "text-emerald-400", icon: Clock },
   in_review: { label: "In Review", color: "text-amber-400", icon: Clock },
-  in_qa: { label: "In QA", color: "text-purple-400", icon: Clock },
+  in_qa: { label: "In QA", color: "text-neutral-400", icon: Clock },
   complete: {
     label: "Complete",
     color: "text-emerald-400",

@@ -33,8 +33,8 @@ const REPO_ID = "live-run-repo";
 const USER_ID = "live-run-user";
 
 const DEFAULT_GOAL =
-  "Add a top-level Markdown file named ENGINEERING_OS_DEMO.md containing a single " +
-  "sentence stating that this change was made autonomously by Engineering OS. " +
+  "Add a top-level Markdown file named AVION_DEMO.md containing a single " +
+  "sentence stating that this change was made autonomously by Avion. " +
   "Do not modify any other files and do not install dependencies.";
 
 async function githubDefaultBranch(

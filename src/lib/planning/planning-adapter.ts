@@ -7,7 +7,7 @@ import type {
  * Provider-independent contract for turning a CEO outcome into a reviewable planning draft.
  *
  * Mirrors the {@link import("@/lib/adapters/execution-adapter").ExecutionAdapter} pattern:
- * Engineering OS owns the full outcome → draft → review → apply lifecycle, and the adapter
+ * Avion owns the full outcome → draft → review → apply lifecycle, and the adapter
  * is responsible for the single *generation* step only. Every implementation MUST return a
  * value in the exact {@link PlanningGenerationResult} shape so the downstream quality
  * validation, CEO/autonomy review gate, and idempotent application path are identical

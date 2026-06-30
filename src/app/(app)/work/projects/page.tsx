@@ -1,9 +1,10 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Layers, Plus, ChevronRight } from "lucide-react";
+import { ArrowLeft, Layers, Plus, ChevronRight, Boxes, FolderGit2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { workspaceBadgeClasses } from "@/lib/workspace-badge";
 
 const PROJECT_STATUS_COLORS: Record<string, string> = {
   active: "bg-emerald-950 text-emerald-400 border-emerald-900",
@@ -24,6 +25,7 @@ export default async function ProjectsPage() {
         include: {
           projects: {
             include: {
+              repository: { select: { id: true, name: true } },
               features: {
                 include: {
                   tasks: { select: { id: true, status: true } },
@@ -40,7 +42,14 @@ export default async function ProjectsPage() {
 
   if (!company) redirect("/onboarding");
 
-  const projects = company.workspaces.flatMap((w) => w.projects);
+  // Carry each project's workspace down so rows can show a workspace badge.
+  const projects = company.workspaces.flatMap((w) =>
+    w.projects.map((p) => ({
+      ...p,
+      workspaceId: w.id,
+      workspaceName: w.name,
+    }))
+  );
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
@@ -124,12 +133,34 @@ export default async function ProjectsPage() {
                     >
                       {project.status}
                     </span>
+                    <span
+                      className={cn(
+                        "flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                        workspaceBadgeClasses(project.workspaceId)
+                      )}
+                    >
+                      <Boxes className="h-2.5 w-2.5" />
+                      {project.workspaceName}
+                    </span>
                   </div>
-                  {project.description && (
-                    <p className="mt-1 text-xs text-neutral-500 line-clamp-1">
-                      {project.description}
-                    </p>
-                  )}
+                  <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500">
+                    {project.repository ? (
+                      <span className="flex items-center gap-1">
+                        <FolderGit2 className="h-3 w-3" />
+                        {project.repository.name}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-amber-600/80">
+                        <FolderGit2 className="h-3 w-3" />
+                        No repository linked
+                      </span>
+                    )}
+                    {project.description && (
+                      <span className="truncate text-neutral-500">
+                        · {project.description}
+                      </span>
+                    )}
+                  </div>
                   {tasks.length > 0 ? (
                     <div className="mt-2.5 flex items-center gap-2">
                       <div className="h-1.5 flex-1 rounded-full bg-neutral-800">

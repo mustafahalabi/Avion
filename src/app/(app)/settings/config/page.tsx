@@ -26,7 +26,6 @@ const CULTURE_LABELS: Record<string, string> = {
 const PROVIDER_NAMES: Record<string, string> = {
   github: "GitHub",
   linear: "Linear",
-  vercel: "Vercel",
 };
 
 const STATUS_STYLES: Record<string, { dot: string; text: string; label: string }> = {
@@ -153,7 +152,7 @@ export default async function ConfigInventoryPage() {
   const connections = company.providerConnections;
   const allRepos = company.workspaces.flatMap((w) => w.repositories);
 
-  const knownProviders = ["github", "linear", "vercel"] as const;
+  const knownProviders = ["github", "linear"] as const;
 
   // Build a map of provider → connection (or undefined if not set up)
   const connectionMap = Object.fromEntries(
@@ -182,7 +181,7 @@ export default async function ConfigInventoryPage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-2xl p-6 flex flex-col gap-8">
+      <div className="p-6 flex flex-col gap-8">
 
         {/* ── 1. Company Configuration ─────────────────────────────────── */}
         <SectionCard title="Company Configuration" editHref="/settings" editLabel="Edit settings">

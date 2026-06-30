@@ -5,13 +5,23 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BrandMark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { saveOnboardingSettings } from "./actions";
 import { OptionCard } from "./option-card";
+import { OAuthConnectButton } from "@/components/integrations/oauth-connect-button";
+import { GitHubRepositoryPicker } from "@/components/integrations/github-repository-picker";
 import type {
   OnboardingProgress,
   OnboardingStepId,
 } from "@/lib/onboarding-progress";
+
+/** Per-provider OAuth availability passed from the onboarding page. */
+export interface OnboardingProviderOption {
+  id: string;
+  name: string;
+  configured: boolean;
+}
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -110,6 +120,8 @@ interface OnboardingFlowProps {
   defaultAutonomy: string;
   defaultCulture: string;
   progress: OnboardingProgress;
+  providers: OnboardingProviderOption[];
+  githubConnected: boolean;
 }
 
 export function OnboardingFlow({
@@ -118,7 +130,11 @@ export function OnboardingFlow({
   defaultAutonomy,
   defaultCulture,
   progress,
+  providers,
+  githubConnected,
 }: OnboardingFlowProps) {
+  const githubConfigured =
+    providers.find((p) => p.id === "github")?.configured ?? false;
   const [name, setName] = useState(companyName);
   const [autonomy, setAutonomy] = useState(defaultAutonomy);
   const [culture, setCulture] = useState(defaultCulture);
@@ -154,10 +170,10 @@ export function OnboardingFlow({
         {/* Logo */}
         <div className="mb-8 flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white">
-            <span className="text-sm font-bold text-neutral-900">E</span>
+            <BrandMark className="h-4 w-4 text-neutral-900" />
           </div>
           <span className="text-base font-semibold text-neutral-100">
-            Engineering OS
+            Avion
           </span>
         </div>
 
@@ -313,13 +329,72 @@ export function OnboardingFlow({
                         </form>
                       )}
 
-                      {/* Other steps: link out to the relevant page */}
-                      {step.id !== "company" && !complete && (
+                      {/* Provider step: OAuth connect buttons + manual fallback */}
+                      {step.id === "provider" && !complete && (
+                        <div className="mt-4 flex flex-col gap-2">
+                          {providers.map((provider) => (
+                            <div
+                              key={provider.id}
+                              className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2"
+                            >
+                              <span className="text-xs font-medium text-neutral-300">
+                                {provider.name}
+                              </span>
+                              <OAuthConnectButton
+                                provider={provider.id}
+                                configured={provider.configured}
+                                returnTo="/onboarding"
+                                label="Connect"
+                              />
+                            </div>
+                          ))}
+                          <Link
+                            href={STEP_LINKS.provider.href}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-neutral-600 transition-colors hover:text-neutral-400"
+                          >
+                            Or connect with a manual token
+                            <ArrowRight className="h-3 w-3" />
+                          </Link>
+                        </div>
+                      )}
+
+                      {/* Repository step: GitHub picker (gated on GitHub being connected) */}
+                      {step.id === "repository" && !complete && (
+                        <div className="mt-4">
+                          {githubConnected ? (
+                            <GitHubRepositoryPicker returnTo="/onboarding" />
+                          ) : (
+                            <div className="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-3">
+                              <p className="text-xs text-neutral-500">
+                                Connect GitHub to pick a repository, or add one manually.
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <OAuthConnectButton
+                                  provider="github"
+                                  configured={githubConfigured}
+                                  returnTo="/onboarding"
+                                  label="Connect"
+                                />
+                                <Link
+                                  href={STEP_LINKS.repository.href}
+                                  className="inline-flex items-center gap-1 text-[11px] text-neutral-600 transition-colors hover:text-neutral-400"
+                                >
+                                  Add manually
+                                  <ArrowRight className="h-3 w-3" />
+                                </Link>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Outcome step: link out */}
+                      {step.id === "outcome" && !complete && (
                         <Link
-                          href={STEP_LINKS[step.id].href}
+                          href={STEP_LINKS.outcome.href}
                           className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-200 transition-colors hover:bg-neutral-700"
                         >
-                          {STEP_LINKS[step.id].cta}
+                          {STEP_LINKS.outcome.cta}
                           <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                       )}

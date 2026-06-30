@@ -7,9 +7,12 @@ import {
   Circle,
   Clock,
   AlertCircle,
+  Boxes,
+  FolderGit2,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { workspaceBadgeClasses } from "@/lib/workspace-badge";
 import { AddTaskForm } from "./add-task-form";
 import { GeneratedWorkTraceBanner } from "@/components/planning/generated-work-trace-banner";
 
@@ -70,29 +73,19 @@ export default async function ProjectDetailPage({ params }: Props) {
   });
   if (!company) redirect("/onboarding");
 
-  const workspace = await prisma.workspace.findFirst({
-    where: { companyId: company.id },
-  });
-
-  const project = workspace
-    ? await prisma.project.findFirst({
-        where: { id, workspaceId: workspace.id },
+  // Load by company (not a single workspace) — projects can live in any of the
+  // company's workspaces, so constraining to the first one would 404 valid ones.
+  const project = await prisma.project.findFirst({
+    where: { id, companyId: company.id },
+    include: {
+      workspace: { select: { id: true, name: true } },
+      repository: {
+        select: { id: true, name: true, url: true, analysisStatus: true },
+      },
+      outcome: { select: { id: true, title: true } },
+      features: {
         include: {
-          outcome: { select: { id: true, title: true } },
-          features: {
-            include: {
-              tasks: {
-                include: {
-                  assignee: { select: { id: true, name: true } },
-                  subtasks: { select: { id: true, completed: true } },
-                },
-                orderBy: { createdAt: "asc" },
-              },
-            },
-            orderBy: { createdAt: "asc" },
-          },
           tasks: {
-            where: { featureId: null },
             include: {
               assignee: { select: { id: true, name: true } },
               subtasks: { select: { id: true, completed: true } },
@@ -100,8 +93,18 @@ export default async function ProjectDetailPage({ params }: Props) {
             orderBy: { createdAt: "asc" },
           },
         },
-      })
-    : null;
+        orderBy: { createdAt: "asc" },
+      },
+      tasks: {
+        where: { featureId: null },
+        include: {
+          assignee: { select: { id: true, name: true } },
+          subtasks: { select: { id: true, completed: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
 
   if (!project) notFound();
 
@@ -144,8 +147,36 @@ export default async function ProjectDetailPage({ params }: Props) {
               <h2 className="text-base font-semibold text-neutral-100">
                 {project.name}
               </h2>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {project.workspace && (
+                  <Link
+                    href={`/work/workspaces/${project.workspace.id}`}
+                    className={cn(
+                      "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-opacity hover:opacity-80",
+                      workspaceBadgeClasses(project.workspace.id)
+                    )}
+                  >
+                    <Boxes className="h-3 w-3" />
+                    {project.workspace.name}
+                  </Link>
+                )}
+                {project.repository ? (
+                  <Link
+                    href={`/work/repositories/${project.repository.id}`}
+                    className="flex items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[11px] font-medium text-neutral-300 hover:border-neutral-600 hover:text-neutral-100 transition-colors"
+                  >
+                    <FolderGit2 className="h-3 w-3" />
+                    {project.repository.name}
+                  </Link>
+                ) : (
+                  <span className="flex items-center gap-1.5 rounded-full border border-amber-900/50 bg-amber-950/20 px-2 py-0.5 text-[11px] font-medium text-amber-500/90">
+                    <FolderGit2 className="h-3 w-3" />
+                    No repository linked
+                  </span>
+                )}
+              </div>
               {project.description && (
-                <p className="mt-1 text-sm text-neutral-400 max-w-2xl">
+                <p className="mt-2 text-sm text-neutral-400 max-w-2xl">
                   {project.description}
                 </p>
               )}

@@ -1,0 +1,203 @@
+import { prisma } from "@/lib/prisma";
+import {
+  buildOutcomePlanningUrl,
+  getPendingPlanningDrafts,
+  getPlanningLifecycleTimeline,
+} from "@/lib/outcome-planning-lifecycle";
+import { buildLifecycleBoard, type LifecycleBoard, type WorkItemInput } from "@/lib/work-lifecycle";
+import type { TimelineItem } from "@/components/timeline-entry";
+
+/**
+ * The full payload behind the Live view: the lifecycle board (work grouped by
+ * stage) plus the recent activity stream. Both the dedicated `/work/live` page
+ * and the Control Center widget render from this, so the two never drift.
+ */
+export interface LivePipeline {
+  readonly board: LifecycleBoard;
+  readonly stream: readonly TimelineItem[];
+}
+
+export interface LoadLivePipelineOptions {
+  /** Recent activity events to include in the live stream. Default 24. */
+  readonly streamLimit?: number;
+  /** Items listed in the terminal "done" column. Default 8. */
+  readonly doneLimit?: number;
+}
+
+/** Tasks in these states never appear on the board. */
+const HIDDEN_TASK_STATUSES: readonly string[] = ["cancelled"];
+
+function parseFilesChangedCount(filesChanged: string | null | undefined): number {
+  if (!filesChanged) return 0;
+  try {
+    const parsed = JSON.parse(filesChanged) as unknown;
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Picks the most-recent row per key from a list already ordered newest-first.
+ */
+function latestByKey<T>(rows: readonly T[], keyOf: (row: T) => string | null): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    if (key && !map.has(key)) map.set(key, row);
+  }
+  return map;
+}
+
+/**
+ * Loads and assembles the Live pipeline for a company.
+ *
+ * Tasks are joined in-memory with their latest execution session, code review,
+ * and QA result, then mapped into pure {@link WorkItemInput}s and grouped into
+ * the lifecycle board. Pending plan drafts are surfaced as upstream "planning"
+ * items so the CEO sees a request the moment it lands — before any task exists.
+ *
+ * @param companyId - The company to load.
+ * @param options - Stream / done-column caps.
+ * @returns The board and the recent activity stream.
+ */
+export async function loadLivePipeline(
+  companyId: string,
+  options: LoadLivePipelineOptions = {}
+): Promise<LivePipeline> {
+  const streamLimit = options.streamLimit ?? 24;
+  const doneLimit = options.doneLimit ?? 8;
+
+  const tasks = await prisma.task.findMany({
+    where: { companyId, status: { notIn: [...HIDDEN_TASK_STATUSES] } },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      updatedAt: true,
+      assignee: { select: { name: true } },
+      project: { select: { name: true } },
+      feature: {
+        select: { title: true, project: { select: { name: true } } },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  const taskIds = tasks.map((t) => t.id);
+
+  const [sessions, reviews, qaResults, pendingPlans, runtimeEvents, planningTimeline] =
+    await Promise.all([
+      taskIds.length
+        ? prisma.executionSession.findMany({
+            where: { companyId, taskId: { in: taskIds } },
+            orderBy: { createdAt: "desc" },
+            select: {
+              taskId: true,
+              status: true,
+              prStatus: true,
+              prNumber: true,
+              prUrl: true,
+              mergeStatus: true,
+              branchName: true,
+              filesChanged: true,
+            },
+          })
+        : Promise.resolve([]),
+      taskIds.length
+        ? prisma.review.findMany({
+            where: { companyId, entityType: "task", entityId: { in: taskIds } },
+            orderBy: { createdAt: "desc" },
+            select: { entityId: true, status: true },
+          })
+        : Promise.resolve([]),
+      taskIds.length
+        ? prisma.qAResult.findMany({
+            where: { companyId, entityType: "task", entityId: { in: taskIds } },
+            orderBy: { createdAt: "desc" },
+            select: {
+              entityId: true,
+              status: true,
+              passedCount: true,
+              failedCount: true,
+            },
+          })
+        : Promise.resolve([]),
+      getPendingPlanningDrafts(companyId),
+      prisma.runtimeEvent.findMany({
+        where: { request: { companyId } },
+        orderBy: { createdAt: "desc" },
+        take: streamLimit,
+        include: { request: { select: { id: true, title: true } } },
+      }),
+      getPlanningLifecycleTimeline(companyId, streamLimit),
+    ]);
+
+  const sessionByTask = latestByKey(sessions, (s) => s.taskId);
+  const reviewByTask = latestByKey(reviews, (r) => r.entityId);
+  const qaByTask = latestByKey(qaResults, (q) => q.entityId);
+
+  const taskInputs: WorkItemInput[] = tasks.map((t) => {
+    const session = sessionByTask.get(t.id);
+    const review = reviewByTask.get(t.id);
+    const qa = qaByTask.get(t.id);
+    const context =
+      t.project?.name ?? t.feature?.project?.name ?? t.feature?.title ?? null;
+
+    return {
+      id: t.id,
+      title: t.title,
+      kind: "task",
+      href: `/work/tasks/${t.id}`,
+      updatedAt: t.updatedAt,
+      context,
+      assigneeName: t.assignee?.name ?? null,
+      taskStatus: t.status,
+      sessionStatus: session?.status ?? null,
+      prStatus: session?.prStatus ?? null,
+      prNumber: session?.prNumber ?? null,
+      prUrl: session?.prUrl ?? null,
+      mergeStatus: session?.mergeStatus ?? null,
+      reviewStatus: review?.status ?? null,
+      qaStatus: qa?.status ?? null,
+      qaPassedCount: qa?.passedCount ?? null,
+      qaFailedCount: qa?.failedCount ?? null,
+      branchName: session?.branchName ?? null,
+      filesChangedCount: parseFilesChangedCount(session?.filesChanged),
+    };
+  });
+
+  const planInputs: WorkItemInput[] = pendingPlans.map((p) => ({
+    id: `plan-${p.planningDraftId}`,
+    title: p.planTitle || p.outcomeTitle,
+    kind: "plan",
+    href: buildOutcomePlanningUrl(p.outcomeId),
+    updatedAt: p.updatedAt,
+    context: p.outcomeTitle,
+    planStatus: p.status,
+  }));
+
+  const board = buildLifecycleBoard([...planInputs, ...taskInputs], { doneLimit });
+
+  const stream: TimelineItem[] = [
+    ...runtimeEvents.map((event) => ({
+      id: `runtime-${event.id}`,
+      createdAt: event.createdAt,
+      description: event.description,
+      contextHref: `/inbox/requests/${event.request.id}`,
+      contextLabel: event.request.title,
+      type: event.type,
+    })),
+    ...planningTimeline.map((event) => ({
+      id: `planning-${event.id}`,
+      createdAt: event.createdAt,
+      description: event.summary,
+      contextHref: event.href,
+      contextLabel: event.outcomeTitle ?? "Outcome planning",
+      type: event.eventType,
+    })),
+  ]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, streamLimit);
+
+  return { board, stream };
+}

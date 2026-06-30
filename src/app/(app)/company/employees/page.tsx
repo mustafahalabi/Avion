@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/status-indicator";
 
 const DEPT_COLORS: Record<string, string> = {
-  executive: "bg-violet-950/50 border-violet-900/50",
+  executive: "bg-neutral-950/50 border-neutral-900/50",
   product: "bg-blue-950/50 border-blue-900/50",
   engineering: "bg-emerald-950/50 border-emerald-900/50",
   quality: "bg-amber-950/50 border-amber-900/50",
@@ -18,7 +18,7 @@ const DEPT_COLORS: Record<string, string> = {
 };
 
 const DEPT_AVATAR: Record<string, string> = {
-  executive: "bg-violet-800 text-violet-200",
+  executive: "bg-neutral-800 text-neutral-200",
   product: "bg-blue-800 text-blue-200",
   engineering: "bg-emerald-800 text-emerald-200",
   quality: "bg-amber-800 text-amber-200",

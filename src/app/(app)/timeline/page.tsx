@@ -59,7 +59,7 @@ export default async function TimelinePage() {
         </span>
       </header>
 
-      <div className="flex flex-col p-6 max-w-2xl">
+      <div className="flex flex-col p-6">
         <TimelineList items={items} />
       </div>
     </div>

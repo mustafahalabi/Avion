@@ -11,6 +11,7 @@ import {
   type Provider,
 } from "@/lib/provider-connection-service";
 import { computeProviderCardState, PROVIDER_DEFS } from "@/lib/provider-card-state";
+import { isOAuthProvider, isProviderOAuthConfigured } from "@/lib/oauth/oauth-config";
 
 // ─── Connect via manual token ─────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ export type ConnectProviderState =
   | { success: true; connectionId: string };
 
 const connectSchema = z.object({
-  provider: z.enum(["github", "linear", "vercel"]),
+  provider: z.enum(["github", "linear"]),
   accessToken: z.string().min(1, "Access token is required.").trim(),
   accountName: z.string().trim().optional(),
 });
@@ -108,6 +109,8 @@ export interface ProviderCardData {
   readonly lastConnectedAt: Date | null;
   readonly errorMessage: string | null;
   readonly isConnected: boolean;
+  /** Whether OAuth env credentials are present so the "Connect" button works. */
+  readonly oauthConfigured: boolean;
 }
 
 /**
@@ -138,6 +141,9 @@ export async function loadProviderCards(): Promise<ProviderCardData[]> {
       docsUrl: def.docsUrl,
       tokenFieldLabel: def.tokenFieldLabel,
       tokenFieldPlaceholder: def.tokenFieldPlaceholder,
+      oauthConfigured: isOAuthProvider(def.id)
+        ? isProviderOAuthConfigured(def.id)
+        : false,
       ...state,
     };
   });

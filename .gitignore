@@ -20,6 +20,11 @@
 # production
 /build
 
+# electron — staging output (scripts/build-electron.mjs) and packaged installers
+/build/
+/release/
+/.electron-build/
+
 # misc
 .DS_Store
 *.pem

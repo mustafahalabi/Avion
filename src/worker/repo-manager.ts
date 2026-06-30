@@ -32,7 +32,7 @@ export interface RepoCheckoutResult {
 }
 
 /** Identity stamped on commits the worker creates on the agent's behalf. */
-const WORKER_GIT_AUTHOR_NAME = "Engineering OS Worker";
+const WORKER_GIT_AUTHOR_NAME = "Avion Worker";
 const WORKER_GIT_AUTHOR_EMAIL = "worker@engineering-os.local";
 
 /** Input for committing and pushing the session branch after an agent run. */

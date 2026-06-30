@@ -5,6 +5,7 @@ import {
   type PlanningDraftWorkGuardInput,
 } from "@/lib/outcome-planning";
 import { OUTCOME_PLANNING_EVENT_TYPES } from "@/lib/outcome-planning-lifecycle";
+import { ensureDefaultWorkspace } from "@/lib/workspace-service";
 import type {
   GeneratedPlanningProject,
   GeneratedPlanningFeature,
@@ -239,8 +240,37 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
     throw new Error("Planning draft contains invalid JSON work data.");
   }
 
-  // Ensure the company has a workspace to attach projects to
-  const workspaceId = await ensureDefaultWorkspace(input.companyId);
+  // Resolve the repository + workspace the generated projects should attach to.
+  // The CEO scopes an outcome to a repository (Outcome.repositoryId); we honour
+  // that here so AI/deterministic-planned projects inherit the real repo (and its
+  // workspace) instead of landing repo-less in the default workspace. Falls back
+  // to the default workspace when the outcome has no repository.
+  //
+  // The repository lookup is split into a scalar fetch + a conditional join so
+  // companies/outcomes without a repository never touch the Repository table.
+  const outcomeRepositoryId = draft.outcomeId
+    ? (
+        await prisma.outcome.findFirst({
+          where: { id: draft.outcomeId, companyId: input.companyId },
+          select: { repositoryId: true },
+        })
+      )?.repositoryId ?? null
+    : null;
+
+  let repositoryId: string | null = null;
+  let workspaceId: string;
+  const repo = outcomeRepositoryId
+    ? await prisma.repository.findFirst({
+        where: { id: outcomeRepositoryId },
+        select: { id: true, workspaceId: true },
+      })
+    : null;
+  if (repo) {
+    repositoryId = repo.id;
+    workspaceId = repo.workspaceId;
+  } else {
+    workspaceId = await ensureDefaultWorkspace(input.companyId);
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     let projectsCreated = 0;
@@ -277,6 +307,9 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
           data: {
             name: gp.name,
             description: gp.description,
+            // Backfill the repo/workspace link on re-apply, but never clobber an
+            // existing link with null when the outcome has no repository.
+            ...(repositoryId ? { repositoryId, workspaceId } : {}),
             updatedAt: new Date(),
           },
         });
@@ -291,6 +324,7 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
             status: "active",
             companyId: trace.companyId,
             workspaceId,
+            repositoryId,
             outcomeId: trace.outcomeId,
             planningDraftId: trace.planningDraftId,
             planItemId: trace.planItemId,
@@ -454,21 +488,6 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function ensureDefaultWorkspace(companyId: string): Promise<string> {
-  const existing = await prisma.workspace.findFirst({
-    where: { companyId },
-    select: { id: true },
-    orderBy: { createdAt: "asc" },
-  });
-  if (existing) return existing.id;
-
-  const created = await prisma.workspace.create({
-    data: { companyId, name: "Default", slug: "default" },
-    select: { id: true },
-  });
-  return created.id;
-}
 
 function slugify(name: string): string {
   return name

@@ -1,0 +1,71 @@
+# electron-builder configuration for the Avion desktop app.
+# Packaging consumes the artifacts produced by `npm run electron:build`
+# (build/standalone, build/worker.js, build/driver.js, build/template.db).
+appId: com.avion.desktop
+productName: Avion
+copyright: Copyright © 2026 Avion
+
+directories:
+  output: release
+  buildResources: assets
+
+# The main process needs no third-party runtime modules (only Electron + Node
+# built-ins + its own files), so the asar stays tiny — the Next.js server,
+# worker/driver bundles and DB template all ship as unpacked extraResources.
+# electron-builder otherwise force-includes the whole production node_modules
+# (~450MB of next/prisma/react that the main process never loads), so it is
+# explicitly excluded along with the app source and build artifacts.
+files:
+  - electron/**/*
+  - package.json
+  - "!node_modules/**/*"
+  - "!.next/**/*"
+  - "!src/**/*"
+  - "!build/**/*"
+  - "!release/**/*"
+  - "!docs/**/*"
+  - "!prisma/**/*"
+  - "!scripts/**/*"
+  - "!specification/**/*"
+  - "!assets/**/*"
+  - "!linear-notebooklm-context/**/*"
+
+asar: true
+
+# We manage native ABI ourselves: scripts/build-electron.mjs rebuilds
+# better-sqlite3 for Electron in an isolated copy and places it inside
+# build/standalone, so electron-builder must NOT touch native modules.
+npmRebuild: false
+
+# Everything the embedded server/worker needs, shipped on disk (outside asar)
+# so the native .node binding and standalone server load normally.
+extraResources:
+  - from: build/standalone
+    to: standalone
+  - from: build/worker.js
+    to: worker.js
+  - from: build/driver.js
+    to: driver.js
+  - from: build/template.db
+    to: template.db
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  # Unsigned local builds: allow the JIT/unsigned standalone server child.
+  hardenedRuntime: false
+
+win:
+  target:
+    - nsis
+
+linux:
+  category: Development
+  target:
+    - AppImage
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

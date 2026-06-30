@@ -8,7 +8,7 @@ import type {
   PermissionLevel,
 } from "./execution-adapter";
 
-/** Maps Engineering OS permission levels to Claude Code `--permission-mode` flags. */
+/** Maps Avion permission levels to Claude Code `--permission-mode` flags. */
 const PERMISSION_MODE_MAP: Record<PermissionLevel, string> = {
   read_only: "default",
   suggest: "default",
@@ -128,7 +128,7 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
 /**
  * Resolves the Claude Code permission mode for a given permission level.
  *
- * @param level - Engineering OS permission level.
+ * @param level - Avion permission level.
  * @returns Claude Code `--permission-mode` flag value.
  */
 export function mapPermissionLevelToMode(level: PermissionLevel): string {

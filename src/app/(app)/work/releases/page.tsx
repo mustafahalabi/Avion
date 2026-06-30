@@ -85,7 +85,7 @@ export default async function ReleasesPage() {
         </div>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-3xl">
+      <div className="flex flex-col gap-8 p-6">
         {/* Stats */}
         {releases.length > 0 && (
           <section className="grid grid-cols-4 gap-3">

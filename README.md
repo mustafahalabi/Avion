@@ -47,6 +47,20 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Desktop app (Electron)
+
+Avion also runs as a native desktop app — the full Next.js application
+(UI, Server Actions, Prisma/SQLite, Clerk, and the autonomous worker/driver)
+packaged so users can launch it like any other app, no terminal required.
+
+```bash
+npm run electron:dev    # develop: next dev + Electron together
+npm run dist            # build installers (dmg / nsis / AppImage) → release/
+```
+
+See [`docs/ELECTRON.md`](docs/ELECTRON.md) for the architecture, build steps,
+and caveats.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

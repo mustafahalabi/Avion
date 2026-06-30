@@ -31,17 +31,6 @@ export const INTEGRATION_PROVIDERS = [
       { key: "webhookUrl", label: "Incoming Webhook URL", type: "password", placeholder: "https://hooks.slack.com/…", required: true },
     ],
   },
-  {
-    id: "vercel",
-    name: "Vercel",
-    description: "Track deployments and project health from Vercel.",
-    category: "infrastructure",
-    docsUrl: "https://vercel.com/account/tokens",
-    fields: [
-      { key: "accessToken", label: "Access Token", type: "password", placeholder: "…", required: true },
-      { key: "teamId", label: "Team ID (optional)", type: "text", placeholder: "team_…", required: false },
-    ],
-  },
 ] as const;
 
 export type ProviderConfig = (typeof INTEGRATION_PROVIDERS)[number];

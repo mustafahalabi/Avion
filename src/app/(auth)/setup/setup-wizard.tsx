@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { BrandMark } from "@/components/brand";
 import { saveCompanySettings } from "@/app/(auth)/onboarding/actions";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -127,7 +128,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-lg font-semibold text-neutral-100">
-          Welcome to Engineering OS.
+          Welcome to Avion.
         </h1>
         <p className="mt-2 text-sm text-neutral-400 leading-relaxed">
           You&apos;re the CEO. Your company is standing by.
@@ -148,7 +149,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
           {
             num: "2",
             label: "Connect a repository",
-            desc: "Link your codebase to Engineering OS",
+            desc: "Link your codebase to Avion",
           },
           {
             num: "3",
@@ -439,10 +440,10 @@ export function SetupWizard({
         {/* Logo */}
         <div className="mb-8 flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white">
-            <span className="text-sm font-bold text-neutral-900">E</span>
+            <BrandMark className="h-4 w-4 text-neutral-900" />
           </div>
           <span className="text-base font-semibold text-neutral-100">
-            Engineering OS
+            Avion
           </span>
         </div>
 

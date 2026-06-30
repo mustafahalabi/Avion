@@ -10,7 +10,7 @@ import {
 // ─── GitHub Scope Constants ───────────────────────────────────────────────────
 
 /**
- * Scopes required for Engineering OS to operate on GitHub repositories.
+ * Scopes required for Avion to operate on GitHub repositories.
  * Displayed to users before they connect so they know what access is requested.
  */
 export const GITHUB_REQUIRED_SCOPES = ["repo", "read:org", "workflow"] as const;

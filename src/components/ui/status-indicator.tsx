@@ -86,7 +86,7 @@ const STATUS_CONFIG: Record<string, StatusConfigEntry> = {
   prepared: { color: "bg-blue-400", animate: false, label: "Prepared" },
   syncing: { color: "bg-blue-400", animate: true, label: "Syncing" },
   "in-review": {
-    color: "bg-violet-400",
+    color: "bg-neutral-400",
     animate: false,
     label: "In Review",
   },

@@ -78,7 +78,7 @@ export function buildPullRequestBody(input: BuildPullRequestBodyInput): string {
 
   lines.push(`_Task: ${input.taskTitle}_`);
   lines.push("");
-  lines.push("🤖 Opened automatically by the Engineering OS worker.");
+  lines.push("🤖 Opened automatically by the Avion worker.");
 
   return lines.join("\n");
 }
@@ -104,8 +104,11 @@ export interface OpenPullRequestInput {
   readonly repo: string;
   /** Head branch (the session branch). */
   readonly head: string;
-  /** Base branch to merge into. */
-  readonly base: string;
+  /**
+   * Base branch to merge into. When omitted/empty, the repository's actual
+   * default branch is resolved from the GitHub API (handles main vs master).
+   */
+  readonly base?: string;
   readonly title: string;
   readonly body: string;
   /** Injected fetch implementation for testing. Defaults to global `fetch`. */
@@ -152,8 +155,44 @@ async function safeText(res: Response): Promise<string> {
 }
 
 /**
+ * Resolves a repository's default branch (e.g. `main` vs `master`) via the
+ * GitHub REST API, so PRs always target a branch that actually exists.
+ *
+ * @param input - Token and repo coordinates.
+ * @returns The default branch name, falling back to `main` when unknown.
+ * @throws Error when the GitHub API rejects the repository lookup.
+ */
+export async function resolveDefaultBranch(input: {
+  readonly token: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly fetchImpl?: FetchLike;
+}): Promise<string> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const res = await fetchImpl(
+    `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    }
+  );
+  if (!res.ok) {
+    throw new Error(
+      `GitHub repository lookup failed (${res.status}): ${await safeText(res)}`
+    );
+  }
+  const repo = (await res.json()) as { default_branch?: string };
+  return repo.default_branch || "main";
+}
+
+/**
  * Opens a pull request from `head` into `base`, reusing an existing open PR for
- * the same head branch when one already exists (idempotent).
+ * the same head branch when one already exists (idempotent). When `base` is
+ * omitted, the repository's default branch is resolved automatically.
  *
  * @param input - Token, repo coordinates, branches, and PR content.
  * @returns The PR URL, number, status, and whether it was reused.
@@ -170,6 +209,15 @@ export async function openOrReusePullRequest(
     "Content-Type": "application/json",
   };
   const pullsUrl = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/pulls`;
+  const base =
+    input.base && input.base.trim()
+      ? input.base
+      : await resolveDefaultBranch({
+          token: input.token,
+          owner: input.owner,
+          repo: input.repo,
+          fetchImpl,
+        });
 
   // Idempotency: reuse an existing open PR for this head branch.
   const headFilter = encodeURIComponent(`${input.owner}:${input.head}`);
@@ -201,7 +249,7 @@ export async function openOrReusePullRequest(
       title: input.title,
       body: input.body,
       head: input.head,
-      base: input.base,
+      base,
     }),
   });
   if (!createRes.ok) {

@@ -574,7 +574,7 @@ export function validateOutcomeForPlanning(
     return {
       status: "failed",
       reason: "Outcome cannot be empty.",
-      openCeoQuestions: ["What outcome should Engineering OS plan for?"],
+      openCeoQuestions: ["What outcome should Avion plan for?"],
     };
   }
 
@@ -605,9 +605,9 @@ export function validateOutcomeForPlanning(
   if (UNSUPPORTED_KEYWORDS.some((keyword) => lower.includes(keyword))) {
     return {
       status: "failed",
-      reason: "Outcome is outside the supported Engineering OS planning scope.",
+      reason: "Outcome is outside the supported Avion planning scope.",
       openCeoQuestions: [
-        "Is there a software, product, infrastructure, or documentation outcome Engineering OS should plan instead?",
+        "Is there a software, product, infrastructure, or documentation outcome Avion should plan instead?",
       ],
     };
   }
@@ -856,7 +856,7 @@ function buildFeatureBlueprints(
         milestoneId: "milestone:reviewable-delivery",
         title: "Repository intelligence UI and planning integration",
         description:
-          "Expose repository intelligence summaries where Engineering OS users review repositories and prepare outcome plans.",
+          "Expose repository intelligence summaries where Avion users review repositories and prepare outcome plans.",
         ownerRole: "Frontend Engineer",
         taskBlueprints: [
           {
@@ -1061,7 +1061,7 @@ function buildMilestones(
         id: "milestone:reviewable-delivery",
         title: "Reviewable repository intelligence experience complete",
         description:
-          "The repository intelligence summary is visible in Engineering OS and covered by QA and release readiness checks.",
+          "The repository intelligence summary is visible in Avion and covered by QA and release readiness checks.",
         deliverables: ["Repository intelligence UI", "QA evidence", "Release readiness checklist"],
         acceptanceCriteria: [
           "Users can review repository intelligence without reading raw JSON.",

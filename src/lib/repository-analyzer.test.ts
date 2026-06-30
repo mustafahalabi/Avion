@@ -130,7 +130,7 @@ describe("mapNextJsAppRouterFileToUrlPath", () => {
   });
 });
 
-describe("analyzeRepositoryPath — Engineering OS schema", () => {
+describe("analyzeRepositoryPath — Avion schema", () => {
   it("includes database layer output in repository intelligence summary", () => {
     const root = createFixtureRoot("analysis");
     writeFixtureFile(root, "package-lock.json", "{}");
@@ -162,7 +162,7 @@ describe("analyzeRepositoryPath — Engineering OS schema", () => {
 });
 
 describe("analyzeRepositoryPath — framework, routes, and API surface", () => {
-  it("detects Engineering OS-style Next.js App Router structure", () => {
+  it("detects Avion-style Next.js App Router structure", () => {
     const root = createFixtureRoot("engineering-os");
     writeFixtureFile(root, "package-lock.json", "{}");
     writeFixtureFile(

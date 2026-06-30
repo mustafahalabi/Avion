@@ -1,5 +1,5 @@
 /**
- * GitHub workflow phases tracked per task/session for Engineering OS.
+ * GitHub workflow phases tracked per task/session for Avion.
  *
  * Phases represent the implementation lifecycle from planning through merge.
  */

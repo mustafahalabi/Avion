@@ -7,7 +7,7 @@ import type {
 /**
  * System + user prompt pair for the AI planning adapter.
  *
- * The `system` prompt frames the model as the Engineering OS planning organization and
+ * The `system` prompt frames the model as the Avion planning organization and
  * fixes the output contract; the `prompt` grounds it in the real outcome, employee roster,
  * and repository intelligence.
  */
@@ -19,11 +19,11 @@ export interface PlanningPromptPair {
 /**
  * Builds the system prompt that frames the model and fixes the JSON output contract.
  *
- * @returns The Engineering OS planning system prompt.
+ * @returns The Avion planning system prompt.
  */
 function buildSystemPrompt(): string {
   return [
-    "You are the Engineering OS planning organization: a Product Manager, Tech Lead, and",
+    "You are the Avion planning organization: a Product Manager, Tech Lead, and",
     "Quality lead working together to turn a CEO outcome into an approval-ready delivery plan.",
     "You do NOT write code or create real work records — you produce a single planning draft",
     "that a human CEO will review before any execution begins.",

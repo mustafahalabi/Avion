@@ -97,7 +97,7 @@ beforeAll(async () => {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE "Project" (
       "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "slug" TEXT NOT NULL, "companyId" TEXT NOT NULL,
-      "workspaceId" TEXT NOT NULL, "outcomeId" TEXT, "planningDraftId" TEXT, "planItemId" TEXT,
+      "workspaceId" TEXT NOT NULL, "repositoryId" TEXT, "outcomeId" TEXT, "planningDraftId" TEXT, "planItemId" TEXT,
       "description" TEXT, "status" TEXT DEFAULT 'active', "startDate" DATETIME, "endDate" DATETIME,
       "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
     )
@@ -209,7 +209,7 @@ beforeAll(async () => {
   `);
   await prisma.$executeRawUnsafe(`
     INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('${COMPANY_ID}','Engineering OS','engineering-os','${USER_ID}',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    VALUES ('${COMPANY_ID}','Avion','engineering-os','${USER_ID}',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
   `);
 });
 
@@ -246,7 +246,7 @@ describe("v2 workflow dogfood smoke", () => {
         id: OUTCOME_ID,
         companyId: COMPANY_ID,
         title: "Dogfood V2 loop",
-        rawRequest: "Verify the V2 outcome-to-release loop using Engineering OS itself.",
+        rawRequest: "Verify the V2 outcome-to-release loop using Avion itself.",
         status: "proposed",
         successCriteria: JSON.stringify(["End-to-end smoke passes"]),
         constraints: JSON.stringify([]),
@@ -257,7 +257,7 @@ describe("v2 workflow dogfood smoke", () => {
       companyId: COMPANY_ID,
       outcomeId: OUTCOME_ID,
       title: "Dogfood V2 loop",
-      rawRequest: "Verify the V2 outcome-to-release loop using Engineering OS itself.",
+      rawRequest: "Verify the V2 outcome-to-release loop using Avion itself.",
       brief: null,
       businessValue: null,
       successCriteria: ["End-to-end smoke passes"],

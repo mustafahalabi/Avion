@@ -16,7 +16,7 @@ const CATEGORY_CONFIG: Record<
 > = {
   company: {
     label: "Company",
-    color: "bg-violet-950/50 border-violet-900/50 text-violet-400",
+    color: "bg-neutral-950/50 border-neutral-900/50 text-neutral-400",
     icon: "C",
   },
   architecture: {
@@ -71,7 +71,7 @@ const CATEGORY_CONFIG: Record<
   },
   qa: {
     label: "QA",
-    color: "bg-purple-950/50 border-purple-900/50 text-purple-400",
+    color: "bg-neutral-950/50 border-neutral-900/50 text-neutral-400",
     icon: "Q",
   },
   release: {
@@ -136,7 +136,7 @@ export default async function MemoryDetailPage({ params }: Props) {
         </h1>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-3xl">
+      <div className="flex flex-col gap-8 p-6">
         {/* Header */}
         <section className="flex items-start gap-4">
           <div

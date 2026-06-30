@@ -5,6 +5,7 @@ import { ArrowLeft, Building2, CheckCircle2, AlertCircle, Clock, Circle } from "
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ChatInput } from "./chat-input";
+import { ChatScrollAnchor } from "./chat-scroll-anchor";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -12,11 +13,11 @@ interface Props {
 
 const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; icon: React.ElementType }> = {
   intake: { label: "Intake", color: "text-blue-400", icon: Circle },
-  planning: { label: "Planning", color: "text-violet-400", icon: Clock },
+  planning: { label: "Planning", color: "text-neutral-400", icon: Clock },
   awaiting_approval: { label: "Awaiting Approval", color: "text-amber-400", icon: AlertCircle },
   executing: { label: "Executing", color: "text-emerald-400", icon: Clock },
   in_review: { label: "In Review", color: "text-amber-400", icon: Clock },
-  in_qa: { label: "In QA", color: "text-purple-400", icon: Clock },
+  in_qa: { label: "In QA", color: "text-neutral-400", icon: Clock },
   complete: { label: "Complete", color: "text-emerald-400", icon: CheckCircle2 },
   blocked: { label: "Blocked", color: "text-red-400", icon: AlertCircle },
   cancelled: { label: "Cancelled", color: "text-neutral-500", icon: Circle },
@@ -78,7 +79,7 @@ export default async function ChatThreadPage({ params }: Props) {
       {/* Message thread */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
         {isEmpty ? (
-          <div className="flex flex-col items-center gap-3 pt-10 text-center">
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 pt-10 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900 border border-neutral-800">
               <Building2 className="h-5 w-5 text-neutral-500" />
             </div>
@@ -93,7 +94,7 @@ export default async function ChatThreadPage({ params }: Props) {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-4 max-w-2xl">
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
             {conv.messages.map((msg) => (
               <div
                 key={msg.id}
@@ -146,13 +147,16 @@ export default async function ChatThreadPage({ params }: Props) {
                 </div>
               </div>
             ))}
+            <ChatScrollAnchor count={conv.messages.length} />
           </div>
         )}
       </div>
 
       {/* Input */}
       <div className="shrink-0 border-t border-neutral-800 px-6 py-4">
-        <ChatInput conversationId={id} />
+        <div className="mx-auto w-full max-w-2xl">
+          <ChatInput conversationId={id} />
+        </div>
       </div>
     </div>
   );

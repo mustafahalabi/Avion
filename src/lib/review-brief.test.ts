@@ -234,7 +234,7 @@ describe("generateReviewBrief", () => {
     expect(brief).toContain("**Do NOT** approve changes with failing validation");
   });
 
-  it("instructs the reviewer to record a decision in Engineering OS", () => {
+  it("instructs the reviewer to record a decision in Avion", () => {
     const brief = generateReviewBrief(FULL_INPUT);
     expect(brief).toContain("Record Review Result");
   });

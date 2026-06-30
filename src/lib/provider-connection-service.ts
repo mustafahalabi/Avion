@@ -7,7 +7,6 @@ import type { ProviderConnection } from "@/generated/prisma/client";
 export const PROVIDER_CONNECTION_PROVIDERS = [
   "github",
   "linear",
-  "vercel",
 ] as const;
 
 export const PROVIDER_CONNECTION_TYPES = [

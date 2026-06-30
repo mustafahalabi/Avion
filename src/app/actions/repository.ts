@@ -4,6 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { redirect } from "next/navigation";
+import { createRepositoryRecord, csvToArray } from "@/lib/repository-write";
+import { getGitHubConnectionStatus } from "@/lib/github-connection-service";
+import {
+  cloneRepositoryToTempDir,
+  type RepositoryCloneResult,
+} from "@/lib/repository-clone";
 
 const addRepositorySchema = z.object({
   name: z.string().min(1).max(200).trim(),
@@ -14,6 +20,8 @@ const addRepositorySchema = z.object({
   frameworks: z.string().max(2000).trim().optional(),
   dependencies: z.string().max(5000).trim().optional(),
   importantFiles: z.string().max(2000).trim().optional(),
+  // Optional target workspace; defaults to the company's default workspace.
+  workspaceId: z.string().trim().optional().or(z.literal("")),
 });
 
 export type AddRepositoryState =
@@ -36,15 +44,6 @@ export type RepositoryAnalysisActionState =
       impact?: unknown;
     }
   | undefined;
-
-function csvToJson(input: string | undefined): string {
-  if (!input?.trim()) return "[]";
-  const items = input
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return JSON.stringify(items);
-}
 
 async function getCurrentCompany() {
   const user = await getCurrentUser();
@@ -72,6 +71,7 @@ export async function addRepository(
     frameworks: formData.get("frameworks") || undefined,
     dependencies: formData.get("dependencies") || undefined,
     importantFiles: formData.get("importantFiles") || undefined,
+    workspaceId: formData.get("workspaceId") || undefined,
   });
 
   if (!parsed.success) {
@@ -80,33 +80,21 @@ export async function addRepository(
 
   const company = await prisma.company.findFirst({
     where: { ownerId: user.id },
-    include: { workspaces: { select: { id: true } } },
+    select: { id: true },
   });
   if (!company) return { message: "No company found." };
 
-  let workspaceId: string;
-  if (company.workspaces.length > 0) {
-    workspaceId = company.workspaces[0].id;
-  } else {
-    const workspace = await prisma.workspace.create({
-      data: { companyId: company.id, name: "Default", slug: "default" },
-    });
-    workspaceId = workspace.id;
-  }
-
-  const repo = await prisma.repository.create({
-    data: {
-      workspaceId,
-      name: parsed.data.name,
-      url: parsed.data.url || null,
-      description: parsed.data.description,
-      primaryLanguage: parsed.data.primaryLanguage,
-      techStack: csvToJson(parsed.data.techStack),
-      frameworks: csvToJson(parsed.data.frameworks),
-      dependencies: csvToJson(parsed.data.dependencies),
-      importantFiles: csvToJson(parsed.data.importantFiles),
-      analysisStatus: "pending",
-    },
+  const repo = await createRepositoryRecord({
+    companyId: company.id,
+    name: parsed.data.name,
+    workspaceId: parsed.data.workspaceId || null,
+    url: parsed.data.url || null,
+    description: parsed.data.description,
+    primaryLanguage: parsed.data.primaryLanguage,
+    techStack: csvToArray(parsed.data.techStack),
+    frameworks: csvToArray(parsed.data.frameworks),
+    dependencies: csvToArray(parsed.data.dependencies),
+    importantFiles: csvToArray(parsed.data.importantFiles),
   });
 
   redirect(`/work/repositories/${repo.id}`);
@@ -138,6 +126,73 @@ export async function analyzeRepository(
     snapshotId: snapshot.id,
     status: snapshot.status,
   };
+}
+
+/**
+ * Analyzes a repository straight from its GitHub URL — no local path required.
+ *
+ * Clones the repository (using the company's stored GitHub token for private
+ * repos) into a temp directory, runs the analyzer against that checkout, then
+ * deletes it. Clone failures are recorded on the repository so they surface in
+ * the same "analysis notes" area as analyzer failures.
+ */
+export async function analyzeRepositoryFromGitHub(
+  _prev: RepositoryAnalysisActionState,
+  formData: FormData,
+): Promise<RepositoryAnalysisActionState> {
+  const company = await getCurrentCompany();
+  if (!company) return { message: "No company found." };
+
+  const repositoryId = String(formData.get("repositoryId") ?? "");
+  if (!repositoryId) return { message: "Repository id is required." };
+
+  const repository = await prisma.repository.findFirst({
+    where: { id: repositoryId, workspace: { companyId: company.id } },
+    select: { id: true, url: true },
+  });
+  if (!repository) return { message: "Repository not found." };
+  if (!repository.url) {
+    return {
+      message: "This repository has no URL. Add a GitHub URL before analyzing.",
+    };
+  }
+
+  const status = await getGitHubConnectionStatus(company.id);
+  const token = status.raw?.tokens.accessToken ?? null;
+
+  let clone: RepositoryCloneResult | null = null;
+  try {
+    clone = await cloneRepositoryToTempDir({ url: repository.url, token });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to clone repository.";
+    await prisma.repository.update({
+      where: { id: repositoryId },
+      data: { analysisStatus: "failed", analysisNotes: message },
+    });
+    return { message, status: "failed" };
+  }
+
+  try {
+    const { createRepositoryAnalysisSnapshot } = await import(
+      "@/lib/repository-snapshot-service"
+    );
+    const snapshot = await createRepositoryAnalysisSnapshot({
+      repositoryId,
+      companyId: company.id,
+      localPath: clone.path,
+    });
+    return {
+      message:
+        snapshot.status === "failed"
+          ? snapshot.error ?? "Repository analysis failed."
+          : "Repository analysis complete.",
+      snapshotId: snapshot.id,
+      status: snapshot.status,
+    };
+  } finally {
+    clone.cleanup();
+  }
 }
 
 export async function compareLatestRepositorySnapshots(

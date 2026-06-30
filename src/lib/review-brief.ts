@@ -231,7 +231,7 @@ function buildReviewDecisionSection(): string {
   return [
     "## Review Decision Required",
     "",
-    "You **must** record one of the following decisions in Engineering OS after completing your review.",
+    "You **must** record one of the following decisions in Avion after completing your review.",
     "",
     "---",
     "",
@@ -270,7 +270,7 @@ function buildReviewerInstructionsSection(): string {
     "- **Do NOT** approve changes with failing validation output.",
     "- **Do NOT** approve changes containing placeholder or fake behavior.",
     "- **Do NOT** request changes for style issues unrelated to correctness.",
-    "- Your decision will be recorded in Engineering OS and must be truthful.",
+    "- Your decision will be recorded in Avion and must be truthful.",
     "- Record your decision using the **Record Review Result** form on the task page.",
   ].join("\n");
 }

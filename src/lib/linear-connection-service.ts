@@ -34,6 +34,8 @@ export interface RecordLinearConnectionInput {
   connectionType: LinearConnectionType;
   /** OAuth access token or personal API key */
   accessToken: string;
+  /** OAuth refresh token (Linear tokens expire ~24h and are refreshable) */
+  refreshToken?: string;
   tokenExpiresAt?: Date | null;
   refreshAvailable?: boolean;
   /** Scopes granted by the provider (empty for manual API keys) */
@@ -74,6 +76,7 @@ export async function recordLinearConnection(
   input: RecordLinearConnectionInput
 ): Promise<ProviderConnectionWithTokens> {
   const tokens: Record<string, string> = { accessToken: input.accessToken };
+  if (input.refreshToken) tokens.refreshToken = input.refreshToken;
   if (input.defaultTeamId) tokens.defaultTeamId = input.defaultTeamId;
 
   return upsertProviderConnection({

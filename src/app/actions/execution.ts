@@ -141,7 +141,7 @@ export async function generateTaskBrief(
 }
 
 /**
- * Records the result of an external agent execution run back into Engineering OS.
+ * Records the result of an external agent execution run back into Avion.
  *
  * The session transitions to the reported status; completed sessions move the
  * linked task to "in-review". Failed or needs-clarification sessions leave the

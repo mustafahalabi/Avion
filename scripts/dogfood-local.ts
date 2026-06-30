@@ -95,7 +95,7 @@ function buildOrigin(): string {
 }
 
 async function main(): Promise<void> {
-  console.log("\n🐕 Engineering OS — Local Self-Driving Dogfood\n" + "─".repeat(54));
+  console.log("\n🐕 Avion — Local Self-Driving Dogfood\n" + "─".repeat(54));
 
   step("Setup: temp DB (real schema) + local git origin");
   buildSchema();

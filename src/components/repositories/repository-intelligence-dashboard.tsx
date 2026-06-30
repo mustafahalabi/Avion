@@ -100,11 +100,7 @@ export function RepositoryIntelligenceDashboard({
             <EmptyLine>No top-level directories captured.</EmptyLine>
           )}
           {Object.keys(intelligence.fileTree.byExtension).length > 0 && (
-            <EvidenceList
-              items={Object.entries(intelligence.fileTree.byExtension).map(
-                ([extension, count]) => `${extension}: ${count}`
-              )}
-            />
+            <FileTypeBreakdown byExtension={intelligence.fileTree.byExtension} />
           )}
           {intelligence.fileTree.importantPaths.length > 0 && (
             <EvidenceList
@@ -305,6 +301,34 @@ function EvidenceList({
           >
             {item}
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FileTypeBreakdown({
+  byExtension,
+}: {
+  byExtension: Record<string, number>;
+}) {
+  const entries = Object.entries(byExtension).sort((a, b) => b[1] - a[1]);
+  return (
+    <div className="mt-3">
+      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-600">
+        Files by type
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {entries.map(([extension, count]) => (
+          <span
+            key={extension}
+            className="inline-flex items-center gap-1.5 rounded-md border border-neutral-800 bg-neutral-950 py-1 pl-2 pr-1"
+          >
+            <span className="font-mono text-xs text-neutral-300">{extension}</span>
+            <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-neutral-400">
+              {count}
+            </span>
+          </span>
         ))}
       </div>
     </div>

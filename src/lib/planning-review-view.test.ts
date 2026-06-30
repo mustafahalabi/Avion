@@ -15,7 +15,7 @@ const BASE_DRAFT: PlanningReviewDraftInput = {
   version: 1,
   scope: JSON.stringify(["Build repository analyzer", "Expose dashboard"]),
   nonScope: JSON.stringify(["No autonomous execution"]),
-  assumptions: JSON.stringify(["Engineering OS repo is available locally"]),
+  assumptions: JSON.stringify(["Avion repo is available locally"]),
   risks: JSON.stringify([
     {
       id: "risk-1",
