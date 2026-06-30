@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { loadLivePipeline } from "@/lib/live-pipeline-data";
-import { LiveBoard } from "@/components/live/live-board";
+import { LiveFlowBoard } from "@/components/live/live-flow-board";
 
 // Render a fresh snapshot on every load; the board then streams its own updates
 // over SSE (`/api/work/live/stream`) and updates in place — no full-page polling.
@@ -21,5 +21,5 @@ export default async function LivePage() {
 
   const initial = await loadLivePipeline(company.id);
 
-  return <LiveBoard initial={initial} />;
+  return <LiveFlowBoard initial={initial} />;
 }

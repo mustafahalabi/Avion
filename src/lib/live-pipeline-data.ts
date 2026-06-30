@@ -80,6 +80,10 @@ export async function loadLivePipeline(
       feature: {
         select: { title: true, project: { select: { name: true } } },
       },
+      // The outcome a task belongs to is its "workflow" on the Live graph —
+      // directly for hand-seeded tasks, or via its plan for AI-planned ones.
+      outcome: { select: { id: true, title: true } },
+      planningDraft: { select: { outcome: { select: { id: true, title: true } } } },
     },
     orderBy: { updatedAt: "desc" },
   });
@@ -142,6 +146,7 @@ export async function loadLivePipeline(
     const qa = qaByTask.get(t.id);
     const context =
       t.project?.name ?? t.feature?.project?.name ?? t.feature?.title ?? null;
+    const workflow = t.outcome ?? t.planningDraft?.outcome ?? null;
 
     return {
       id: t.id,
@@ -150,6 +155,8 @@ export async function loadLivePipeline(
       href: `/work/tasks/${t.id}`,
       updatedAt: t.updatedAt,
       context,
+      workflowId: workflow?.id ?? null,
+      workflowTitle: workflow?.title ?? null,
       assigneeName: t.assignee?.name ?? null,
       taskStatus: t.status,
       sessionStatus: session?.status ?? null,
@@ -174,6 +181,8 @@ export async function loadLivePipeline(
     updatedAt: p.updatedAt,
     context: p.outcomeTitle,
     planStatus: p.status,
+    workflowId: p.outcomeId,
+    workflowTitle: p.outcomeTitle,
   }));
 
   const board = buildLifecycleBoard([...planInputs, ...taskInputs], { doneLimit });

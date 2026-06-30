@@ -90,6 +90,11 @@ export interface WorkItemInput {
 
   // ── Plan-derived ──
   readonly planStatus?: string | null;
+
+  // ── Workflow grouping ──
+  /** The outcome/plan this item belongs to (the "workflow" it's part of). */
+  readonly workflowId?: string | null;
+  readonly workflowTitle?: string | null;
 }
 
 /**
@@ -115,6 +120,9 @@ export interface WorkItemView {
   readonly prNumber: number | null;
   readonly prUrl: string | null;
   readonly updatedAt: Date;
+  /** The outcome/plan this item belongs to (the "workflow" it's part of). */
+  readonly workflowId: string | null;
+  readonly workflowTitle: string | null;
 }
 
 export interface LifecycleColumn {
@@ -319,6 +327,8 @@ export function buildWorkItemView(input: WorkItemInput): WorkItemView {
     prNumber: input.prNumber ?? null,
     prUrl: input.prUrl ?? null,
     updatedAt: input.updatedAt,
+    workflowId: input.workflowId ?? null,
+    workflowTitle: input.workflowTitle ?? null,
   };
 }
 

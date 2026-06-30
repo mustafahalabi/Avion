@@ -4,6 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import {
+  ACTIVE_WORKSPACE_COOKIE,
+  ACTIVE_WORKSPACE_COOKIE_MAX_AGE,
+} from "@/lib/active-workspace-constants";
 import { createRepositoryRecord, csvToArray } from "@/lib/repository-write";
 import { getGitHubConnectionStatus } from "@/lib/github-connection-service";
 import {
@@ -96,6 +101,22 @@ export async function addRepository(
     dependencies: csvToArray(parsed.data.dependencies),
     importantFiles: csvToArray(parsed.data.importantFiles),
   });
+
+  // Select the new repo's workspace (so the sidebar switcher reflects it) and
+  // navigate straight to the repo inside its workspace.
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: repo.workspaceId },
+    select: { slug: true },
+  });
+  if (workspace) {
+    const store = await cookies();
+    store.set(ACTIVE_WORKSPACE_COOKIE, repo.workspaceId, {
+      path: "/",
+      maxAge: ACTIVE_WORKSPACE_COOKIE_MAX_AGE,
+      sameSite: "lax",
+    });
+    redirect(`/w/${workspace.slug}/repositories/${repo.id}`);
+  }
 
   redirect(`/work/repositories/${repo.id}`);
 }
