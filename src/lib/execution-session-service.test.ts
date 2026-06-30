@@ -1,128 +1,38 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { rmSync } from "node:fs";
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as ServiceModule from "./execution-session-service";
+import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
 
 // ─── Test Database Setup ──────────────────────────────────────────────────────
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let service: typeof ServiceModule;
 
 beforeAll(async () => {
-  dbPath = join(
-    tmpdir(),
-    `execution-session-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
-
-  const prismaModule = await import("./prisma");
-  prisma = prismaModule.prisma;
+  ({ prisma, schema } = await setupTestSchema("execution-session-service"));
   service = await import("./execution-session-service");
 
-  // Bootstrap minimal schema
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "User" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "email" TEXT NOT NULL,
-      "role" TEXT NOT NULL DEFAULT 'member',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Company" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "slug" TEXT NOT NULL,
-      "ownerId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "Company_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "Company_slug_key" ON "Company"("slug")`
-  );
-
-  // Minimal Task table (subset of fields used in FK checks)
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Task" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "title" TEXT NOT NULL,
-      "companyId" TEXT NOT NULL,
-      "status" TEXT NOT NULL DEFAULT 'todo',
-      "priority" TEXT NOT NULL DEFAULT 'medium',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "Task_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "Task_companyId_id_key" ON "Task"("companyId", "id")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "ExecutionSession" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "taskId" TEXT,
-      "projectId" TEXT,
-      "repositoryId" TEXT,
-      "employeeId" TEXT,
-      "planningDraftId" TEXT,
-      "agentType" TEXT NOT NULL DEFAULT 'claude_code',
-      "status" TEXT NOT NULL DEFAULT 'queued',
-      "taskBrief" TEXT,
-      "resultSummary" TEXT,
-      "filesChanged" TEXT NOT NULL DEFAULT '[]',
-      "validationOutput" TEXT,
-      "errorMessage" TEXT,
-      "branchName" TEXT,
-      "baseBranch" TEXT,
-      "commitSha" TEXT,
-      "prUrl" TEXT,
-      "prNumber" INTEGER,
-      "prStatus" TEXT,
-      "mergeStatus" TEXT,
-      "startedAt" DATETIME,
-      "completedAt" DATETIME,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "ExecutionSession_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS "ExecutionSession_companyId_status_idx" ON "ExecutionSession"("companyId", "status")`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS "ExecutionSession_companyId_taskId_idx" ON "ExecutionSession"("companyId", "taskId")`
-  );
-
-  // Seed
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "User" ("id","email","role","createdAt","updatedAt")
-    VALUES ('user-1','owner@example.com','admin',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-1','Acme','acme','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-2','Other Corp','other','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Task" ("id","title","companyId","createdAt","updatedAt")
-    VALUES ('task-1','Implement feature X','company-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
+  // Postgres enforces foreign keys (unlike the old SQLite test tables), so seed
+  // parents before children: User → Company → Task.
+  await prisma.user.create({
+    data: { id: "user-1", email: "owner@example.com", role: "admin" },
+  });
+  await prisma.company.create({
+    data: { id: "company-1", name: "Acme", slug: "acme", ownerId: "user-1" },
+  });
+  await prisma.company.create({
+    data: { id: "company-2", name: "Other Corp", slug: "other", ownerId: "user-1" },
+  });
+  await prisma.task.create({
+    data: { id: "task-1", title: "Implement feature X", companyId: "company-1" },
+  });
+  // company-2 owns its own task. (Task.id is a global PK, so the two companies
+  // cannot share "task-1"; the composite (companyId, taskId) FK on
+  // ExecutionSession is enforced under Postgres, unlike the old SQLite tables.)
+  await prisma.task.create({
+    data: { id: "task-2", title: "Other company task", companyId: "company-2" },
+  });
 });
 
 afterEach(async () => {
@@ -133,10 +43,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try { rmSync(dbPath, { force: true }); } catch { /* ignore */ }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -274,9 +181,16 @@ describe("execution-session-service", () => {
     });
 
     it("enforces company ownership", async () => {
-      await service.createExecutionSession({ companyId: "company-2", taskId: "task-1" });
-      const results = await service.listExecutionSessionsForTask("company-1", "task-1");
-      expect(results).toHaveLength(0);
+      // company-1 owns task-1 (the composite FK binds a task to one company).
+      await service.createExecutionSession({ companyId: "company-1", taskId: "task-1" });
+      // company-2 asking for task-1 must get nothing — this assertion fails if
+      // listExecutionSessionsForTask ever drops the companyId filter (it would
+      // otherwise leak company-1's session), so company scoping stays load-bearing.
+      const leaked = await service.listExecutionSessionsForTask("company-2", "task-1");
+      expect(leaked).toHaveLength(0);
+      // …while company-1 still sees its own task-1 session.
+      const own = await service.listExecutionSessionsForTask("company-1", "task-1");
+      expect(own).toHaveLength(1);
     });
   });
 

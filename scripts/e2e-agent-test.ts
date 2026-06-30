@@ -100,8 +100,8 @@ async function main(): Promise<void> {
   console.log("\n🏗️  Avion — End-to-End Agent Execution Smoke Test\n");
 
   console.log("Step 1: Checking prerequisites...");
-  if (!process.env.DATABASE_URL && !process.env.ENGINEERING_OS_DATABASE_PATH) {
-    throw new Error("DATABASE_URL or ENGINEERING_OS_DATABASE_PATH not set");
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL not set");
   }
   if (!SANDBOX_REPO_ID) throw new Error("SANDBOX_REPO_ID not set");
   if (!COMPANY_ID) throw new Error("COMPANY_ID not set");

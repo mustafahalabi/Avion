@@ -29,9 +29,9 @@ export const WORKER_CONFIG: WorkerConfig = {
  * @throws Error when DATABASE_URL is missing.
  */
 export function validateConfig(): void {
-  if (!process.env.DATABASE_URL && !process.env.ENGINEERING_OS_DATABASE_PATH) {
+  if (!process.env.DATABASE_URL) {
     throw new Error(
-      "DATABASE_URL or ENGINEERING_OS_DATABASE_PATH must be set for the worker to connect to the database."
+      "DATABASE_URL must be set for the worker to connect to the PostgreSQL database."
     );
   }
 }

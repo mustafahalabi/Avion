@@ -1,76 +1,28 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { rmSync } from "node:fs";
 import type { prisma as PrismaSingleton } from "../prisma";
 import type * as MemoryWriteServiceModule from "./memory-write-service";
+import { setupTestSchema, teardownTestSchema } from "../test-utils/pg-test-db";
 
 // ─── Test Database Setup ──────────────────────────────────────────────────────
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let service: typeof MemoryWriteServiceModule;
 
 beforeAll(async () => {
-  dbPath = join(
-    tmpdir(),
-    `memory-write-service-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
-
-  const prismaModule = await import("../prisma");
-  prisma = prismaModule.prisma;
+  ({ prisma, schema } = await setupTestSchema("memory-write-service"));
   service = await import("./memory-write-service");
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Company" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "slug" TEXT NOT NULL,
-      "ownerId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Memory" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "summary" TEXT,
-      "category" TEXT NOT NULL DEFAULT 'company',
-      "ownerType" TEXT,
-      "ownerId" TEXT,
-      "tags" TEXT NOT NULL DEFAULT '[]',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "Memory_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "MemoryRecord" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "memoryId" TEXT NOT NULL,
-      "content" TEXT NOT NULL,
-      "source" TEXT,
-      "confidence" REAL NOT NULL DEFAULT 1.0,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "MemoryRecord_memoryId_fkey" FOREIGN KEY ("memoryId") REFERENCES "Memory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-1','Acme','acme','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-2','Other','other','user-2',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
+  // The owner User is required by the Company.ownerId foreign key (Postgres
+  // enforces FKs, unlike the old SQLite test tables).
+  await prisma.user.create({ data: { id: "user-1", email: "owner1@acme.test" } });
+  await prisma.user.create({ data: { id: "user-2", email: "owner2@other.test" } });
+  await prisma.company.create({
+    data: { id: "company-1", name: "Acme", slug: "acme", ownerId: "user-1" },
+  });
+  await prisma.company.create({
+    data: { id: "company-2", name: "Other", slug: "other", ownerId: "user-2" },
+  });
 });
 
 afterEach(async () => {
@@ -79,14 +31,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try {
-    rmSync(dbPath, { force: true });
-  } catch {
-    /* ignore */
-  }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 // ─── Suite ────────────────────────────────────────────────────────────────────

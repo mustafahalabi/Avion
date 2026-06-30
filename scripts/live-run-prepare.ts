@@ -1,7 +1,8 @@
 /**
  * Live-run preparer (real GitHub + real Claude).
  *
- * Seeds dev.db with a company + your sandbox repository + a GitHub connection,
+ * Seeds the configured Postgres (DATABASE_URL) with a company + your sandbox
+ * repository + a GitHub connection,
  * then creates and prepares ONE execution session pointed at the sandbox. The
  * worker (`npm run worker`) then executes it for real: clones the sandbox, runs
  * `claude -p`, commits, pushes a branch, and opens a real PR.

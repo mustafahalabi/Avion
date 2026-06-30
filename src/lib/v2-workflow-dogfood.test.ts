@@ -1,12 +1,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { rmSync } from "node:fs";
 import type { prisma as PrismaSingleton } from "./prisma";
 import { generateDeterministicPlanningDraft } from "./planning-generator";
+import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let planApplicationService: typeof import("./plan-application-service");
 let executionService: typeof import("./execution-session-service");
 let reviewService: typeof import("./review-service");
@@ -16,201 +14,28 @@ const USER_ID = "user-1";
 const OUTCOME_ID = "outcome-dogfood";
 
 beforeAll(async () => {
-  dbPath = join(
-    tmpdir(),
-    `v2-dogfood-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
+  ({ prisma, schema } = await setupTestSchema("v2-workflow-dogfood"));
 
-  const prismaModule = await import("./prisma");
-  prisma = prismaModule.prisma;
   planApplicationService = await import("./plan-application-service");
   executionService = await import("./execution-session-service");
   reviewService = await import("./review-service");
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "User" (
-      "id" TEXT PRIMARY KEY, "email" TEXT NOT NULL, "role" TEXT DEFAULT 'member',
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX "User_email_key" ON "User"("email")`);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "Company" (
-      "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "slug" TEXT NOT NULL, "ownerId" TEXT NOT NULL,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX "Company_slug_key" ON "Company"("slug")`);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "Workspace" (
-      "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "slug" TEXT NOT NULL, "companyId" TEXT NOT NULL,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Workspace_companyId_slug_key" ON "Workspace"("companyId", "slug")`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Workspace_companyId_id_key" ON "Workspace"("companyId", "id")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "Outcome" (
-      "id" TEXT PRIMARY KEY, "companyId" TEXT NOT NULL, "runtimeRequestId" TEXT, "repositoryId" TEXT,
-      "title" TEXT NOT NULL, "rawRequest" TEXT DEFAULT '', "brief" TEXT, "businessValue" TEXT,
-      "successCriteria" TEXT DEFAULT '[]', "constraints" TEXT DEFAULT '[]',
-      "status" TEXT DEFAULT 'proposed', "priority" TEXT DEFAULT 'medium', "ownerRole" TEXT,
-      "failureReason" TEXT, "completedAt" DATETIME,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Outcome_companyId_id_key" ON "Outcome"("companyId", "id")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "PlanningDraft" (
-      "id" TEXT PRIMARY KEY, "companyId" TEXT NOT NULL, "outcomeId" TEXT NOT NULL,
-      "title" TEXT NOT NULL, "summary" TEXT, "status" TEXT DEFAULT 'draft', "version" INTEGER DEFAULT 1,
-      "scope" TEXT DEFAULT '[]', "nonScope" TEXT DEFAULT '[]', "assumptions" TEXT DEFAULT '[]',
-      "risks" TEXT DEFAULT '[]', "dependencies" TEXT DEFAULT '[]',
-      "recommendedAssignments" TEXT DEFAULT '[]', "generatedProjects" TEXT DEFAULT '[]',
-      "generatedFeatures" TEXT DEFAULT '[]', "generatedTasks" TEXT DEFAULT '[]',
-      "reviewPlan" TEXT DEFAULT '{}', "qaPlan" TEXT DEFAULT '{}', "releasePlan" TEXT DEFAULT '{}',
-      "approvalNotes" TEXT, "rejectionReason" TEXT, "generationError" TEXT, "applicationError" TEXT,
-      "approvedAt" DATETIME, "approvedById" TEXT, "rejectedAt" DATETIME, "rejectedById" TEXT,
-      "appliedAt" DATETIME, "appliedById" TEXT,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "PlanningDraft_companyId_outcomeId_version_key" ON "PlanningDraft"("companyId", "outcomeId", "version")`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "PlanningDraft_companyId_id_key" ON "PlanningDraft"("companyId", "id")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "Project" (
-      "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "slug" TEXT NOT NULL, "companyId" TEXT NOT NULL,
-      "workspaceId" TEXT NOT NULL, "repositoryId" TEXT, "outcomeId" TEXT, "planningDraftId" TEXT, "planItemId" TEXT,
-      "description" TEXT, "status" TEXT DEFAULT 'active', "startDate" DATETIME, "endDate" DATETIME,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Project_companyId_id_key" ON "Project"("companyId", "id")`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Project_planningDraftId_planItemId_key" ON "Project"("planningDraftId", "planItemId")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "Feature" (
-      "id" TEXT PRIMARY KEY, "title" TEXT NOT NULL, "description" TEXT, "companyId" TEXT NOT NULL,
-      "projectId" TEXT NOT NULL, "outcomeId" TEXT, "planningDraftId" TEXT, "planItemId" TEXT,
-      "status" TEXT DEFAULT 'planned', "priority" TEXT DEFAULT 'medium',
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Feature_companyId_id_key" ON "Feature"("companyId", "id")`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Feature_planningDraftId_planItemId_key" ON "Feature"("planningDraftId", "planItemId")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "Task" (
-      "id" TEXT PRIMARY KEY, "title" TEXT NOT NULL, "description" TEXT, "companyId" TEXT NOT NULL,
-      "projectId" TEXT, "featureId" TEXT, "sprintId" TEXT, "assigneeId" TEXT,
-      "outcomeId" TEXT, "planningDraftId" TEXT, "planItemId" TEXT,
-      "status" TEXT DEFAULT 'todo', "priority" TEXT DEFAULT 'medium', "estimate" REAL,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Task_companyId_id_key" ON "Task"("companyId", "id")`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX "Task_planningDraftId_planItemId_key" ON "Task"("planningDraftId", "planItemId")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "ExecutionSession" (
-      "id" TEXT PRIMARY KEY, "companyId" TEXT NOT NULL, "taskId" TEXT, "projectId" TEXT,
-      "repositoryId" TEXT, "employeeId" TEXT, "planningDraftId" TEXT,
-      "agentType" TEXT DEFAULT 'claude_code', "status" TEXT DEFAULT 'queued',
-      "taskBrief" TEXT, "resultSummary" TEXT, "filesChanged" TEXT DEFAULT '[]',
-      "validationOutput" TEXT, "errorMessage" TEXT,
-      "branchName" TEXT, "baseBranch" TEXT, "commitSha" TEXT, "prUrl" TEXT,
-      "prNumber" INTEGER, "prStatus" TEXT, "mergeStatus" TEXT,
-      "startedAt" DATETIME, "completedAt" DATETIME,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "Review" (
-      "id" TEXT PRIMARY KEY, "companyId" TEXT NOT NULL, "title" TEXT NOT NULL,
-      "entityType" TEXT DEFAULT 'task', "entityId" TEXT NOT NULL, "reviewerId" TEXT,
-      "outcomeId" TEXT, "planningDraftId" TEXT, "planItemId" TEXT,
-      "status" TEXT DEFAULT 'pending', "verdict" TEXT, "notes" TEXT,
-      "changeRequestNotes" TEXT, "findings" TEXT DEFAULT '[]',
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "ChangeRequest" (
-      "id" TEXT PRIMARY KEY, "reviewId" TEXT NOT NULL, "reason" TEXT NOT NULL,
-      "requestedBy" TEXT, "resolution" TEXT, "resolved" INTEGER DEFAULT 0,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "QAResult" (
-      "id" TEXT PRIMARY KEY, "companyId" TEXT NOT NULL, "entityType" TEXT DEFAULT 'task',
-      "entityId" TEXT NOT NULL, "outcomeId" TEXT, "planningDraftId" TEXT, "planItemId" TEXT,
-      "status" TEXT DEFAULT 'pending', "passedCount" INTEGER DEFAULT 0, "failedCount" INTEGER DEFAULT 0,
-      "notes" TEXT, "checks" TEXT DEFAULT '[]',
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "Release" (
-      "id" TEXT PRIMARY KEY, "companyId" TEXT NOT NULL, "outcomeId" TEXT,
-      "planningDraftId" TEXT, "planItemId" TEXT, "version" TEXT NOT NULL,
-      "title" TEXT, "description" TEXT, "releaseNotes" TEXT,
-      "status" TEXT DEFAULT 'draft', "deploymentStatus" TEXT DEFAULT 'not_started',
-      "checklist" TEXT DEFAULT '[]', "taskIds" TEXT DEFAULT '[]',
-      "rollbackPlan" TEXT, "postReleaseNotes" TEXT, "releasedAt" DATETIME,
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE "TimelineEntry" (
-      "id" TEXT PRIMARY KEY, "entityType" TEXT NOT NULL, "entityId" TEXT NOT NULL,
-      "eventType" TEXT NOT NULL, "summary" TEXT, "actorId" TEXT, "metadata" TEXT DEFAULT '{}',
-      "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "User" ("id","email","role","createdAt","updatedAt")
-    VALUES ('${USER_ID}','ceo@example.com','admin',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('${COMPANY_ID}','Avion','engineering-os','${USER_ID}',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
+  // Postgres enforces foreign keys (unlike the old hand-written SQLite tables),
+  // so the owner User and Company must exist before any company-scoped row.
+  // Everything else (Workspace via ensureDefaultWorkspace, Outcome, PlanningDraft,
+  // Project/Feature/Task, ExecutionSession, Review, QAResult, Release) is created
+  // by the test body and the services under test.
+  await prisma.user.create({
+    data: { id: USER_ID, email: "ceo@example.com", role: "admin" },
+  });
+  await prisma.company.create({
+    data: {
+      id: COMPANY_ID,
+      name: "Avion",
+      slug: "engineering-os",
+      ownerId: USER_ID,
+    },
+  });
 });
 
 afterEach(async () => {
@@ -229,14 +54,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try {
-    rmSync(dbPath, { force: true });
-  } catch {
-    /* ignore */
-  }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 describe("v2 workflow dogfood smoke", () => {

@@ -13,10 +13,9 @@ const nextConfig: NextConfig = {
   // Pin the file-tracing root to this project so the standalone output traces
   // dependencies relative to the repo (avoids the multi-lockfile root guess).
   outputFileTracingRoot: path.join(process.cwd()),
-  // Keep the SQLite driver (and its native binding) external so it is required
-  // at runtime rather than bundled — the Electron build supplies an
-  // Electron-ABI build of better-sqlite3 next to the standalone server.
-  serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3"],
+  // Keep the PostgreSQL driver and its Prisma adapter external so they are
+  // required at runtime rather than bundled into the standalone server.
+  serverExternalPackages: ["pg", "@prisma/adapter-pg"],
   // Keep non-runtime files out of the standalone trace. This trims installer
   // size and avoids tracing the Electron build's own `build/` staging dir back
   // into itself. Secrets / dev databases are additionally pruned by

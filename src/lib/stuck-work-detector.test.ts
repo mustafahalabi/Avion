@@ -1,152 +1,49 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { rmSync } from "node:fs";
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as DetectorModule from "./stuck-work-detector";
+import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
 
 // ─── Test Database Setup ──────────────────────────────────────────────────────
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let detector: typeof DetectorModule;
 
 beforeAll(async () => {
-  dbPath = join(
-    tmpdir(),
-    `stuck-work-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
-
-  const prismaModule = await import("./prisma");
-  prisma = prismaModule.prisma;
+  ({ prisma, schema } = await setupTestSchema("stuck-work-detector"));
   detector = await import("./stuck-work-detector");
 
-  // User
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "User" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "email" TEXT NOT NULL,
-      "role" TEXT NOT NULL DEFAULT 'member',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")`);
-
-  // Company
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Company" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "slug" TEXT NOT NULL,
-      "ownerId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Company_slug_key" ON "Company"("slug")`);
-
-  // Task (minimal, full column set to avoid P2022)
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Task" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "title" TEXT NOT NULL,
-      "description" TEXT,
-      "companyId" TEXT NOT NULL,
-      "projectId" TEXT,
-      "featureId" TEXT,
-      "sprintId" TEXT,
-      "assigneeId" TEXT,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'todo',
-      "priority" TEXT NOT NULL DEFAULT 'medium',
-      "estimate" REAL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Task_companyId_id_key" ON "Task"("companyId", "id")`);
-
-  // ExecutionSession (minimal, full column set)
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "ExecutionSession" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "taskId" TEXT,
-      "projectId" TEXT,
-      "repositoryId" TEXT,
-      "employeeId" TEXT,
-      "planningDraftId" TEXT,
-      "agentType" TEXT NOT NULL DEFAULT 'claude_code',
-      "status" TEXT NOT NULL DEFAULT 'queued',
-      "taskBrief" TEXT,
-      "resultSummary" TEXT,
-      "filesChanged" TEXT NOT NULL DEFAULT '[]',
-      "validationOutput" TEXT,
-      "errorMessage" TEXT,
-      "startedAt" DATETIME,
-      "completedAt" DATETIME,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "ExecutionSession_companyId_status_idx" ON "ExecutionSession"("companyId", "status")`);
-
-  // PlanningDraft (minimal)
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "PlanningDraft" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "outcomeId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "summary" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'draft',
-      "version" INTEGER NOT NULL DEFAULT 1,
-      "scope" TEXT NOT NULL DEFAULT '[]',
-      "nonScope" TEXT NOT NULL DEFAULT '[]',
-      "assumptions" TEXT NOT NULL DEFAULT '[]',
-      "risks" TEXT NOT NULL DEFAULT '[]',
-      "dependencies" TEXT NOT NULL DEFAULT '[]',
-      "recommendedAssignments" TEXT NOT NULL DEFAULT '[]',
-      "generatedProjects" TEXT NOT NULL DEFAULT '[]',
-      "generatedFeatures" TEXT NOT NULL DEFAULT '[]',
-      "generatedTasks" TEXT NOT NULL DEFAULT '[]',
-      "reviewPlan" TEXT NOT NULL DEFAULT '{}',
-      "qaPlan" TEXT NOT NULL DEFAULT '{}',
-      "releasePlan" TEXT NOT NULL DEFAULT '{}',
-      "approvalNotes" TEXT,
-      "rejectionReason" TEXT,
-      "generationError" TEXT,
-      "applicationError" TEXT,
-      "approvedAt" DATETIME,
-      "approvedById" TEXT,
-      "rejectedAt" DATETIME,
-      "rejectedById" TEXT,
-      "appliedAt" DATETIME,
-      "appliedById" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "PlanningDraft_companyId_id_key" ON "PlanningDraft"("companyId", "id")`);
-
-  // Seed base data
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "User" ("id","email","role","createdAt","updatedAt")
-    VALUES ('user-1','owner@example.com','admin',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-1','Acme','acme','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-2','Other','other','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
+  // Postgres enforces foreign keys (the old SQLite tables had none), so parent
+  // rows must exist before any child rows the tests insert:
+  //   User ← Company.ownerId
+  //   Company ← (Task | ExecutionSession | PlanningDraft).companyId
+  //   Outcome ← PlanningDraft.outcomeId  (composite FK on [companyId, id])
+  // Outcome.id is a primary key, so each company needs its own outcome row.
+  await prisma.user.create({
+    data: { id: "user-1", email: "owner@example.com", role: "admin" },
+  });
+  await prisma.company.create({
+    data: { id: "company-1", name: "Acme", slug: "acme", ownerId: "user-1" },
+  });
+  await prisma.company.create({
+    data: { id: "company-2", name: "Other", slug: "other", ownerId: "user-1" },
+  });
+  await prisma.outcome.create({
+    data: {
+      id: "outcome-1",
+      companyId: "company-1",
+      title: "Outcome 1",
+      rawRequest: "build it",
+    },
+  });
+  await prisma.outcome.create({
+    data: {
+      id: "outcome-2",
+      companyId: "company-2",
+      title: "Outcome 2",
+      rawRequest: "build it",
+    },
+  });
 });
 
 afterEach(async () => {
@@ -156,10 +53,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try { rmSync(dbPath, { force: true }); } catch { /* ignore */ }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -217,18 +111,31 @@ async function insertSession(overrides: Record<string, unknown> = {}) {
   return id as string;
 }
 
+// PlanningDraft has @@unique([outcomeId, version]) (enforced by Postgres, unlike
+// the old SQLite table). Drafts that share an outcome must use distinct versions,
+// so each insert gets a fresh version. The detector ignores `version`.
+let draftVersionCounter = 0;
+
 async function insertDraft(overrides: Record<string, unknown> = {}) {
   const id = overrides.id ?? `draft-${Math.random().toString(16).slice(2)}`;
+  const companyId = (overrides.companyId as string) ?? "company-1";
+  // Each company has its own seeded Outcome (Outcome.id is a primary key, so
+  // company-2 cannot reuse company-1's outcome row).
+  const outcomeId =
+    (overrides.outcomeId as string) ??
+    (companyId === "company-2" ? "outcome-2" : "outcome-1");
+  const version = (overrides.version as number) ?? ++draftVersionCounter;
   const updatedAt = ((overrides.updatedAt as Date) ?? new Date()).toISOString();
   await prisma.$executeRawUnsafe(`
     INSERT INTO "PlanningDraft" (
-      "id","companyId","outcomeId","title","status","updatedAt"
+      "id","companyId","outcomeId","title","status","version","updatedAt"
     ) VALUES (
       '${id}',
-      '${(overrides.companyId as string) ?? "company-1"}',
-      '${(overrides.outcomeId as string) ?? "outcome-1"}',
+      '${companyId}',
+      '${outcomeId}',
       '${(overrides.title as string) ?? "Test Plan"}',
       '${(overrides.status as string) ?? "draft"}',
+      ${version},
       '${updatedAt}'
     )
   `);

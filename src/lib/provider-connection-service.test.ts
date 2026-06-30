@@ -1,112 +1,31 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { rmSync } from "node:fs";
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as ServiceModule from "./provider-connection-service";
+import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
 
 // ─── Test Database Setup ──────────────────────────────────────────────────────
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let service: typeof ServiceModule;
 
 beforeAll(async () => {
   process.env.CREDENTIALS_ENCRYPTION_KEY = "0".repeat(64);
-  dbPath = join(
-    tmpdir(),
-    `provider-connection-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
-
-  const prismaModule = await import("./prisma");
-  prisma = prismaModule.prisma;
+  ({ prisma, schema } = await setupTestSchema("provider-connection-service"));
   service = await import("./provider-connection-service");
 
-  // Minimal schema bootstrap
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "User" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "clerkId" TEXT,
-      "name" TEXT,
-      "email" TEXT NOT NULL,
-      "image" TEXT,
-      "role" TEXT NOT NULL DEFAULT 'member',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Company" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "slug" TEXT NOT NULL,
-      "ownerId" TEXT NOT NULL,
-      "logoUrl" TEXT,
-      "website" TEXT,
-      "industry" TEXT,
-      "description" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "Company_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "Company_slug_key" ON "Company"("slug")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "ProviderConnection" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "userId" TEXT,
-      "provider" TEXT NOT NULL,
-      "connectionType" TEXT NOT NULL DEFAULT 'oauth',
-      "status" TEXT NOT NULL DEFAULT 'disconnected',
-      "externalAccountId" TEXT,
-      "externalAccountName" TEXT,
-      "externalAccountEmail" TEXT,
-      "scopes" TEXT NOT NULL DEFAULT '[]',
-      "encryptedTokens" TEXT NOT NULL DEFAULT '{}',
-      "tokenExpiresAt" DATETIME,
-      "refreshAvailable" BOOLEAN NOT NULL DEFAULT false,
-      "errorCode" TEXT,
-      "errorMessage" TEXT,
-      "lastConnectedAt" DATETIME,
-      "disconnectedAt" DATETIME,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "ProviderConnection_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "ProviderConnection_companyId_provider_userId_key" ON "ProviderConnection"("companyId", "provider", "userId")`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS "ProviderConnection_companyId_provider_idx" ON "ProviderConnection"("companyId", "provider")`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS "ProviderConnection_companyId_status_idx" ON "ProviderConnection"("companyId", "status")`
-  );
-
-  // Seed companies used across tests
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "User" ("id","email","role","createdAt","updatedAt")
-    VALUES ('user-1','owner@example.com','admin',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-1','Acme Corp','acme','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-2','Other Corp','other','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
+  // The owner User is required by the Company.ownerId foreign key (Postgres
+  // enforces FKs, unlike the old SQLite test tables). Both companies seeded
+  // below are children of this user.
+  await prisma.user.create({
+    data: { id: "user-1", email: "owner@example.com", role: "admin" },
+  });
+  await prisma.company.create({
+    data: { id: "company-1", name: "Acme Corp", slug: "acme", ownerId: "user-1" },
+  });
+  await prisma.company.create({
+    data: { id: "company-2", name: "Other Corp", slug: "other", ownerId: "user-1" },
+  });
 });
 
 afterEach(async () => {
@@ -115,14 +34,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try {
-    rmSync(dbPath, { force: true });
-  } catch {
-    // ignore cleanup failures
-  }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 // ─── Suite ────────────────────────────────────────────────────────────────────

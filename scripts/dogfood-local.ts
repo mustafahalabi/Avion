@@ -20,23 +20,42 @@
  * Run: `npm run dogfood:local`
  */
 
-import Database from "better-sqlite3";
+import { Client } from "pg";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// ─── Isolated scratch space + temp DB (set BEFORE importing app modules) ───────
+// ─── Isolated scratch space + disposable DB schema (set BEFORE app imports) ─────
 
 const ROOT = process.cwd();
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), "eos-dogfood-"));
-const DB_PATH = path.join(WORK, "dogfood.db");
 const ORIGIN = path.join(WORK, "origin.git"); // bare "remote"
 const SEED_REPO = path.join(WORK, "seed");
 const WORKER_BASE = path.join(WORK, "worker-checkouts");
 
-process.env.ENGINEERING_OS_DATABASE_PATH = DB_PATH;
-process.env.DATABASE_URL = `file:${DB_PATH}`;
+// Run against a throwaway PostgreSQL schema on the configured database so the
+// dogfood never touches real data. Defaults to a local Docker Postgres; point
+// DOGFOOD_DATABASE_URL / DATABASE_URL at any reachable Postgres.
+const BASE_URL =
+  process.env.DOGFOOD_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  "postgresql://postgres:postgres@localhost:5433/avion";
+const SCHEMA = `dogfood_${Date.now()}`;
+
+function baseNoSchema(base: string): string {
+  const u = new URL(base);
+  u.searchParams.delete("schema");
+  return u.toString();
+}
+function urlWithSchema(base: string, schema: string): string {
+  const u = new URL(base);
+  u.searchParams.delete("schema");
+  u.searchParams.set("schema", schema);
+  return u.toString();
+}
+
+process.env.DATABASE_URL = urlWithSchema(BASE_URL, SCHEMA);
 
 const COMPANY_ID = "dogfood-co";
 
@@ -55,28 +74,52 @@ function git(args: string, cwd: string): string {
     .trim();
 }
 
-/** Clones the live dev.db schema into a fresh empty temp database. */
-function buildSchema(): void {
-  const devDb = path.join(ROOT, "prisma", "dev.db");
-  if (!fs.existsSync(devDb)) {
-    throw new Error(
-      `prisma/dev.db not found — run \`npx prisma migrate dev\` once to create it.`
-    );
+/** Concatenated DDL of every migration (sorted) — the full current schema. */
+function migrationDdl(): string {
+  const dir = path.join(ROOT, "prisma", "migrations");
+  const dirs = fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+  const parts: string[] = [];
+  for (const d of dirs) {
+    try {
+      parts.push(fs.readFileSync(path.join(dir, d, "migration.sql"), "utf8"));
+    } catch {
+      /* directory without a migration.sql — skip */
+    }
   }
-  const src = new Database(devDb, { readonly: true });
-  const ddl = src
-    .prepare(
-      `SELECT type, sql FROM sqlite_master
-       WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_prisma%'
-       ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END`
-    )
-    .all() as { type: string; sql: string }[];
-  src.close();
+  if (parts.length === 0) {
+    throw new Error(`No migration SQL found under ${dir}`);
+  }
+  return parts.join("\n");
+}
 
-  const dst = new Database(DB_PATH);
-  dst.exec("PRAGMA foreign_keys=OFF;");
-  for (const row of ddl) dst.exec(`${row.sql};`);
-  dst.close();
+/** Creates a disposable PostgreSQL schema and applies the real migration DDL. */
+async function buildSchema(): Promise<void> {
+  const admin = new Client({ connectionString: baseNoSchema(BASE_URL) });
+  await admin.connect();
+  try {
+    await admin.query(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
+    await admin.query(`CREATE SCHEMA "${SCHEMA}"`);
+    await admin.query(`SET search_path TO "${SCHEMA}"`);
+    await admin.query(migrationDdl());
+  } finally {
+    await admin.end();
+  }
+}
+
+/** Drops the disposable schema. Best-effort. */
+async function dropSchema(): Promise<void> {
+  try {
+    const admin = new Client({ connectionString: baseNoSchema(BASE_URL) });
+    await admin.connect();
+    await admin.query(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
+    await admin.end();
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Creates a bare "origin" repo with one seed commit on master. */
@@ -97,10 +140,10 @@ function buildOrigin(): string {
 async function main(): Promise<void> {
   console.log("\n🐕 Avion — Local Self-Driving Dogfood\n" + "─".repeat(54));
 
-  step("Setup: temp DB (real schema) + local git origin");
-  buildSchema();
+  step("Setup: disposable Postgres schema (real schema) + local git origin");
+  await buildSchema();
   const repoUrl = buildOrigin();
-  ok(`temp DB: ${DB_PATH}`);
+  ok(`disposable schema: ${SCHEMA} on ${baseNoSchema(BASE_URL)}`);
   ok(`origin (bare git): ${ORIGIN}`);
 
   // Import app modules AFTER env is set so prisma binds to the temp DB.
@@ -277,7 +320,8 @@ main()
     console.error("\n\x1b[31m✗ Dogfood failed:\x1b[0m", err instanceof Error ? err.message : err);
     process.exitCode = 1;
   })
-  .finally(() => {
+  .finally(async () => {
+    await dropSchema();
     try {
       fs.rmSync(WORK, { recursive: true, force: true });
     } catch {

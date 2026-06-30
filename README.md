@@ -20,7 +20,7 @@ Required variables:
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | SQLite connection string (e.g. `file:./dev.db`) |
+| `DATABASE_URL` | PostgreSQL connection string (e.g. `postgresql://postgres:postgres@localhost:5433/avion`) |
 | `CREDENTIALS_ENCRYPTION_KEY` | 64-char hex string for AES-256-GCM credential encryption — generate with `node -e "require('crypto').randomBytes(32).toString('hex')"` |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk publishable key from [dashboard.clerk.com](https://dashboard.clerk.com) |
 | `CLERK_SECRET_KEY` | Clerk secret key — **never commit this value** |
@@ -29,13 +29,32 @@ Required variables:
 | `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` | Redirect after sign-in (e.g. `/dashboard`) |
 | `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL` | Redirect after sign-up (e.g. `/onboarding`) |
 
-### 3. Initialise the database
+Optional:
+
+| Variable | Description |
+|---|---|
+| `TEST_DATABASE_URL` | Postgres the integration tests run against (falls back to `DATABASE_URL`). Each suite isolates into its own `?schema=…`. Point it at a **disposable** database. |
+
+### 3. Start PostgreSQL
+
+The app, worker, and driver all share one PostgreSQL database. For local
+development, start one with Docker:
 
 ```bash
-npx prisma migrate dev
+docker compose up -d db   # postgres:16 on localhost:5433 (matches .env.example)
 ```
 
-### 4. Run the development server
+Or point `DATABASE_URL` at any hosted Postgres (Neon, Supabase, RDS, …).
+
+### 4. Apply migrations
+
+```bash
+npx prisma migrate deploy   # apply the committed migrations to DATABASE_URL
+# (use `npx prisma migrate dev` only when changing the schema — it needs a
+#  database it can also create a shadow DB on, e.g. local Docker Postgres.)
+```
+
+### 5. Run the development server
 
 ```bash
 npm run dev
@@ -50,13 +69,19 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 ## Desktop app (Electron)
 
 Avion also runs as a native desktop app — the full Next.js application
-(UI, Server Actions, Prisma/SQLite, Clerk, and the autonomous worker/driver)
-packaged so users can launch it like any other app, no terminal required.
+(UI, Server Actions, Prisma, Clerk, and the autonomous worker/driver) packaged
+so users can launch it like any other app, no terminal required.
 
 ```bash
 npm run electron:dev    # develop: next dev + Electron together
 npm run dist            # build installers (dmg / nsis / AppImage) → release/
 ```
+
+> ⚠️ **Desktop packaging is deferred (MUS-247).** The desktop build previously
+> bundled a local **SQLite** file database. Now that the runtime uses hosted
+> PostgreSQL, the packaging needs reworking to connect to a `DATABASE_URL`
+> instead of seeding a local file DB — `npm run dist` will fail fast until that
+> follow-up lands. The web app (`npm run dev`) is the supported path.
 
 See [`docs/ELECTRON.md`](docs/ELECTRON.md) for the architecture, build steps,
 and caveats.

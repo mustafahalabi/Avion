@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * Builds the schema-only SQLite template that ships with the desktop app.
+ * ⚠️ DEFERRED (MUS-247: SQLite → hosted PostgreSQL).
  *
- * The app's Prisma client (better-sqlite3 driver adapter) opens the database
- * file directly and never runs migrations, so the file must already contain the
- * full schema. The repo's migration history is squashed (the `init` migration
- * is empty and later ones use SQLite table-rebuild SQL), so we materialise the
- * schema from `schema.prisma` via `prisma db push` against a throwaway file,
- * then copy the result to the build output.
+ * This script built the schema-only *SQLite* template that the Electron desktop
+ * app shipped and opened as a local file database. The runtime has migrated to
+ * hosted PostgreSQL (`provider = "postgresql"`), so a bundled file DB no longer
+ * applies: the desktop app must instead connect to a Postgres `DATABASE_URL`.
+ *
+ * Reworking the desktop packaging for a hosted DB (connection-string config,
+ * no offline file DB) is intentionally out of scope for the database migration.
+ * Until that follow-up lands, this script fails fast rather than silently
+ * producing a broken (or impossible) SQLite template under a Postgres schema.
  *
  * Usage: node scripts/build-db-template.mjs [outputPath]
- *   default outputPath: build/template.db
  */
 
 import { spawnSync } from "node:child_process";
@@ -18,6 +20,15 @@ import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+console.error(
+  "[template-db] DEFERRED: the SQLite desktop template is superseded by the " +
+    "hosted-Postgres migration (MUS-247). The Electron app must connect to a " +
+    "PostgreSQL DATABASE_URL; rework the desktop packaging before building it.\n" +
+    "See AGENTS.md / docs for the deferred-Electron follow-up."
+);
+process.exit(1);
+// eslint-disable-next-line no-unreachable
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");

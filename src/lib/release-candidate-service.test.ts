@@ -1,218 +1,112 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { rmSync } from "node:fs";
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as ReleaseCandidateServiceModule from "./release-candidate-service";
+import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let service: typeof ReleaseCandidateServiceModule;
 
 beforeAll(async () => {
-  dbPath = join(
-    tmpdir(),
-    `release-candidate-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
-
-  const prismaModule = await import("./prisma");
-  prisma = prismaModule.prisma;
+  ({ prisma, schema } = await setupTestSchema("release-candidate-service"));
   service = await import("./release-candidate-service");
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Company" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "slug" TEXT NOT NULL,
-      "ownerId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
+  // Seed parent rows first — Postgres enforces the foreign keys that the old
+  // hand-written SQLite tables did not.
+  await prisma.user.create({
+    data: { id: "user-1", email: "owner@acme.test" },
+  });
+  await prisma.company.create({
+    data: { id: "company-1", name: "Acme", slug: "acme", ownerId: "user-1" },
+  });
+  // Tasks/releases reference outcomeId via the (companyId, outcomeId) FK.
+  await prisma.outcome.create({
+    data: {
+      id: "outcome-1",
+      companyId: "company-1",
+      title: "Outcome 1",
+      rawRequest: "Build the thing",
+    },
+  });
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Task" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "title" TEXT NOT NULL,
-      "description" TEXT,
-      "companyId" TEXT NOT NULL,
-      "projectId" TEXT,
-      "featureId" TEXT,
-      "sprintId" TEXT,
-      "assigneeId" TEXT,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'todo',
-      "priority" TEXT NOT NULL DEFAULT 'medium',
-      "estimate" REAL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "Task_companyId_id_key" ON "Task"("companyId", "id")`
-  );
+  await prisma.task.create({
+    data: {
+      id: "task-eligible",
+      title: "Eligible task",
+      companyId: "company-1",
+      status: "done",
+      outcomeId: "outcome-1",
+    },
+  });
+  await prisma.task.create({
+    data: {
+      id: "task-inprogress",
+      title: "In progress task",
+      companyId: "company-1",
+      status: "in-progress",
+    },
+  });
+  await prisma.task.create({
+    data: {
+      id: "task-no-qa",
+      title: "Done without QA",
+      companyId: "company-1",
+      status: "done",
+    },
+  });
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Review" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "entityType" TEXT NOT NULL DEFAULT 'task',
-      "entityId" TEXT NOT NULL,
-      "reviewerId" TEXT,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'pending',
-      "verdict" TEXT,
-      "notes" TEXT,
-      "changeRequestNotes" TEXT,
-      "findings" TEXT NOT NULL DEFAULT '[]',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
+  await prisma.review.create({
+    data: {
+      id: "review-eligible",
+      companyId: "company-1",
+      title: "Review eligible",
+      entityType: "task",
+      entityId: "task-eligible",
+      status: "approved",
+      verdict: "approved",
+    },
+  });
+  await prisma.review.create({
+    data: {
+      id: "review-no-qa",
+      companyId: "company-1",
+      title: "Review no QA",
+      entityType: "task",
+      entityId: "task-no-qa",
+      status: "approved",
+      verdict: "approved",
+    },
+  });
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "ChangeRequest" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "reviewId" TEXT NOT NULL,
-      "reason" TEXT NOT NULL,
-      "requestedBy" TEXT,
-      "resolution" TEXT,
-      "resolved" INTEGER NOT NULL DEFAULT 0,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "ChangeRequest_reviewId_fkey" FOREIGN KEY ("reviewId") REFERENCES "Review" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  `);
+  await prisma.qAResult.create({
+    data: {
+      id: "qa-eligible",
+      companyId: "company-1",
+      entityType: "task",
+      entityId: "task-eligible",
+      status: "passed",
+      passedCount: 3,
+      failedCount: 0,
+      checks: "[]",
+    },
+  });
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "QAResult" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "entityType" TEXT NOT NULL DEFAULT 'task',
-      "entityId" TEXT NOT NULL,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'pending',
-      "passedCount" INTEGER NOT NULL DEFAULT 0,
-      "failedCount" INTEGER NOT NULL DEFAULT 0,
-      "notes" TEXT,
-      "checks" TEXT NOT NULL DEFAULT '[]',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "ExecutionSession" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "taskId" TEXT,
-      "projectId" TEXT,
-      "repositoryId" TEXT,
-      "employeeId" TEXT,
-      "planningDraftId" TEXT,
-      "agentType" TEXT NOT NULL DEFAULT 'claude_code',
-      "status" TEXT NOT NULL DEFAULT 'queued',
-      "taskBrief" TEXT,
-      "resultSummary" TEXT,
-      "filesChanged" TEXT NOT NULL DEFAULT '[]',
-      "validationOutput" TEXT,
-      "errorMessage" TEXT,
-      "branchName" TEXT,
-      "baseBranch" TEXT,
-      "commitSha" TEXT,
-      "prUrl" TEXT,
-      "prNumber" INTEGER,
-      "prStatus" TEXT,
-      "mergeStatus" TEXT,
-      "startedAt" DATETIME,
-      "completedAt" DATETIME,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Release" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "version" TEXT NOT NULL,
-      "title" TEXT,
-      "description" TEXT,
-      "releaseNotes" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'draft',
-      "deploymentStatus" TEXT NOT NULL DEFAULT 'not_started',
-      "checklist" TEXT NOT NULL DEFAULT '[]',
-      "taskIds" TEXT NOT NULL DEFAULT '[]',
-      "rollbackPlan" TEXT,
-      "postReleaseNotes" TEXT,
-      "releasedAt" DATETIME,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "TimelineEntry" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "entityType" TEXT NOT NULL,
-      "entityId" TEXT NOT NULL,
-      "eventType" TEXT NOT NULL,
-      "summary" TEXT,
-      "actorId" TEXT,
-      "metadata" TEXT NOT NULL DEFAULT '{}',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-1','Acme','acme','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Task" ("id","title","companyId","status","outcomeId","createdAt","updatedAt")
-    VALUES ('task-eligible','Eligible task','company-1','done','outcome-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Task" ("id","title","companyId","status","createdAt","updatedAt")
-    VALUES ('task-inprogress','In progress task','company-1','in-progress',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Task" ("id","title","companyId","status","createdAt","updatedAt")
-    VALUES ('task-no-qa','Done without QA','company-1','done',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Review" ("id","companyId","title","entityType","entityId","status","verdict","createdAt","updatedAt")
-    VALUES ('review-eligible','company-1','Review eligible','task','task-eligible','approved','approved',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Review" ("id","companyId","title","entityType","entityId","status","verdict","createdAt","updatedAt")
-    VALUES ('review-no-qa','company-1','Review no QA','task','task-no-qa','approved','approved',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "QAResult" ("id","companyId","entityType","entityId","status","passedCount","failedCount","checks","createdAt","updatedAt")
-    VALUES ('qa-eligible','company-1','task','task-eligible','passed',3,0,'[]',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "ExecutionSession" ("id","companyId","taskId","status","branchName","baseBranch","prUrl","prNumber","prStatus","validationOutput","filesChanged","completedAt","createdAt","updatedAt")
-    VALUES ('session-1','company-1','task-eligible','completed','feature/task-eligible','master','https://github.com/org/repo/pull/42',42,'open','482 tests passed','["src/a.ts"]',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
+  await prisma.executionSession.create({
+    data: {
+      id: "session-1",
+      companyId: "company-1",
+      taskId: "task-eligible",
+      status: "completed",
+      branchName: "feature/task-eligible",
+      baseBranch: "master",
+      prUrl: "https://github.com/org/repo/pull/42",
+      prNumber: 42,
+      prStatus: "open",
+      validationOutput: "482 tests passed",
+      filesChanged: '["src/a.ts"]',
+      completedAt: new Date(),
+    },
+  });
 });
 
 afterEach(async () => {
@@ -221,14 +115,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try {
-    rmSync(dbPath, { force: true });
-  } catch {
-    /* ignore */
-  }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 describe("release-candidate-service", () => {

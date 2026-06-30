@@ -21,7 +21,7 @@ const tempDirs: string[] = [];
 
 const ENGINEERING_OS_SCHEMA = `
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model User {

@@ -181,7 +181,9 @@ export function buildGeneratedWorkTraceData(
 }
 
 /**
- * Guards ownership for polymorphic work entity links that SQLite cannot express as foreign keys.
+ * Guards ownership for polymorphic work entity links (entityType + entityId)
+ * that can't be expressed as a single foreign key, so the database can't enforce
+ * the company scope for us.
  *
  * @param input - Company and linked entity ownership details.
  * @example

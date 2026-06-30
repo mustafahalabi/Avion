@@ -105,12 +105,10 @@ describe("validateConfig", () => {
     delete process.env.ENGINEERING_OS_DATABASE_PATH;
   });
 
-  it("throws when neither DATABASE_URL nor ENGINEERING_OS_DATABASE_PATH is set", async () => {
+  it("throws when DATABASE_URL is not set", async () => {
     const { validateConfig } = await loadConfig();
 
-    expect(() => validateConfig()).toThrow(
-      /DATABASE_URL or ENGINEERING_OS_DATABASE_PATH must be set/
-    );
+    expect(() => validateConfig()).toThrow(/DATABASE_URL must be set/);
   });
 
   it("passes when DATABASE_URL is set", async () => {
@@ -121,12 +119,12 @@ describe("validateConfig", () => {
     expect(() => validateConfig()).not.toThrow();
   });
 
-  it("passes when only ENGINEERING_OS_DATABASE_PATH is set", async () => {
+  it("throws when only ENGINEERING_OS_DATABASE_PATH is set (no longer a fallback)", async () => {
     process.env.ENGINEERING_OS_DATABASE_PATH = "/tmp/eos.db";
 
     const { validateConfig } = await loadConfig();
 
-    expect(() => validateConfig()).not.toThrow();
+    expect(() => validateConfig()).toThrow(/DATABASE_URL must be set/);
   });
 
   it("returns undefined (void) on success", async () => {

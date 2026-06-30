@@ -1,16 +1,21 @@
 "use strict";
 
 /**
- * First-run database provisioning.
+ * First-run database provisioning (SQLite desktop bundle).
  *
- * The app's Prisma client (better-sqlite3 driver adapter) opens the SQLite file
- * directly and does NOT run migrations. So the writable user database must
- * already contain the schema. We ship a schema-only `template.db` (built at
- * package time via `prisma db push`) and copy it into the per-user data
- * directory on first launch.
+ * ⚠️ DEFERRED (MUS-247: SQLite → hosted PostgreSQL). The runtime now uses
+ * hosted Postgres via DATABASE_URL, so the bundled file-DB model below no longer
+ * matches production. The desktop app needs reworking to connect to a Postgres
+ * connection string instead of seeding a local `template.db`; that packaging
+ * change is a tracked follow-up and intentionally out of scope for the DB
+ * migration. This module is left intact so the existing Electron code keeps
+ * importing, but the bundled-SQLite path is not used by the hosted app.
  *
- * Schema upgrades across app versions are intentionally out of scope here — the
- * existing user DB is left untouched once created. See docs/ELECTRON.md.
+ * The app's Prisma client opened the SQLite file directly and did NOT run
+ * migrations, so the writable user database had to already contain the schema.
+ * We shipped a schema-only `template.db` and copied it into the per-user data
+ * directory on first launch. Schema upgrades across versions were out of scope.
+ * See docs/ELECTRON.md.
  */
 
 const fs = require("node:fs");

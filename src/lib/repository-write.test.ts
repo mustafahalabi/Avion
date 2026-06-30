@@ -1,77 +1,27 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { rmSync } from "node:fs";
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as RepoWriteModule from "./repository-write";
+import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
 
 // ─── Test Database Setup ──────────────────────────────────────────────────────
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let repoWrite: typeof RepoWriteModule;
 
 beforeAll(async () => {
   process.env.CREDENTIALS_ENCRYPTION_KEY = "0".repeat(64);
-  dbPath = join(
-    tmpdir(),
-    `repository-write-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
-
-  const prismaModule = await import("./prisma");
-  prisma = prismaModule.prisma;
+  ({ prisma, schema } = await setupTestSchema("repository-write"));
   repoWrite = await import("./repository-write");
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Company" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "slug" TEXT NOT NULL,
-      "ownerId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Workspace" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "slug" TEXT NOT NULL,
-      "companyId" TEXT NOT NULL,
-      "description" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "Workspace_companyId_slug_key" ON "Workspace"("companyId","slug")`
-  );
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Repository" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "workspaceId" TEXT NOT NULL,
-      "name" TEXT NOT NULL,
-      "url" TEXT,
-      "description" TEXT,
-      "primaryLanguage" TEXT,
-      "techStack" TEXT NOT NULL DEFAULT '[]',
-      "frameworks" TEXT NOT NULL DEFAULT '[]',
-      "dependencies" TEXT NOT NULL DEFAULT '[]',
-      "importantFiles" TEXT NOT NULL DEFAULT '[]',
-      "fileCount" INTEGER,
-      "analysisStatus" TEXT NOT NULL DEFAULT 'pending',
-      "analysisNotes" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-1','Acme Corp','acme','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
+  // The owner User is required by the Company.ownerId foreign key (Postgres
+  // enforces FKs, unlike the old SQLite test tables).
+  await prisma.user.create({
+    data: { id: "user-1", email: "owner@acme.test" },
+  });
+  await prisma.company.create({
+    data: { id: "company-1", name: "Acme Corp", slug: "acme", ownerId: "user-1" },
+  });
 });
 
 beforeEach(async () => {
@@ -80,14 +30,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try {
-    rmSync(dbPath, { force: true });
-  } catch {
-    // ignore cleanup failures
-  }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 // ─── Suite ────────────────────────────────────────────────────────────────────

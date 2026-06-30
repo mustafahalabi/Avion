@@ -1,147 +1,51 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { rmSync } from "node:fs";
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as QaServiceModule from "./qa-service";
+import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
 
 // ─── Test Database Setup ──────────────────────────────────────────────────────
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let service: typeof QaServiceModule;
 
 beforeAll(async () => {
-  dbPath = join(
-    tmpdir(),
-    `qa-service-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
-
-  const prismaModule = await import("./prisma");
-  prisma = prismaModule.prisma;
+  ({ prisma, schema } = await setupTestSchema("qa-service"));
   service = await import("./qa-service");
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Company" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "name" TEXT NOT NULL,
-      "slug" TEXT NOT NULL,
-      "ownerId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Task" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "title" TEXT NOT NULL,
-      "description" TEXT,
-      "companyId" TEXT NOT NULL,
-      "projectId" TEXT,
-      "featureId" TEXT,
-      "sprintId" TEXT,
-      "assigneeId" TEXT,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'todo',
-      "priority" TEXT NOT NULL DEFAULT 'medium',
-      "estimate" REAL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "Task_companyId_id_key" ON "Task"("companyId", "id")`
-  );
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Review" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "entityType" TEXT NOT NULL DEFAULT 'task',
-      "entityId" TEXT NOT NULL,
-      "reviewerId" TEXT,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'pending',
-      "verdict" TEXT,
-      "notes" TEXT,
-      "changeRequestNotes" TEXT,
-      "findings" TEXT NOT NULL DEFAULT '[]',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "ChangeRequest" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "reviewId" TEXT NOT NULL,
-      "reason" TEXT NOT NULL,
-      "requestedBy" TEXT,
-      "resolution" TEXT,
-      "resolved" INTEGER NOT NULL DEFAULT 0,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "ChangeRequest_reviewId_fkey" FOREIGN KEY ("reviewId") REFERENCES "Review" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "QAResult" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "entityType" TEXT NOT NULL DEFAULT 'task',
-      "entityId" TEXT NOT NULL,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'pending',
-      "passedCount" INTEGER NOT NULL DEFAULT 0,
-      "failedCount" INTEGER NOT NULL DEFAULT 0,
-      "notes" TEXT,
-      "checks" TEXT NOT NULL DEFAULT '[]',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "TimelineEntry" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "entityType" TEXT NOT NULL,
-      "entityId" TEXT NOT NULL,
-      "eventType" TEXT NOT NULL,
-      "summary" TEXT,
-      "actorId" TEXT,
-      "metadata" TEXT NOT NULL DEFAULT '{}',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-1','Acme','acme','user-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Company" ("id","name","slug","ownerId","createdAt","updatedAt")
-    VALUES ('company-2','Other','other','user-2',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Task" ("id","title","companyId","status","createdAt","updatedAt")
-    VALUES ('task-1','Implement feature X','company-1','in-review',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "Review" ("id","companyId","title","entityType","entityId","status","verdict","createdAt","updatedAt")
-    VALUES ('review-1','company-1','Review: feature X','task','task-1','approved','approved',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `);
+  // Postgres enforces foreign keys (the old SQLite test tables did not), so the
+  // parent rows must exist before their children: User -> Company -> Task/Review.
+  await prisma.user.create({
+    data: { id: "user-1", email: "owner1@acme.test" },
+  });
+  await prisma.user.create({
+    data: { id: "user-2", email: "owner2@other.test" },
+  });
+  await prisma.company.create({
+    data: { id: "company-1", name: "Acme", slug: "acme", ownerId: "user-1" },
+  });
+  await prisma.company.create({
+    data: { id: "company-2", name: "Other", slug: "other", ownerId: "user-2" },
+  });
+  await prisma.task.create({
+    data: {
+      id: "task-1",
+      title: "Implement feature X",
+      companyId: "company-1",
+      status: "in-review",
+    },
+  });
+  await prisma.review.create({
+    data: {
+      id: "review-1",
+      companyId: "company-1",
+      title: "Review: feature X",
+      entityType: "task",
+      entityId: "task-1",
+      status: "approved",
+      verdict: "approved",
+    },
+  });
 });
 
 afterEach(async () => {
@@ -154,14 +58,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try {
-    rmSync(dbPath, { force: true });
-  } catch {
-    /* ignore */
-  }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 async function createQa(
@@ -179,21 +76,18 @@ async function createQa(
       { label: "Validation passes: npm run test", passed: true },
     ]);
 
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO "QAResult" ("id","companyId","entityType","entityId","status","checks","passedCount","failedCount","createdAt","updatedAt")
-    VALUES (
-      'qa-1',
-      '${overrides.companyId ?? "company-1"}',
-      'task',
-      '${overrides.entityId ?? "task-1"}',
-      '${overrides.status ?? "pending"}',
-      '${checks.replace(/'/g, "''")}',
-      2,
-      0,
-      CURRENT_TIMESTAMP,
-      CURRENT_TIMESTAMP
-    )
-  `);
+  await prisma.qAResult.create({
+    data: {
+      id: "qa-1",
+      companyId: overrides.companyId ?? "company-1",
+      entityType: "task",
+      entityId: overrides.entityId ?? "task-1",
+      status: overrides.status ?? "pending",
+      checks,
+      passedCount: 2,
+      failedCount: 0,
+    },
+  });
 }
 
 describe("qa-service", () => {

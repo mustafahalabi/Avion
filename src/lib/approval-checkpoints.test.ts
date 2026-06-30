@@ -1,116 +1,28 @@
-import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as ApprovalsModule from "./approval-checkpoints";
+import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
 
-let dbPath: string;
 let prisma: typeof PrismaSingleton;
+let schema: string;
 let service: typeof ApprovalsModule;
 
 const CO = "appr-co";
 
 beforeAll(async () => {
-  dbPath = join(
-    tmpdir(),
-    `approval-checkpoints-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`
-  );
-  process.env.ENGINEERING_OS_DATABASE_PATH = dbPath;
-  delete (globalThis as Record<string, unknown>).prisma;
-
-  const prismaModule = await import("./prisma");
-  prisma = prismaModule.prisma;
+  ({ prisma, schema } = await setupTestSchema("approval-checkpoints"));
   service = await import("./approval-checkpoints");
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Task" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "title" TEXT NOT NULL,
-      "description" TEXT,
-      "companyId" TEXT NOT NULL,
-      "projectId" TEXT,
-      "featureId" TEXT,
-      "sprintId" TEXT,
-      "assigneeId" TEXT,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'todo',
-      "priority" TEXT NOT NULL DEFAULT 'medium',
-      "estimate" REAL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "Task_companyId_id_key" ON "Task"("companyId", "id")`
-  );
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "Review" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "entityType" TEXT NOT NULL DEFAULT 'task',
-      "entityId" TEXT NOT NULL,
-      "reviewerId" TEXT,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'pending',
-      "verdict" TEXT,
-      "notes" TEXT,
-      "changeRequestNotes" TEXT,
-      "findings" TEXT NOT NULL DEFAULT '[]',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "ChangeRequest" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "reviewId" TEXT NOT NULL,
-      "reason" TEXT NOT NULL,
-      "requestedBy" TEXT,
-      "resolution" TEXT,
-      "resolved" INTEGER NOT NULL DEFAULT 0,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "QAResult" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "companyId" TEXT NOT NULL,
-      "entityType" TEXT NOT NULL DEFAULT 'task',
-      "entityId" TEXT NOT NULL,
-      "outcomeId" TEXT,
-      "planningDraftId" TEXT,
-      "planItemId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'pending',
-      "passedCount" INTEGER NOT NULL DEFAULT 0,
-      "failedCount" INTEGER NOT NULL DEFAULT 0,
-      "notes" TEXT,
-      "checks" TEXT NOT NULL DEFAULT '[]',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "TimelineEntry" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "entityType" TEXT NOT NULL,
-      "entityId" TEXT NOT NULL,
-      "eventType" TEXT NOT NULL,
-      "summary" TEXT,
-      "actorId" TEXT,
-      "metadata" TEXT NOT NULL DEFAULT '{}',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL
-    )
-  `);
+  // Postgres enforces foreign keys (unlike the old hand-written SQLite tables):
+  // Company.ownerId -> User.id, and Task/Review/QAResult.companyId -> Company.id.
+  // Seed the owner User + Company once so the per-test children can reference them.
+  await prisma.user.create({
+    data: { id: "appr-owner", email: "owner@appr.test" },
+  });
+  await prisma.company.create({
+    data: { id: CO, name: "Approvals Co", slug: "appr-co", ownerId: "appr-owner" },
+  });
 });
 
 afterEach(async () => {
@@ -122,14 +34,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  try {
-    rmSync(dbPath, { force: true });
-  } catch {
-    /* ignore */
-  }
-  delete process.env.ENGINEERING_OS_DATABASE_PATH;
-  delete (globalThis as Record<string, unknown>).prisma;
+  await teardownTestSchema(prisma, schema);
 });
 
 async function seedInReviewTaskWithPendingReview(taskId = "task-1") {

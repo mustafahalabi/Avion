@@ -114,10 +114,12 @@ function withTokens(connection: ProviderConnection): ProviderConnectionWithToken
 /**
  * Upserts a provider connection for a company (or user within a company).
  *
- * SQLite does not enforce uniqueness on composite indexes containing NULL
- * values. For company-level connections (userId IS NULL), uniqueness is
- * enforced here: we first look up any existing connection for the same
- * companyId + provider + null userId before upserting.
+ * PostgreSQL unique indexes treat NULLs as distinct by default (NULLS
+ * DISTINCT), so the composite (companyId, provider, userId) unique index does
+ * NOT constrain company-level connections (userId IS NULL). Uniqueness for
+ * those is enforced here: we first look up any existing connection for the same
+ * companyId + provider + null userId before upserting. (This guard was required
+ * under SQLite too, and remains required under Postgres.)
  *
  * @param input - Connection upsert payload including decrypted tokens
  * @returns The upserted ProviderConnection with decrypted tokens

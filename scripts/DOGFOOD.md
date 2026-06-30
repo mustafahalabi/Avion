@@ -24,8 +24,9 @@ Proves the whole loop against **real code paths**, a **real temp database**, and
 
 The **only** stubbed parts are the AI agent step (`claude -p`, replaced by a
 deterministic file write) and the GitHub PR API (the local "origin" is a bare
-git repo, not GitHub). Everything else is production code. It builds its schema
-from `prisma/dev.db`, so run `npx prisma migrate dev` once if you don't have it.
+git repo, not GitHub). Everything else is production code. It provisions a
+disposable PostgreSQL **schema** from the committed migrations, so it just needs
+a reachable Postgres (`docker compose up -d db`, or set `DOGFOOD_DATABASE_URL`).
 
 ---
 
@@ -90,7 +91,7 @@ commits/PRs, and spends Claude usage, so it is run manually rather than in CI.
 
    ```bash
    COMPANY_ID=<companyId> SANDBOX_REPO_ID=<repositoryId> \
-   DATABASE_URL="file:./prisma/dev.db" \
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5433/avion" \
    npx tsx scripts/e2e-agent-test.ts
    ```
 
@@ -98,14 +99,14 @@ commits/PRs, and spends Claude usage, so it is run manually rather than in CI.
    pushes, opens the PR):
 
    ```bash
-   DATABASE_URL="file:./prisma/dev.db" npm run worker
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5433/avion" npm run worker
    ```
 
 4. **Start the driver** (turns approved work into sessions and advances gates on
    an interval — this is what removes the manual clicks):
 
    ```bash
-   DATABASE_URL="file:./prisma/dev.db" npm run driver
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5433/avion" npm run driver
    ```
 
 ### What you should see
