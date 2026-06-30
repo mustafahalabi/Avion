@@ -53,7 +53,7 @@ export default async function NotificationsPage() {
         {unread.length > 0 && <MarkAllReadButton />}
       </header>
 
-      <div className="flex flex-col gap-6 p-6 max-w-2xl">
+      <div className="flex flex-col gap-6 p-6">
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-neutral-800 py-14 text-center">
             <Bell className="h-5 w-5 text-neutral-700" />

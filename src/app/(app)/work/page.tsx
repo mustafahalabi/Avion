@@ -175,7 +175,7 @@ export default async function WorkPage() {
               icon={Target}
               label="Outcomes"
               description="CEO goals and plans"
-              accent="violet"
+              accent="neutral"
             />
             <QuickLink
               href="/work/projects"
@@ -387,11 +387,6 @@ const QUICK_LINK_ACCENT: Record<
   string,
   { icon: string; border: string; bg: string }
 > = {
-  violet: {
-    icon: "text-violet-400",
-    border: "border-violet-900/40 hover:border-violet-800/60",
-    bg: "hover:bg-violet-950/10",
-  },
   blue: {
     icon: "text-blue-400",
     border: "border-blue-900/40 hover:border-blue-800/60",

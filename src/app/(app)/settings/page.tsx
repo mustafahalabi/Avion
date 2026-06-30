@@ -24,7 +24,7 @@ export default async function SettingsPage() {
         <h1 className="text-sm font-semibold text-neutral-100">Settings</h1>
       </header>
 
-      <div className="mx-auto w-full max-w-2xl p-6 flex flex-col gap-8">
+      <div className="p-6 flex flex-col gap-8">
         <section>
           <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
             Account

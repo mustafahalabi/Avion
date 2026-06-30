@@ -47,22 +47,26 @@ export async function getOnboardingSnapshot(
     prisma.outcome.count({ where: { companyId: company.id } }),
   ]);
 
-  const providerConnected = connections.some(
-    (connection) =>
-      computeProviderCardState({
-        id: connection.id,
-        status: connection.status,
-        externalAccountName: connection.externalAccountName,
-        externalAccountEmail: connection.externalAccountEmail,
-        lastConnectedAt: connection.lastConnectedAt,
-        errorMessage: connection.errorMessage,
-        tokenExpiresAt: connection.tokenExpiresAt,
-      }).isConnected
+  const isConnected = (connection: (typeof connections)[number]): boolean =>
+    computeProviderCardState({
+      id: connection.id,
+      status: connection.status,
+      externalAccountName: connection.externalAccountName,
+      externalAccountEmail: connection.externalAccountEmail,
+      lastConnectedAt: connection.lastConnectedAt,
+      errorMessage: connection.errorMessage,
+      tokenExpiresAt: connection.tokenExpiresAt,
+    }).isConnected;
+
+  const providerConnected = connections.some(isConnected);
+  const githubConnected = connections.some(
+    (connection) => connection.provider === "github" && isConnected(connection)
   );
 
   const snapshot: OnboardingSnapshot = {
     companyConfigured: company.name !== DEFAULT_COMPANY_NAME,
     providerConnected,
+    githubConnected,
     repositoryAdded: repositoryCount > 0,
     firstOutcomeSubmitted: outcomeCount > 0,
   };

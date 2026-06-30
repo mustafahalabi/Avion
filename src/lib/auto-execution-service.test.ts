@@ -34,16 +34,24 @@ vi.mock("@/lib/implementation-brief", () => ({
   generateClaudeImplementationBrief: (...args: unknown[]) => mockGenerateBrief(...args),
 }));
 
-vi.mock("@/lib/task-repository-context", () => ({
-  resolveTaskRepository: vi.fn(() => null),
-  toBriefRepositoryContext: vi.fn(() => null),
-}));
+// Use the real (pure) repository-resolution helpers — `pickTaskRepository` and
+// `resolveTaskRepository` are deterministic logic over the task row, so the
+// tests exercise the genuine precedence (explicit link → workspace fallback).
+// Only `toBriefRepositoryContext` (which JSON-parses real repo rows) is stubbed.
+vi.mock("@/lib/task-repository-context", async (importActual) => {
+  const actual = await importActual<
+    typeof import("@/lib/task-repository-context")
+  >();
+  return {
+    ...actual,
+    toBriefRepositoryContext: vi.fn(() => null),
+  };
+});
 
 import {
   autoPrepareNextExecutionSession,
   prepareExecutionSessionForTask,
 } from "./auto-execution-service";
-import { resolveTaskRepository } from "@/lib/task-repository-context";
 
 const SELECTED_TASK = {
   id: "task-1",
@@ -214,19 +222,54 @@ describe("prepareExecutionSessionForTask", () => {
       project: null,
       feature: {
         projectId: "proj-2",
-        project: { workspace: { repositories: [REPO] } },
+        project: { repository: null, workspace: { repositories: [REPO] } },
       },
     });
-    // First call (direct project — none) → null; second (the feature's project) → the repo.
-    vi.mocked(resolveTaskRepository)
-      .mockImplementationOnce(() => null)
-      .mockImplementationOnce(() => REPO);
 
     const result = await prepareExecutionSessionForTask("company-1", "task-2");
 
     expect("error" in result).toBe(false);
+    // Resolved via the feature's project workspace (legacy fallback).
     expect(mockCreateSession).toHaveBeenCalledWith(
       expect.objectContaining({ repositoryId: "repo-9", projectId: "proj-2" })
+    );
+  });
+
+  it("prefers the project's explicit repository link over the workspace fallback", async () => {
+    const LINKED = {
+      id: "repo-linked",
+      name: "linked-repo",
+      url: "https://github.com/x/linked-repo",
+      primaryLanguage: null,
+      frameworks: "[]",
+      techStack: "[]",
+      importantFiles: "[]",
+      analysisStatus: "pending",
+    };
+    const WORKSPACE_FALLBACK = { ...LINKED, id: "repo-fallback", name: "fallback-repo" };
+    mockTaskFindFirst.mockResolvedValue({
+      id: "task-3",
+      title: "Implement feature",
+      description: null,
+      priority: "medium",
+      projectId: "project-1",
+      featureId: null,
+      planningDraftId: "draft-1",
+      planItemId: "task:impl",
+      planningDraft: { id: "draft-1", generatedTasks: null },
+      // Explicit link present AND a (different) workspace repo — the link wins.
+      project: {
+        repository: LINKED,
+        workspace: { repositories: [WORKSPACE_FALLBACK] },
+      },
+      feature: null,
+    });
+
+    const result = await prepareExecutionSessionForTask("company-1", "task-3");
+
+    expect("error" in result).toBe(false);
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      expect.objectContaining({ repositoryId: "repo-linked", projectId: "project-1" })
     );
   });
 });

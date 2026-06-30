@@ -24,9 +24,9 @@ const OUTCOME_STATUS_COLORS: Record<
     label: "Analyzing",
   },
   planned: {
-    border: "border-violet-900",
-    bg: "bg-violet-950/20",
-    text: "text-violet-400",
+    border: "border-neutral-900",
+    bg: "bg-neutral-950/20",
+    text: "text-neutral-400",
     label: "Plan ready",
   },
   awaiting_approval: {
@@ -155,7 +155,7 @@ export default async function OutcomeDetailPage({
         </h1>
       </header>
 
-      <div className="flex flex-col gap-6 p-6 max-w-2xl">
+      <div className="flex flex-col gap-6 p-6">
         {/* Status badge */}
         <div
           className={cn(

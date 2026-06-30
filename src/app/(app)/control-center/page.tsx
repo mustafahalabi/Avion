@@ -30,8 +30,10 @@ import {
   computeProviderCardState,
 } from "@/lib/provider-card-state";
 import { buildControlCenterViewModel } from "@/lib/control-center-view-model";
+import { loadLivePipeline } from "@/lib/live-pipeline-data";
 import { AttentionPanel } from "./attention-panel";
 import { ActivityPanel } from "@/components/control-center/activity-panel";
+import { LivePipelineWidget } from "@/components/control-center/live-pipeline-widget";
 import type { TimelineItem } from "@/components/timeline-entry";
 
 export default async function ControlCenterPage() {
@@ -105,6 +107,7 @@ export default async function ControlCenterPage() {
     planningTimeline,
     recentEvents,
     pendingPlanCount,
+    livePipeline,
   ] = await Promise.all([
     detectStuckWork({ companyId: company.id }),
     listPendingCheckpoints(company.id),
@@ -122,6 +125,8 @@ export default async function ControlCenterPage() {
       include: { request: { select: { id: true, title: true } } },
     }),
     countPendingPlanningDrafts(company.id),
+    // Compact live board for the home-screen widget — no stream / done items.
+    loadLivePipeline(company.id, { streamLimit: 1, doneLimit: 0 }),
   ]);
 
   const execByStatus = Object.fromEntries(
@@ -212,7 +217,7 @@ export default async function ControlCenterPage() {
         </Link>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-4xl">
+      <div className="flex flex-col gap-8 p-6">
         {/* Greeting */}
         <section>
           <h2 className="text-xl font-semibold text-neutral-100">
@@ -231,7 +236,7 @@ export default async function ControlCenterPage() {
           <section>
             <SectionHeader
               label="Recommended Next Action"
-              icon={<Zap className="h-3.5 w-3.5 text-violet-400" />}
+              icon={<Zap className="h-3.5 w-3.5 text-neutral-400" />}
             />
             <div className="flex flex-col gap-2">
               <NextActionCard action={vm.primaryAction} primary />
@@ -241,6 +246,9 @@ export default async function ControlCenterPage() {
             </div>
           </section>
         )}
+
+        {/* Live pipeline — watch work move in real time (streams over SSE) */}
+        <LivePipelineWidget initial={livePipeline} />
 
         {/* Needs attention */}
         <section>

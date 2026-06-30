@@ -11,7 +11,7 @@ const CATEGORY_CONFIG: Record<
 > = {
   company: {
     label: "Company",
-    color: "bg-violet-950/50 border-violet-900/50 text-violet-400",
+    color: "bg-neutral-950/50 border-neutral-900/50 text-neutral-400",
     icon: "C",
   },
   architecture: {

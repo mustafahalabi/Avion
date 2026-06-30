@@ -4,6 +4,7 @@ import { countPendingCheckpoints } from "@/lib/approval-checkpoints";
 import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/nav/sidebar";
 import { UserMenu } from "@/components/nav/user-menu";
+import { BrandSplash } from "@/components/brand";
 
 export default async function AppLayout({
   children,
@@ -30,6 +31,8 @@ export default async function AppLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-neutral-950 text-neutral-100">
+      {/* Avion launch splash — plays once per session, then fades to the app. */}
+      <BrandSplash />
       <div className="relative flex flex-col">
         <Sidebar badges={navBadges} />
         <div className="absolute bottom-0 left-0 right-0 h-12 border-t border-neutral-800 flex items-center px-2">

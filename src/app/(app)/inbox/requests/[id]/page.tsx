@@ -21,7 +21,7 @@ const STATUS_CONFIG: Record<
   { label: string; color: string; icon: React.ElementType }
 > = {
   intake: { label: "Intake", color: "text-blue-400", icon: Circle },
-  planning: { label: "Planning", color: "text-violet-400", icon: Clock },
+  planning: { label: "Planning", color: "text-neutral-400", icon: Clock },
   awaiting_approval: {
     label: "Awaiting Approval",
     color: "text-amber-400",
@@ -29,7 +29,7 @@ const STATUS_CONFIG: Record<
   },
   executing: { label: "Executing", color: "text-emerald-400", icon: Clock },
   in_review: { label: "In Review", color: "text-amber-400", icon: Clock },
-  in_qa: { label: "In QA", color: "text-purple-400", icon: Clock },
+  in_qa: { label: "In QA", color: "text-neutral-400", icon: Clock },
   complete: {
     label: "Complete",
     color: "text-emerald-400",
@@ -90,7 +90,7 @@ export default async function RequestDetailPage({ params }: Props) {
         </h1>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-2xl">
+      <div className="flex flex-col gap-8 p-6">
         {/* Header */}
         <section className="flex items-start gap-3">
           <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", cfg.color)} />

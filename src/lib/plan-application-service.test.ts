@@ -65,6 +65,19 @@ beforeAll(async () => {
   await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Workspace_companyId_slug_key" ON "Workspace"("companyId", "slug")`);
   await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Workspace_companyId_id_key" ON "Workspace"("companyId", "id")`);
 
+  // Repository
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "Repository" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "workspaceId" TEXT NOT NULL,
+      "name" TEXT NOT NULL,
+      "url" TEXT,
+      "analysisStatus" TEXT NOT NULL DEFAULT 'pending',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )
+  `);
+
   // Outcome
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "Outcome" (
@@ -139,6 +152,7 @@ beforeAll(async () => {
       "slug" TEXT NOT NULL,
       "companyId" TEXT NOT NULL,
       "workspaceId" TEXT NOT NULL,
+      "repositoryId" TEXT,
       "outcomeId" TEXT,
       "planningDraftId" TEXT,
       "planItemId" TEXT,
@@ -239,8 +253,11 @@ afterEach(async () => {
   await prisma.$executeRawUnsafe(`DELETE FROM "Task"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Feature"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Project"`);
+  await prisma.$executeRawUnsafe(`DELETE FROM "Repository"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Workspace"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "PlanningDraft"`);
+  // Reset the shared outcome's repository link between tests.
+  await prisma.$executeRawUnsafe(`UPDATE "Outcome" SET "repositoryId" = NULL`);
 });
 
 afterAll(async () => {
@@ -596,6 +613,35 @@ describe("applyApprovedPlan", () => {
     expect(project?.planningDraftId).toBe("draft-1");
     expect(project?.planItemId).toBe("project:p1");
     expect(project?.outcomeId).toBe("outcome-1");
+  });
+
+  it("inherits the outcome's repository (and its workspace) on the created project", async () => {
+    // Outcome scoped to a repository living in a specific workspace.
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO "Workspace" ("id","name","slug","companyId","createdAt","updatedAt")
+      VALUES ('ws-repo','Core Platform','core-platform','company-1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    `);
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO "Repository" ("id","workspaceId","name","updatedAt")
+      VALUES ('repo-1','ws-repo','eos-sandbox',CURRENT_TIMESTAMP)
+    `);
+    await prisma.$executeRawUnsafe(`UPDATE "Outcome" SET "repositoryId" = 'repo-1' WHERE id = 'outcome-1'`);
+
+    await seedApprovedDraft();
+    await service.applyApprovedPlan({
+      companyId: "company-1",
+      planningDraftId: "draft-1",
+      actorId: "user-1",
+    });
+
+    const project = await prisma.project.findFirst({ where: { companyId: "company-1" } });
+    expect(project?.repositoryId).toBe("repo-1");
+    // Workspace is inferred from the repository, not the default workspace.
+    expect(project?.workspaceId).toBe("ws-repo");
+
+    // And no extra "Default" workspace was created.
+    const workspaceCount = await prisma.workspace.count({ where: { companyId: "company-1" } });
+    expect(workspaceCount).toBe(1);
   });
 
   it("records feature linked to project", async () => {

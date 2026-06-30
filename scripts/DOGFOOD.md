@@ -1,6 +1,6 @@
 # Dogfooding the self-driving loop
 
-Two ways to watch Engineering OS drive a task from an approved plan all the way
+Two ways to watch Avion drive a task from an approved plan all the way
 to "done" with no manual clicks.
 
 ---

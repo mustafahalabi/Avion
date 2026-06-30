@@ -115,7 +115,7 @@ export function PlanReviewActions({ plan }: PlanReviewActionsProps) {
           <form action={applyAction} className="flex flex-col gap-2 border-t border-neutral-800 pt-4">
             <input type="hidden" name="planningDraftId" value={plan.id} />
             <p className="text-xs text-neutral-500">
-              Apply this approved plan to create work records in Engineering OS.
+              Apply this approved plan to create work records in Avion.
             </p>
             {applyState && "error" in applyState && (
               <p className="text-xs text-red-400">{applyState.error}</p>

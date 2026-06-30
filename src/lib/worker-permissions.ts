@@ -2,7 +2,7 @@
  * Worker Permission Model
  *
  * Defines the permission system for Claude Code worker agents executing tasks
- * within Engineering OS. Controls which files the worker may write and which
+ * within Avion. Controls which files the worker may write and which
  * shell commands it may run, scoped to the company's autonomy level.
  *
  * This module is intentionally free of external dependencies — it is pure

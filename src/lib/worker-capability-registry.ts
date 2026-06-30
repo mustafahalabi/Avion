@@ -28,7 +28,7 @@ export interface WorkerCapability {
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 /**
- * Canonical registry of every worker role in the Engineering OS organisation.
+ * Canonical registry of every worker role in the Avion organisation.
  * Keyed by role slug (snake_case).
  */
 export const WORKER_CAPABILITY_REGISTRY: Record<string, WorkerCapability> = {

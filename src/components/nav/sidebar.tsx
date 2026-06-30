@@ -10,15 +10,19 @@ import {
   BookOpen,
   Inbox,
   MessageSquare,
-  Plug,
   Bell,
+  Radio,
   TrendingUp,
   Settings,
   Target,
   ShieldCheck,
   PackageCheck,
+  FolderGit2,
+  Boxes,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BrandMark } from "@/components/brand";
 
 type NavSection = {
   label?: string;
@@ -33,6 +37,7 @@ const navSections: NavSection[] = [
   {
     items: [
       { label: "Control Center", href: "/control-center", icon: Gauge },
+      { label: "Live", href: "/work/live", icon: Radio },
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     ],
   },
@@ -41,6 +46,8 @@ const navSections: NavSection[] = [
     items: [
       { label: "Outcomes", href: "/work/outcomes", icon: Target },
       { label: "Work", href: "/work", icon: Layers },
+      { label: "Workspaces", href: "/work/workspaces", icon: Boxes },
+      { label: "Repositories", href: "/work/repositories", icon: FolderGit2 },
       { label: "Inbox", href: "/inbox", icon: Inbox },
       { label: "Company", href: "/company", icon: Building2 },
     ],
@@ -63,7 +70,7 @@ const navSections: NavSection[] = [
 ];
 
 const bottomNavItems = [
-  { label: "Integrations", href: "/integrations", icon: Plug },
+  { label: "Connections", href: "/connections", icon: Link2 },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings },
 ] as const;
@@ -92,13 +99,13 @@ function NavItem({
       )}
     >
       {isActive && (
-        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-violet-500" />
+        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-neutral-100" />
       )}
       <Icon
         className={cn(
           "h-4 w-4 shrink-0 transition-colors",
           isActive
-            ? "text-violet-400"
+            ? "text-neutral-100"
             : "text-neutral-500 group-hover:text-neutral-300"
         )}
         aria-hidden="true"
@@ -124,9 +131,12 @@ export function Sidebar({ badges = {} }: { badges?: Record<string, number> }) {
       return (
         pathname === "/work" ||
         (pathname.startsWith("/work/") &&
+          !pathname.startsWith("/work/live") &&
           !pathname.startsWith("/work/outcomes") &&
           !pathname.startsWith("/work/quality") &&
-          !pathname.startsWith("/work/releases"))
+          !pathname.startsWith("/work/releases") &&
+          !pathname.startsWith("/work/workspaces") &&
+          !pathname.startsWith("/work/repositories"))
       );
     }
     return pathname === href || pathname.startsWith(href + "/");
@@ -136,11 +146,9 @@ export function Sidebar({ badges = {} }: { badges?: Record<string, number> }) {
     <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-neutral-800 bg-neutral-950">
       {/* Logo / workspace header */}
       <div className="flex h-12 items-center gap-2.5 border-b border-neutral-800 px-4">
-        <div className="flex h-5 w-5 items-center justify-center rounded bg-violet-600">
-          <span className="text-[10px] font-bold text-white">E</span>
-        </div>
+        <BrandMark className="h-7 w-auto text-neutral-100" />
         <span className="text-sm font-semibold text-neutral-100 truncate">
-          Engineering OS
+          Avion
         </span>
       </div>
 

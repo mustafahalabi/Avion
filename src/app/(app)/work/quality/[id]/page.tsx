@@ -91,7 +91,7 @@ export default async function ReviewDetailPage({ params }: Props) {
         </h1>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-2xl">
+      <div className="flex flex-col gap-8 p-6">
         {/* Status header */}
         <section className="flex items-start gap-3">
           <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", cfg.color)} />

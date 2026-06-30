@@ -58,7 +58,7 @@ const NEXTJS_REPOSITORY: OutcomePlanningInput["repositories"] = [
   {
     id: "repo-engineering-os",
     name: "engineering-os",
-    description: "Engineering OS platform",
+    description: "Avion platform",
     primaryLanguage: "TypeScript",
     techStack: ["Prisma", "SQLite"],
     frameworks: ["Next.js App Router"],

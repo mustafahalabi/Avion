@@ -50,7 +50,7 @@ export default async function PlanReviewPage({ params }: PlanReviewPageProps) {
         <h1 className="truncate text-sm font-semibold text-neutral-100">Plan review</h1>
       </header>
 
-      <div className="mx-auto w-full max-w-3xl p-6">
+      <div className="p-6">
         <PlanReviewDashboard plan={data.plan} outcomeTitle={data.outcome.title} />
       </div>
     </div>

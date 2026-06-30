@@ -166,11 +166,11 @@ describe("computeProviderCardState", () => {
 // ─── PROVIDER_DEFS ────────────────────────────────────────────────────────────
 
 describe("PROVIDER_DEFS", () => {
-  it("includes github, linear, and vercel", () => {
+  it("includes github and linear", () => {
     const ids = PROVIDER_DEFS.map((p) => p.id);
     expect(ids).toContain("github");
     expect(ids).toContain("linear");
-    expect(ids).toContain("vercel");
+    expect(ids).not.toContain("vercel");
   });
 
   it("every provider has required fields", () => {

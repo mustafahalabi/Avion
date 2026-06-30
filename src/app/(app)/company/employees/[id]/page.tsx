@@ -17,7 +17,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 const DEPT_AVATAR: Record<string, string> = {
-  executive: "bg-violet-800 text-violet-200",
+  executive: "bg-neutral-800 text-neutral-200",
   product: "bg-blue-800 text-blue-200",
   engineering: "bg-emerald-800 text-emerald-200",
   quality: "bg-amber-800 text-amber-200",
@@ -79,7 +79,7 @@ export default async function EmployeeDetailPage({ params }: Props) {
         </h1>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-3xl">
+      <div className="flex flex-col gap-8 p-6">
         {/* Identity */}
         <section className="flex items-start gap-4">
           <div

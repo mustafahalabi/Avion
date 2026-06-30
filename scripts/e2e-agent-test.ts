@@ -97,7 +97,7 @@ async function generateBriefForTask(
  * End-to-end agent execution smoke test entry point.
  */
 async function main(): Promise<void> {
-  console.log("\n🏗️  Engineering OS — End-to-End Agent Execution Smoke Test\n");
+  console.log("\n🏗️  Avion — End-to-End Agent Execution Smoke Test\n");
 
   console.log("Step 1: Checking prerequisites...");
   if (!process.env.DATABASE_URL && !process.env.ENGINEERING_OS_DATABASE_PATH) {

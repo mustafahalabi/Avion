@@ -197,7 +197,7 @@ async function createDogfoodRepository(prisma: PrismaClient) {
   const repository = await prisma.repository.create({
     data: {
       workspaceId: workspace.id,
-      name: "Engineering OS Dogfood Fixture",
+      name: "Avion Dogfood Fixture",
       url: "https://example.com/engineering-os",
       analysisStatus: "pending",
     },

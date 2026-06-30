@@ -11,6 +11,12 @@ export type OnboardingStepStatus = "complete" | "current" | "upcoming";
 export interface OnboardingSnapshot {
   companyConfigured: boolean;
   providerConnected: boolean;
+  /**
+   * GitHub specifically is connected. The repository picker is GitHub-only, so
+   * the UI gates it on this even though `providerConnected` (any provider)
+   * satisfies the generic provider step.
+   */
+  githubConnected: boolean;
   repositoryAdded: boolean;
   firstOutcomeSubmitted: boolean;
 }

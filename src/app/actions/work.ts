@@ -9,10 +9,20 @@ const createProjectSchema = z.object({
   name: z.string().min(1).max(200).trim(),
   description: z.string().max(1000).trim().optional(),
   status: z.enum(["planning", "active", "paused", "done", "cancelled"]).default("planning"),
+  // A project must target a repository — the autonomous loop runs in exactly one
+  // repo, and the project's workspace is inferred from the chosen repository.
+  repositoryId: z.string().min(1, "Select a repository for this project."),
 });
 
 export type CreateProjectState =
-  | { errors?: { name?: string[]; description?: string[] }; message?: string }
+  | {
+      errors?: {
+        name?: string[];
+        description?: string[];
+        repositoryId?: string[];
+      };
+      message?: string;
+    }
   | undefined;
 
 export async function createProject(
@@ -26,6 +36,7 @@ export async function createProject(
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     status: formData.get("status") || "planning",
+    repositoryId: formData.get("repositoryId") || "",
   });
 
   if (!parsed.success) {
@@ -34,19 +45,21 @@ export async function createProject(
 
   const company = await prisma.company.findFirst({
     where: { ownerId: user.id },
-    include: { workspaces: { select: { id: true } } },
+    select: { id: true },
   });
   if (!company) return { message: "No company found." };
 
-  let workspaceId: string;
-  if (company.workspaces.length > 0) {
-    workspaceId = company.workspaces[0].id;
-  } else {
-    const workspace = await prisma.workspace.create({
-      data: { companyId: company.id, name: "Default", slug: "default" },
-    });
-    workspaceId = workspace.id;
+  // Validate the repository belongs to this company, and inherit its workspace so
+  // the project always lives alongside the repo it targets (no cross-company leak,
+  // no orphaned-workspace projects).
+  const repository = await prisma.repository.findFirst({
+    where: { id: parsed.data.repositoryId, workspace: { companyId: company.id } },
+    select: { id: true, workspaceId: true },
+  });
+  if (!repository) {
+    return { errors: { repositoryId: ["Repository not found."] } };
   }
+
   const slug = parsed.data.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -60,7 +73,8 @@ export async function createProject(
       companyId: company.id,
       description: parsed.data.description,
       status: parsed.data.status,
-      workspaceId,
+      workspaceId: repository.workspaceId,
+      repositoryId: repository.id,
     },
   });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildTaskRepositoryContext,
+  pickTaskRepository,
   resolveTaskRepository,
   toBriefRepositoryContext,
   toRepositoryInput,
@@ -45,6 +46,59 @@ describe("resolveTaskRepository", () => {
     const second = makeRow({ id: "repo_2", name: "second" });
     const third = makeRow({ id: "repo_3", name: "third" });
     expect(resolveTaskRepository([first, second, third])).toBe(first);
+  });
+});
+
+describe("pickTaskRepository", () => {
+  it("prefers the project's explicit repository link over every fallback", () => {
+    const linked = makeRow({ id: "linked" });
+    const fallback = makeRow({ id: "fallback" });
+    const result = pickTaskRepository({
+      projectRepository: linked,
+      featureProjectRepository: makeRow({ id: "feature-linked" }),
+      projectWorkspaceRepositories: [fallback],
+      featureProjectWorkspaceRepositories: [fallback],
+    });
+    expect(result).toBe(linked);
+  });
+
+  it("falls back to the feature's project link when the task has no direct project", () => {
+    const featureLinked = makeRow({ id: "feature-linked" });
+    const result = pickTaskRepository({
+      projectRepository: null,
+      featureProjectRepository: featureLinked,
+      projectWorkspaceRepositories: [makeRow({ id: "ws-fallback" })],
+    });
+    expect(result).toBe(featureLinked);
+  });
+
+  it("falls back to the project workspace's first repo when no explicit link exists", () => {
+    const wsRepo = makeRow({ id: "ws-repo" });
+    const result = pickTaskRepository({
+      projectRepository: null,
+      featureProjectRepository: null,
+      projectWorkspaceRepositories: [wsRepo],
+    });
+    expect(result).toBe(wsRepo);
+  });
+
+  it("falls back to the feature project workspace as the last resort", () => {
+    const featureWsRepo = makeRow({ id: "feature-ws-repo" });
+    const result = pickTaskRepository({
+      featureProjectWorkspaceRepositories: [featureWsRepo],
+    });
+    expect(result).toBe(featureWsRepo);
+  });
+
+  it("returns null when nothing resolves", () => {
+    expect(
+      pickTaskRepository({
+        projectRepository: null,
+        featureProjectRepository: null,
+        projectWorkspaceRepositories: [],
+        featureProjectWorkspaceRepositories: null,
+      })
+    ).toBeNull();
   });
 });
 

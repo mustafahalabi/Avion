@@ -298,7 +298,8 @@ async function processSession(sessionId: string): Promise<void> {
             owner: parsedRepo.owner,
             repo: parsedRepo.repo,
             head: branchName,
-            base: fullSession.baseBranch ?? "master",
+            // Omit to auto-resolve the repo's real default branch (main vs master).
+            base: fullSession.baseBranch ?? undefined,
             title: buildPullRequestTitle(fullSession.task?.title ?? null),
             body: buildPullRequestBody({
               taskTitle: fullSession.task?.title ?? branchName,

@@ -231,7 +231,7 @@ const AGENT_TYPE_BADGE_CONFIG: Record<
   // Executive
   cto: {
     label: "CTO",
-    colorClasses: "bg-violet-950 text-violet-400 border-violet-800",
+    colorClasses: "bg-neutral-950 text-neutral-400 border-neutral-800",
   },
   // Product
   "product-manager": {
@@ -265,7 +265,7 @@ const AGENT_TYPE_BADGE_CONFIG: Record<
   },
   "ai-engineer": {
     label: "AI Engineer",
-    colorClasses: "bg-indigo-950 text-indigo-400 border-indigo-800",
+    colorClasses: "bg-neutral-950 text-neutral-400 border-neutral-800",
   },
   "infrastructure-engineer": {
     label: "Infrastructure",
@@ -300,11 +300,11 @@ const AGENT_TYPE_BADGE_CONFIG: Record<
   // Growth
   "seo-specialist": {
     label: "SEO",
-    colorClasses: "bg-purple-950 text-purple-400 border-purple-800",
+    colorClasses: "bg-neutral-950 text-neutral-400 border-neutral-800",
   },
   analytics: {
     label: "Analytics",
-    colorClasses: "bg-purple-950 text-purple-400 border-purple-800",
+    colorClasses: "bg-neutral-950 text-neutral-400 border-neutral-800",
   },
   marketing: {
     label: "Marketing",
@@ -359,8 +359,8 @@ const ANALYSIS_STATUS_BADGE_CONFIG: Record<
   },
   prepared: {
     label: "Prepared",
-    colorClasses: "bg-violet-950 text-violet-400 border-violet-800",
-    dotColor: "bg-violet-400",
+    colorClasses: "bg-neutral-950 text-neutral-400 border-neutral-800",
+    dotColor: "bg-neutral-400",
   },
   completed: {
     label: "Completed",

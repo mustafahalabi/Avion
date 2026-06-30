@@ -64,7 +64,7 @@ const REPOSITORIES = [
   {
     id: "repo-engineering-os",
     name: "engineering-os",
-    description: "Engineering OS Platform",
+    description: "Avion Platform",
     primaryLanguage: "TypeScript",
     techStack: ["Next.js", "Prisma", "SQLite"],
     frameworks: ["Next.js App Router"],
@@ -161,7 +161,7 @@ describe("generateDeterministicPlanningDraft", () => {
     if (result.status !== "failed") throw new Error("Expected failure");
 
     expect(result.reason).toBe("Outcome cannot be empty.");
-    expect(result.openCeoQuestions).toContain("What outcome should Engineering OS plan for?");
+    expect(result.openCeoQuestions).toContain("What outcome should Avion plan for?");
   });
 
   it("asks clear CEO questions for an ambiguous outcome", () => {

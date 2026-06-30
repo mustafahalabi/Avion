@@ -74,8 +74,8 @@ function PhaseIcon({ phase }: { phase: GithubWorkflowPhaseState }) {
 
   if (phase.phase === "merged" && phase.status === "current") {
     return (
-      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-500/15 ring-1 ring-violet-500/40">
-        <GitMerge className="h-3.5 w-3.5 text-violet-400" aria-hidden />
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-500/15 ring-1 ring-neutral-500/40">
+        <GitMerge className="h-3.5 w-3.5 text-neutral-400" aria-hidden />
       </div>
     );
   }

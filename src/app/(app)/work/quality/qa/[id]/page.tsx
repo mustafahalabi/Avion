@@ -104,7 +104,7 @@ export default async function QaDetailPage({ params }: Props) {
         </h1>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-2xl">
+      <div className="flex flex-col gap-8 p-6">
         <section className="flex items-start gap-3">
           <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", cfg.color)} />
           <div>

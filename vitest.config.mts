@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, configDefaults } from "vitest/config";
 import path from "node:path";
 
 export default defineConfig({
@@ -8,6 +8,11 @@ export default defineConfig({
     },
   },
   test: {
+    // Don't collect tests from build artifacts. The Electron build (`npm run
+    // dist`) copies a full snapshot of `src/` — including its test files and a
+    // separately-compiled better-sqlite3 — into `release/`; collecting those
+    // stale duplicates breaks `npm run test`. Keep Vitest's defaults too.
+    exclude: [...configDefaults.exclude, "release/**", "dist/**"],
     // Several suites are real-SQLite integration tests that bootstrap tables in
     // `beforeAll` and run many queries. Under parallel file execution the
     // machine can be heavily loaded, so the default 5s/10s timeouts produced

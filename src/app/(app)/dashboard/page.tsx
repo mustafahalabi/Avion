@@ -37,7 +37,7 @@ const RUNTIME_STATUS: Record<
   { label: string; color: string; icon: React.ElementType }
 > = {
   intake: { label: "Intake", color: "text-blue-400", icon: Circle },
-  planning: { label: "Planning", color: "text-violet-400", icon: Clock },
+  planning: { label: "Planning", color: "text-neutral-400", icon: Clock },
   awaiting_approval: {
     label: "Awaiting Approval",
     color: "text-amber-400",
@@ -45,14 +45,14 @@ const RUNTIME_STATUS: Record<
   },
   executing: { label: "Executing", color: "text-emerald-400", icon: Clock },
   in_review: { label: "In Review", color: "text-amber-400", icon: Clock },
-  in_qa: { label: "In QA", color: "text-purple-400", icon: Clock },
+  in_qa: { label: "In QA", color: "text-neutral-400", icon: Clock },
   complete: { label: "Complete", color: "text-emerald-400", icon: CheckCircle2 },
   blocked: { label: "Blocked", color: "text-red-400", icon: AlertCircle },
   cancelled: { label: "Cancelled", color: "text-neutral-600", icon: Circle },
 };
 
 const DEPT_COLORS: Record<string, string> = {
-  executive: "bg-violet-500",
+  executive: "bg-neutral-500",
   product: "bg-blue-500",
   engineering: "bg-emerald-500",
   quality: "bg-amber-500",
@@ -209,12 +209,12 @@ export default async function DashboardPage() {
         </Link>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-4xl">
+      <div className="flex flex-col gap-8 p-6">
         {/* Setup banner — shown while company has no repositories */}
         {repositoryCount === 0 && (
-          <section className="flex items-center justify-between gap-4 rounded-lg border border-violet-900/40 bg-violet-950/10 px-4 py-3">
+          <section className="flex items-center justify-between gap-4 rounded-lg border border-neutral-900/40 bg-neutral-950/10 px-4 py-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
+              <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-400" />
               <p className="text-sm text-neutral-300 truncate">
                 Complete your company setup — connect a repository and configure
                 your company style.
@@ -222,7 +222,7 @@ export default async function DashboardPage() {
             </div>
             <Link
               href="/setup"
-              className="shrink-0 rounded-md border border-violet-800/60 bg-violet-950/30 px-3 py-1.5 text-xs font-medium text-violet-300 hover:bg-violet-950/60 transition-colors"
+              className="shrink-0 rounded-md border border-neutral-800/60 bg-neutral-950/30 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-950/60 transition-colors"
             >
               Complete setup
             </Link>
@@ -271,7 +271,7 @@ export default async function DashboardPage() {
           <section>
             <SectionHeader
               label="Recommended Next Action"
-              icon={<Zap className="h-3.5 w-3.5 text-violet-400" />}
+              icon={<Zap className="h-3.5 w-3.5 text-neutral-400" />}
             />
             <div className="flex flex-col gap-2">
               <NextActionCard action={primaryAction} primary />
@@ -587,7 +587,7 @@ export default async function DashboardPage() {
               {planningTimeline.map((event, i) => (
                 <div key={event.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center">
-                    <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500" />
+                    <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-500" />
                     {i < planningTimeline.length - 1 && (
                       <div
                         className="w-px flex-1 bg-neutral-800 mt-1 mb-1"

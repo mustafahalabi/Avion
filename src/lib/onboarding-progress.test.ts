@@ -13,6 +13,7 @@ function makeSnapshot(
   return {
     companyConfigured: false,
     providerConnected: false,
+    githubConnected: false,
     repositoryAdded: false,
     firstOutcomeSubmitted: false,
     ...overrides,

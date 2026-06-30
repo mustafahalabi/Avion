@@ -255,7 +255,7 @@ describe("provider-connection-service", () => {
       const conn = await service.upsertProviderConnection({
         companyId: "company-1",
         userId: null,
-        provider: "vercel",
+        provider: "linear",
         connectionType: "oauth",
         status: "connected",
         tokens: { accessToken: "vrt_abc", refreshToken: "vrt_refresh" },
@@ -541,7 +541,7 @@ describe("provider-connection-service", () => {
       const conn = await service.upsertProviderConnection({
         companyId: "company-1",
         userId: null,
-        provider: "vercel",
+        provider: "linear",
         connectionType: "oauth",
         status: "connected",
         tokens: {},
@@ -574,7 +574,7 @@ describe("provider-connection-service", () => {
       const conn = await service.upsertProviderConnection({
         companyId: "company-1",
         userId: null,
-        provider: "vercel",
+        provider: "linear",
         connectionType: "oauth",
         status: "expired",
         tokens: {},

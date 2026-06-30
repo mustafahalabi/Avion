@@ -325,7 +325,7 @@ export default async function TaskDetailPage({ params }: Props) {
         </h1>
       </header>
 
-      <div className="flex flex-col gap-8 p-6 max-w-2xl">
+      <div className="flex flex-col gap-8 p-6">
         <section>
           <SectionLabel>GitHub Workflow</SectionLabel>
           <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-4">
@@ -393,7 +393,7 @@ export default async function TaskDetailPage({ params }: Props) {
           if (!session?.branchName) return null;
           const prStatusColors: Record<string, string> = {
             open: "text-emerald-400",
-            merged: "text-violet-400",
+            merged: "text-neutral-400",
             closed: "text-neutral-500",
             draft: "text-neutral-500",
           };

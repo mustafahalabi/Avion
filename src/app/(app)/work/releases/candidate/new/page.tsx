@@ -30,7 +30,7 @@ export default async function NewReleaseCandidatePage() {
         <h1 className="text-sm font-semibold text-neutral-100">New Release Candidate</h1>
       </header>
 
-      <div className="flex flex-col gap-4 p-6 max-w-lg">
+      <div className="flex flex-col gap-4 p-6">
         <p className="text-xs text-neutral-600 leading-relaxed">
           Build a release candidate from completed tasks that have passed review and QA.
           PR/branch metadata and validation evidence are collected from execution sessions when available.

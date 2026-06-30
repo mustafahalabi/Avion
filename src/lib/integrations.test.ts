@@ -8,12 +8,11 @@ import {
 const ALLOWED_FIELD_TYPES = new Set(["text", "password"]);
 
 describe("INTEGRATION_PROVIDERS", () => {
-  it("defines the four expected providers", () => {
+  it("defines the three expected providers", () => {
     expect(INTEGRATION_PROVIDERS.map((p) => p.id)).toEqual([
       "linear",
       "github",
       "slack",
-      "vercel",
     ]);
   });
 
@@ -93,14 +92,10 @@ describe("INTEGRATION_PROVIDERS", () => {
     expect(github?.fields.every((f) => f.required)).toBe(true);
   });
 
-  it("treats optional ids (workspaceId, teamId) as not required", () => {
+  it("treats optional ids (workspaceId) as not required", () => {
     const linear = INTEGRATION_PROVIDERS.find((p) => p.id === "linear");
     const workspace = linear?.fields.find((f) => f.key === "workspaceId");
     expect(workspace?.required).toBe(false);
-
-    const vercel = INTEGRATION_PROVIDERS.find((p) => p.id === "vercel");
-    const team = vercel?.fields.find((f) => f.key === "teamId");
-    expect(team?.required).toBe(false);
   });
 
   it("models Slack as a single required webhook url", () => {

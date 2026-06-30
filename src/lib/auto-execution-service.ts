@@ -26,7 +26,7 @@ import { generateClaudeImplementationBrief } from "@/lib/implementation-brief";
 import { prisma } from "@/lib/prisma";
 import { selectNextExecutableTaskForCompany } from "@/lib/task-selection-service";
 import {
-  resolveTaskRepository,
+  pickTaskRepository,
   toBriefRepositoryContext,
 } from "@/lib/task-repository-context";
 
@@ -53,7 +53,11 @@ export async function prepareExecutionSessionForTask(
   companyId: string,
   taskId: string
 ): Promise<PrepareTaskExecutionResult | { readonly error: string }> {
+  // `repository` is the explicit Project→Repository link (the chosen repo); the
+  // `workspace.repositories` include is the legacy "first repo in the workspace"
+  // fallback for pre-link projects.
   const repoInclude = {
+    repository: true,
     workspace: {
       include: {
         repositories: { take: 1, orderBy: { updatedAt: "desc" as const } },
@@ -74,9 +78,13 @@ export async function prepareExecutionSessionForTask(
 
   if (!task) return { error: "Task not found." };
 
-  const repoRow =
-    resolveTaskRepository(task.project?.workspace?.repositories) ??
-    resolveTaskRepository(task.feature?.project?.workspace?.repositories);
+  const repoRow = pickTaskRepository({
+    projectRepository: task.project?.repository,
+    featureProjectRepository: task.feature?.project?.repository,
+    projectWorkspaceRepositories: task.project?.workspace?.repositories,
+    featureProjectWorkspaceRepositories:
+      task.feature?.project?.workspace?.repositories,
+  });
   const resolvedProjectId = task.projectId ?? task.feature?.projectId ?? null;
   const repo = repoRow ? toBriefRepositoryContext(repoRow) : null;
 
@@ -192,26 +200,40 @@ export async function autoPrepareNextExecutionSession(
   // Fail-fast on bad environments (close-the-loop): don't launch an autonomous run
   // against a repository we can't validate. Only a "blocked" readiness halts here;
   // "partial"/"unknown" still proceed.
+  const workspaceRepoSelect = {
+    workspace: {
+      select: {
+        repositories: {
+          take: 1,
+          orderBy: { updatedAt: "desc" as const },
+          select: { id: true },
+        },
+      },
+    },
+  };
   const taskRepo = await prisma.task.findFirst({
     where: { id: taskId, companyId },
     select: {
+      // Explicit Project→Repository link first, with the workspace-first-repo
+      // fallback (matching prepareExecutionSessionForTask's precedence).
       project: {
+        select: { repositoryId: true, ...workspaceRepoSelect },
+      },
+      feature: {
         select: {
-          workspace: {
-            select: {
-              repositories: {
-                take: 1,
-                orderBy: { updatedAt: "desc" },
-                select: { id: true },
-              },
-            },
+          project: {
+            select: { repositoryId: true, ...workspaceRepoSelect },
           },
         },
       },
     },
   });
   const repositoryId =
-    taskRepo?.project?.workspace?.repositories?.[0]?.id ?? null;
+    taskRepo?.project?.repositoryId ??
+    taskRepo?.feature?.project?.repositoryId ??
+    taskRepo?.project?.workspace?.repositories?.[0]?.id ??
+    taskRepo?.feature?.project?.workspace?.repositories?.[0]?.id ??
+    null;
   const readiness = await assessExecutionReadiness({ companyId, repositoryId });
   if (!readiness.ready) {
     return {

@@ -64,7 +64,7 @@ export interface CheckCommandProfile {
  *
  * Matches the STANDARD_VALIDATION_COMMANDS previously hardcoded in
  * `implementation-brief.ts`.  Prisma commands are included because the
- * canonical Engineering OS monorepo uses Prisma as its ORM.
+ * canonical Avion monorepo uses Prisma as its ORM.
  */
 export const NEXTJS_TYPESCRIPT_PROFILE: CheckCommandProfile = {
   id: "nextjs-typescript",

@@ -1,9 +1,10 @@
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { ArrowLeft, GitBranch, Plus, ChevronRight, CheckCircle2, Clock } from "lucide-react";
+import { ArrowLeft, GitBranch, Plus, ChevronRight, CheckCircle2, Clock, Boxes } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { workspaceBadgeClasses } from "@/lib/workspace-badge";
 
 const ANALYSIS_COLORS: Record<string, string> = {
   complete: "bg-emerald-950 text-emerald-400 border-emerald-900",
@@ -29,7 +30,14 @@ export default async function RepositoriesPage() {
 
   if (!company) redirect("/onboarding");
 
-  const repositories = company.workspaces.flatMap((w) => w.repositories);
+  // Carry each repo's workspace down so rows can show a workspace badge.
+  const repositories = company.workspaces.flatMap((w) =>
+    w.repositories.map((r) => ({
+      ...r,
+      workspaceId: w.id,
+      workspaceName: w.name,
+    }))
+  );
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
@@ -103,6 +111,15 @@ export default async function RepositoriesPage() {
                     >
                       <StatusIcon className="h-2.5 w-2.5" />
                       {repo.analysisStatus}
+                    </span>
+                    <span
+                      className={cn(
+                        "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                        workspaceBadgeClasses(repo.workspaceId)
+                      )}
+                    >
+                      <Boxes className="h-2.5 w-2.5" />
+                      {repo.workspaceName}
                     </span>
                   </div>
                   {repo.description && (

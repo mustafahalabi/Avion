@@ -129,13 +129,4 @@ export const PROVIDER_DEFS: readonly ProviderDef[] = [
     tokenFieldLabel: "Personal API key",
     tokenFieldPlaceholder: "lin_api_…",
   },
-  {
-    id: "vercel",
-    name: "Vercel",
-    description: "Track deployments, monitor project health, and manage hosting.",
-    requiredScopeSummary: "deployments, projects, teams",
-    docsUrl: "https://vercel.com/account/tokens",
-    tokenFieldLabel: "Access token",
-    tokenFieldPlaceholder: "…",
-  },
 ] as const;

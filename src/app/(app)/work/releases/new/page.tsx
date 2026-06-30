@@ -22,7 +22,7 @@ export default async function NewReleasePage() {
         <h1 className="text-sm font-semibold text-neutral-100">New release</h1>
       </header>
 
-      <div className="p-6 max-w-lg">
+      <div className="p-6">
         <NewReleaseForm />
       </div>
     </div>

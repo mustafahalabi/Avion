@@ -35,13 +35,13 @@ export default async function NewOutcomePage() {
         <h1 className="text-sm font-semibold text-neutral-100">New Outcome</h1>
       </header>
 
-      <div className="flex flex-col gap-6 p-6 max-w-lg">
+      <div className="flex flex-col gap-6 p-6">
         <div>
           <h2 className="text-base font-semibold text-neutral-100">
             Submit an outcome
           </h2>
           <p className="mt-1 text-sm text-neutral-500">
-            Describe what you want built. Engineering OS will generate a
+            Describe what you want built. Avion will generate a
             structured plan for your review before any work begins.
           </p>
         </div>

@@ -22,7 +22,7 @@ export default async function NewMemoryPage() {
         <h1 className="text-sm font-semibold text-neutral-100">New Memory</h1>
       </header>
 
-      <div className="flex flex-col gap-6 p-6 max-w-lg">
+      <div className="flex flex-col gap-6 p-6">
         <div>
           <h2 className="text-base font-semibold text-neutral-100">
             Create a memory bank
