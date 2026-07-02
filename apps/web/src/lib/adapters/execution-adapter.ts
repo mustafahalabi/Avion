@@ -8,6 +8,17 @@
 /** Capability tier controlling how much autonomy the agent has during execution. */
 export type PermissionLevel = "read_only" | "suggest" | "execute" | "full";
 
+/**
+ * Agent types with a runnable execution adapter. Matches the
+ * `ExecutionSession.agentType` values the worker can execute — "human"
+ * sessions have no adapter by design.
+ */
+export const EXECUTION_ADAPTER_AGENT_TYPES = ["claude_code", "codex"] as const;
+
+/** Identifier of a runnable execution adapter. */
+export type ExecutionAdapterAgentType =
+  (typeof EXECUTION_ADAPTER_AGENT_TYPES)[number];
+
 /** Runtime context passed to an execution adapter for a single session. */
 export interface ExecutionContext {
   /** Absolute path to the checked-out repository on disk. */
@@ -47,7 +58,7 @@ export interface ExecutionResult {
 /** Contract implemented by provider-specific execution adapters. */
 export interface ExecutionAdapter {
   /** Identifier matching ExecutionSession.agentType. */
-  readonly agentType: "claude_code" | "codex";
+  readonly agentType: ExecutionAdapterAgentType;
   /**
    * Run the brief in the given context and return a structured result.
    *

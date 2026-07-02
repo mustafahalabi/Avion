@@ -129,6 +129,12 @@ model CompanySettings {
   timezone       String   @default("UTC")
   currency       String   @default("USD")
   locale         String   @default("en")
+  /// Per-company planning provider override ("deterministic" | "ai").
+  /// Null means "use the EOS_PLANNING_PROVIDER environment default".
+  planningProvider String?
+  // Default agent type for new execution sessions: "claude_code" | "codex".
+  // Null (or an unrecognized value) falls back to "claude_code".
+  defaultAgentType String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

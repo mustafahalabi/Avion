@@ -13,51 +13,51 @@ import {
   parseValidationOutput,
 } from "./agent-output-parser";
 
-// Re-export the shared stdout parsers so existing importers keep working —
-// the parsing now lives in agent-output-parser.ts, shared by every adapter.
-export {
-  parseFilesChanged,
-  parseFilesChangedFromGit,
-  parseResultSummary,
-  parseValidationOutput,
-} from "./agent-output-parser";
-
-/** Maps Avion permission levels to Claude Code `--permission-mode` flags. */
-const PERMISSION_MODE_MAP: Record<PermissionLevel, string> = {
-  read_only: "default",
-  suggest: "default",
-  execute: "acceptEdits",
-  full: "bypassPermissions",
+/**
+ * Maps Avion permission levels to Codex CLI `--sandbox` flags.
+ *
+ * `codex exec` never prompts for approval, so the sandbox mode is the whole
+ * permission story: `read-only` cannot edit files, `workspace-write` can edit
+ * inside the checkout, and `danger-full-access` removes sandboxing entirely
+ * (the analog of Claude Code's `bypassPermissions`).
+ */
+const SANDBOX_MODE_MAP: Record<PermissionLevel, string> = {
+  read_only: "read-only",
+  suggest: "read-only",
+  execute: "workspace-write",
+  full: "danger-full-access",
 };
 
-/** Options for constructing a ClaudeCodeAdapter instance. */
-export interface ClaudeCodeAdapterOptions {
-  /** When set, overrides the permission mode derived from context.permissionLevel. */
-  permissionModeOverride?: string;
+/** Options for constructing a CodexAdapter instance. */
+export interface CodexAdapterOptions {
+  /** When set, overrides the sandbox mode derived from context.permissionLevel. */
+  sandboxModeOverride?: string;
 }
 
 /**
- * Execution adapter that invokes the Claude Code CLI via `claude -p`.
+ * Execution adapter that invokes the OpenAI Codex CLI via `codex exec`.
  *
- * Passes the implementation brief on stdin, maps permission levels to
- * `--permission-mode` flags, and parses structured sections from stdout.
+ * Passes the implementation brief on stdin (`codex exec -` reads the entire
+ * prompt from stdin), maps permission levels to `--sandbox` flags, and parses
+ * structured sections from stdout with the same defensive parsers as every
+ * other adapter — including the git-diff fallback for `filesChanged`.
  */
-export class ClaudeCodeAdapter implements ExecutionAdapter {
-  readonly agentType = "claude_code" as const;
+export class CodexAdapter implements ExecutionAdapter {
+  readonly agentType = "codex" as const;
 
-  private readonly permissionModeOverride: string | undefined;
+  private readonly sandboxModeOverride: string | undefined;
 
   /**
-   * Creates a Claude Code adapter.
+   * Creates a Codex adapter.
    *
-   * @param options - Optional overrides for permission mode.
+   * @param options - Optional overrides for sandbox mode.
    */
-  constructor(options?: ClaudeCodeAdapterOptions) {
-    this.permissionModeOverride = options?.permissionModeOverride;
+  constructor(options?: CodexAdapterOptions) {
+    this.sandboxModeOverride = options?.sandboxModeOverride;
   }
 
   /**
-   * Runs `claude -p` with the given brief and execution context.
+   * Runs `codex exec` with the given brief and execution context.
    *
    * @param brief - Markdown brief written to the process stdin.
    * @param context - Repository path, branch, permissions, and timeout.
@@ -66,7 +66,7 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
   async run(brief: string, context: ExecutionContext): Promise<ExecutionResult> {
     const startTime = Date.now();
     const mode =
-      this.permissionModeOverride ?? PERMISSION_MODE_MAP[context.permissionLevel];
+      this.sandboxModeOverride ?? SANDBOX_MODE_MAP[context.permissionLevel];
 
     let stdout = "";
     let stderr = "";
@@ -77,7 +77,8 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
     let child: ChildProcessWithoutNullStreams | undefined;
 
     try {
-      child = spawn("claude", ["-p", "--permission-mode", mode], {
+      // "-" makes codex exec read the entire prompt from stdin (headless mode).
+      child = spawn("codex", ["exec", "--sandbox", mode, "-"], {
         cwd: context.repositoryPath,
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -140,11 +141,11 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
 }
 
 /**
- * Resolves the Claude Code permission mode for a given permission level.
+ * Resolves the Codex sandbox mode for a given permission level.
  *
  * @param level - Avion permission level.
- * @returns Claude Code `--permission-mode` flag value.
+ * @returns Codex CLI `--sandbox` flag value.
  */
-export function mapPermissionLevelToMode(level: PermissionLevel): string {
-  return PERMISSION_MODE_MAP[level];
+export function mapPermissionLevelToSandboxMode(level: PermissionLevel): string {
+  return SANDBOX_MODE_MAP[level];
 }

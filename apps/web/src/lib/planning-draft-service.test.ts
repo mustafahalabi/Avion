@@ -1,8 +1,23 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as DraftServiceModule from "./planning-draft-service";
+import { resolvePlanningAdapter } from "@/lib/planning/planning-provider";
 import { setupTestSchema, teardownTestSchema } from "./test-utils/pg-test-db";
+
+// MUS-262: spy on the provider seam so tests can assert which provider override the
+// service requests per company. Generation itself always runs the deterministic
+// adapter here so no real AI CLI is ever invoked.
+vi.mock("@/lib/planning/planning-provider", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/planning/planning-provider")>();
+  return {
+    ...actual,
+    resolvePlanningAdapter: vi.fn(() =>
+      actual.resolvePlanningAdapter({ provider: "deterministic" })
+    ),
+  };
+});
 
 let prisma: typeof PrismaSingleton;
 let schema: string;
@@ -19,12 +34,14 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  vi.clearAllMocks();
   await prisma.$executeRawUnsafe(`DELETE FROM "TimelineEntry"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Task"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "PlanningDraft"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "RuntimeEvent"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Outcome"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "RuntimeRequest"`);
+  await prisma.$executeRawUnsafe(`DELETE FROM "CompanySettings"`);
 });
 
 afterAll(async () => {
@@ -136,5 +153,107 @@ describe("createOrUpdatePlanningDraftForOutcome — draft versioning (MUS-259)",
     });
     expect(drafts).toHaveLength(1);
     expect(drafts[0].version).toBe(1);
+  });
+
+  it("regenerates a pending draft in place when regeneratePendingDraft is set (MUS-261)", async () => {
+    const outcomeId = await seedOutcome();
+    const first = await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+
+    const regenerated = await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+      regeneratePendingDraft: true,
+    });
+
+    // Regenerated (not reused): same draft row, same version, fresh generation.
+    expect(regenerated.planningDraftId).toBe(first.planningDraftId);
+    expect(regenerated.message).not.toMatch(/already exists/i);
+    const drafts = await prisma.planningDraft.findMany({
+      where: { companyId: "company-1", outcomeId },
+    });
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].version).toBe(1);
+    expect(drafts[0].status).toBe("draft");
+  });
+
+  it("never regenerates an approved draft, even with regeneratePendingDraft", async () => {
+    const outcomeId = await seedOutcome();
+    const first = await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+    await prisma.planningDraft.update({
+      where: { id: first.planningDraftId },
+      data: { status: "approved", approvedAt: new Date() },
+    });
+
+    const reused = await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+      regeneratePendingDraft: true,
+    });
+
+    expect(reused.planningDraftId).toBe(first.planningDraftId);
+    expect(reused.message).toMatch(/already exists/i);
+    const draft = await prisma.planningDraft.findUniqueOrThrow({
+      where: { id: first.planningDraftId },
+      select: { status: true },
+    });
+    expect(draft.status).toBe("approved");
+  });
+});
+
+describe("createOrUpdatePlanningDraftForOutcome — per-company planning provider (MUS-262)", () => {
+  it("passes a stored CompanySettings override through to the provider resolver", async () => {
+    await prisma.companySettings.create({
+      data: { companyId: "company-1", planningProvider: "ai" },
+    });
+    const outcomeId = await seedOutcome();
+
+    await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+
+    expect(vi.mocked(resolvePlanningAdapter).mock.lastCall).toEqual([
+      { provider: "ai" },
+    ]);
+  });
+
+  it("passes null (environment fallback) when the company stores no override", async () => {
+    await prisma.companySettings.create({ data: { companyId: "company-1" } });
+    const outcomeId = await seedOutcome();
+
+    await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+
+    expect(vi.mocked(resolvePlanningAdapter).mock.lastCall).toEqual([
+      { provider: null },
+    ]);
+  });
+
+  it("passes null (environment fallback) when the company has no settings row", async () => {
+    const outcomeId = await seedOutcome();
+
+    await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+
+    expect(vi.mocked(resolvePlanningAdapter).mock.lastCall).toEqual([
+      { provider: null },
+    ]);
   });
 });

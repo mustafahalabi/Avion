@@ -6,6 +6,23 @@ import { ClaudeCliLlmClient } from "@/lib/llm/claude-cli-client";
 /** Supported planning providers. */
 export type PlanningProviderId = "deterministic" | "ai";
 
+/** Every provider id a per-company override may store (null means "env default"). */
+export const PLANNING_PROVIDER_IDS: readonly PlanningProviderId[] = [
+  "deterministic",
+  "ai",
+];
+
+/**
+ * Narrows an arbitrary string (e.g. a stored CompanySettings override or form value)
+ * to a supported {@link PlanningProviderId}.
+ *
+ * @param value - Candidate provider id.
+ * @returns True when the value names a supported planning provider.
+ */
+export function isPlanningProviderId(value: string): value is PlanningProviderId {
+  return (PLANNING_PROVIDER_IDS as readonly string[]).includes(value);
+}
+
 export interface ResolvePlanningAdapterOptions {
   /**
    * Explicit provider override (e.g. a future per-company setting). When omitted, the
