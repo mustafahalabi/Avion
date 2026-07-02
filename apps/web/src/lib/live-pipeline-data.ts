@@ -103,6 +103,12 @@ export async function loadLiveNotifications(
 /** Tasks in these states never appear on the board. */
 const HIDDEN_TASK_STATUSES: readonly string[] = ["cancelled"];
 
+/** Fallback human label for a timeline event with no stored summary. */
+function humanizeEventType(eventType: string): string {
+  const spaced = eventType.replace(/[_.]/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 function parseFilesChangedCount(filesChanged: string | null | undefined): number {
   if (!filesChanged) return 0;
   try {
@@ -177,6 +183,7 @@ export async function loadLivePipeline(
     runtimeEvents,
     planningTimeline,
     notificationsPayload,
+    taskTimelineEvents,
   ] = await Promise.all([
       taskIds.length
         ? prisma.executionSession.findMany({
@@ -224,6 +231,20 @@ export async function loadLivePipeline(
       options.userId
         ? loadLiveNotifications(options.userId, notificationLimit)
         : Promise.resolve(EMPTY_NOTIFICATIONS),
+      taskIds.length
+        ? prisma.timelineEntry.findMany({
+            where: { entityType: "task", entityId: { in: taskIds } },
+            orderBy: { createdAt: "desc" },
+            take: streamLimit,
+            select: {
+              id: true,
+              entityId: true,
+              eventType: true,
+              summary: true,
+              createdAt: true,
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
   const sessionByTask = latestByKey(sessions, (s) => s.taskId);
@@ -277,6 +298,16 @@ export async function loadLivePipeline(
 
   const board = buildLifecycleBoard([...planInputs, ...taskInputs], { doneLimit });
 
+  // Map each task to its outcome ("workflow") + title so task-scoped events can
+  // be tagged and labelled for the conversation-scoped chat feed.
+  const taskWorkflowById = new Map<string, string | null>();
+  const taskTitleById = new Map<string, string>();
+  for (const t of tasks) {
+    const workflow = t.outcome ?? t.planningDraft?.outcome ?? null;
+    taskWorkflowById.set(t.id, workflow?.id ?? null);
+    taskTitleById.set(t.id, t.title);
+  }
+
   const stream: TimelineItem[] = [
     ...runtimeEvents.map((event) => ({
       id: `runtime-${event.id}`,
@@ -285,6 +316,7 @@ export async function loadLivePipeline(
       contextHref: `/inbox/requests/${event.request.id}`,
       contextLabel: event.request.title,
       type: event.type,
+      workflowId: null,
     })),
     ...planningTimeline.map((event) => ({
       id: `planning-${event.id}`,
@@ -293,6 +325,19 @@ export async function loadLivePipeline(
       contextHref: event.href,
       contextLabel: event.outcomeTitle ?? "Outcome planning",
       type: event.eventType,
+      workflowId: event.outcomeId,
+    })),
+    // Task-scoped milestones (pr_merged, qa_passed, review_approved, …) —
+    // previously excluded from the timeline; surfaced here so the chat can show
+    // work streaming through build → PR → review → QA → merge.
+    ...taskTimelineEvents.map((event) => ({
+      id: `task-${event.id}`,
+      createdAt: event.createdAt,
+      description: event.summary ?? humanizeEventType(event.eventType),
+      contextHref: `/work/tasks/${event.entityId}`,
+      contextLabel: taskTitleById.get(event.entityId) ?? "Task",
+      type: event.eventType,
+      workflowId: taskWorkflowById.get(event.entityId) ?? null,
     })),
   ]
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())

@@ -146,7 +146,7 @@ export function Sidebar({
       {/* Logo / workspace header */}
       <div style={{ borderBottom: "1.5px solid var(--av-bd)" }}>
         <div className="flex items-center gap-[11px] px-[18px] pt-4">
-          <Link href="/dashboard" className="av-logo">
+          <Link href="/chat" className="av-logo">
             <span className="av-logo__mark">
               <span />
             </span>
