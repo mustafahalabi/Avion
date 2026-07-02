@@ -121,33 +121,12 @@ export async function addRepository(
   redirect(`/work/repositories/${repo.id}`);
 }
 
-export async function analyzeRepository(
-  _prev: RepositoryAnalysisActionState,
-  formData: FormData,
-): Promise<RepositoryAnalysisActionState> {
-  const company = await getCurrentCompany();
-  if (!company) return { message: "No company found." };
-
-  const repositoryId = String(formData.get("repositoryId") ?? "");
-  const localPath = String(formData.get("localPath") ?? "");
-
-  if (!repositoryId || !localPath) {
-    return { message: "Repository id and local path are required." };
-  }
-
-  const { createRepositoryAnalysisSnapshot } = await import("@/lib/repository-snapshot-service");
-  const snapshot = await createRepositoryAnalysisSnapshot({
-    repositoryId,
-    companyId: company.id,
-    localPath,
-  });
-
-  return {
-    message: snapshot.status === "failed" ? snapshot.error ?? "Repository analysis failed." : "Repository analysis snapshot created.",
-    snapshotId: snapshot.id,
-    status: snapshot.status,
-  };
-}
+// NOTE: A prior `analyzeRepository` "use server" action took a client-supplied
+// `localPath` and read it straight off the host filesystem — an authenticated
+// arbitrary-host-path read (MUS-299). It was never wired to any UI (the
+// GitHub-URL path below superseded it), so it has been removed rather than
+// allowlisted. Repository analysis now only runs against a repo we cloned into a
+// controlled temp dir (`analyzeRepositoryFromGitHub`), never a client-named path.
 
 /**
  * Analyzes a repository straight from its GitHub URL — no local path required.
