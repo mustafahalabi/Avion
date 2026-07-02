@@ -206,7 +206,10 @@ const RETRY_BACKOFF_CAP_SECONDS = 900;
 
 /** Consecutive-failure state for a task's retry decision. */
 export interface TaskRetryState {
-  /** Failed sessions since the last completed session (or ever, when none). */
+  /**
+   * Failed delivery cycles since the last passed QA (or ever, when none): failed
+   * execution sessions (no-op/error) plus failed QA gates (committed-but-QA-failed).
+   */
   readonly consecutiveFailures: number;
   /** True when the failure budget is exhausted and the task must be blocked. */
   readonly exhausted: boolean;
@@ -219,10 +222,20 @@ export interface TaskRetryState {
 /**
  * Assesses whether a task may receive another execution attempt.
  *
- * Failures are counted *since the last completed session* so a task that
- * shipped once and later re-entered the loop (rework) starts a fresh budget.
+ * A "failed attempt" is any delivery cycle that did NOT clear the gates, counted
+ * since the last **passed QA** (the real "this delivery succeeded" signal):
+ * - a **failed execution session** (a no-op run, or an error), and
+ * - a **failed QA result** — a session that committed and reached QA but then
+ *   failed it.
+ *
+ * Anchoring on the last passed QA (rather than the last *completed session*) is the
+ * MUS-279 fix: a committing rework that fails QA ingests as a `completed` session,
+ * which previously reset the budget — so only no-op reworks were bounded and a
+ * rework that kept committing wrong-but-non-empty fixes could loop forever without
+ * escalating. Counting failed QA gates makes both kinds of rework bounded.
+ *
  * Backoff doubles per consecutive failure (base `WORKER_RETRY_BACKOFF_BASE_SECONDS`,
- * default 60s, capped at 15 minutes).
+ * default 60s, capped at 15 minutes), timed from the most recent failure signal.
  *
  * @param companyId - Company that owns the task.
  * @param taskId - Task being considered for a new session.
@@ -234,32 +247,53 @@ export async function assessTaskRetryState(
   taskId: string,
   now: Date = new Date()
 ): Promise<TaskRetryState> {
-  const lastCompleted = await prisma.executionSession.findFirst({
-    where: { companyId, taskId, status: "completed" },
-    orderBy: { completedAt: "desc" },
-    select: { completedAt: true },
+  const lastPassedQa = await prisma.qAResult.findFirst({
+    where: { companyId, entityType: "task", entityId: taskId, status: "passed" },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
   });
+  const since = lastPassedQa?.createdAt ?? null;
 
-  const failedSince = {
+  const failedSessionWhere = {
     companyId,
     taskId,
     status: "failed",
-    ...(lastCompleted?.completedAt
-      ? { completedAt: { gt: lastCompleted.completedAt } }
-      : {}),
+    ...(since ? { completedAt: { gt: since } } : {}),
+  };
+  const failedQaWhere = {
+    companyId,
+    entityType: "task",
+    entityId: taskId,
+    status: "failed",
+    ...(since ? { createdAt: { gt: since } } : {}),
   };
 
-  const [consecutiveFailures, latestFailure] = await Promise.all([
-    prisma.executionSession.count({ where: failedSince }),
-    prisma.executionSession.findFirst({
-      where: failedSince,
-      orderBy: { completedAt: "desc" },
-      select: { completedAt: true },
-    }),
-  ]);
+  const [failedSessions, failedQa, latestFailedSession, latestFailedQa] =
+    await Promise.all([
+      prisma.executionSession.count({ where: failedSessionWhere }),
+      prisma.qAResult.count({ where: failedQaWhere }),
+      prisma.executionSession.findFirst({
+        where: failedSessionWhere,
+        orderBy: { completedAt: "desc" },
+        select: { completedAt: true },
+      }),
+      prisma.qAResult.findFirst({
+        where: failedQaWhere,
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      }),
+    ]);
 
+  const consecutiveFailures = failedSessions + failedQa;
   const exhausted = consecutiveFailures > maxRetriesAfterFirstFailure();
-  if (exhausted || consecutiveFailures === 0 || !latestFailure?.completedAt) {
+
+  // Backoff runs from whichever failure signal is most recent.
+  const latestFailureAt =
+    [latestFailedSession?.completedAt, latestFailedQa?.createdAt]
+      .filter((value): value is Date => value instanceof Date)
+      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+
+  if (exhausted || consecutiveFailures === 0 || !latestFailureAt) {
     return {
       consecutiveFailures,
       exhausted,
@@ -272,8 +306,7 @@ export async function assessTaskRetryState(
     retryBackoffBaseSeconds() * 2 ** (consecutiveFailures - 1),
     RETRY_BACKOFF_CAP_SECONDS
   );
-  const elapsedSeconds =
-    (now.getTime() - latestFailure.completedAt.getTime()) / 1000;
+  const elapsedSeconds = (now.getTime() - latestFailureAt.getTime()) / 1000;
   const remaining = Math.ceil(backoffSeconds - elapsedSeconds);
 
   return {
