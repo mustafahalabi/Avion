@@ -39,6 +39,12 @@ coverage/
 *.tsbuildinfo
 next-env.d.ts
 
+# Clerk keyless-mode local credentials
+.clerk/
+
+# npm lockfile — this repo is pnpm-only (pnpm-lock.yaml is the tracked lockfile)
+package-lock.json
+
 # Misc
 .DS_Store
 *.pem
