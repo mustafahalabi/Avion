@@ -275,6 +275,9 @@ async function processSession(sessionId: string): Promise<void> {
       const guard = evaluatePrePushGuardrails({
         checkoutPath: checkout.path,
         branchName,
+        // Evaluate what the agent committed since checkout, not just the working
+        // tree — a bypassPermissions run commits its own edits (MUS-281).
+        baseCommitSha: checkout.baseCommitSha,
         permissions,
       });
 

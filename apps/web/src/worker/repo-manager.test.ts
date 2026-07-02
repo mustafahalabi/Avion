@@ -157,6 +157,22 @@ function configurePorcelain(porcelain: string): void {
   });
 }
 
+/**
+ * Configures the execSync mock to respond to both the working-tree status and
+ * the committed-diff (`git diff --name-only <base> HEAD`) queries the guardrail
+ * uses when a `baseCommitSha` is supplied.
+ */
+function configureGitChanges(options: {
+  porcelain: string;
+  committed: string;
+}): void {
+  mockExecSync.mockImplementation((command: string) => {
+    if (command.includes("git status --porcelain")) return options.porcelain;
+    if (command.includes("git diff --name-only")) return options.committed;
+    return "";
+  });
+}
+
 describe("evaluatePrePushGuardrails", () => {
   // "assist" autonomy → execute profile (git add/commit/push allowed).
   const permissions = getWorkerPermissions("assist");
@@ -246,6 +262,65 @@ describe("evaluatePrePushGuardrails", () => {
     expect(
       result.violations.some((v) => v.rule === "command-not-permitted")
     ).toBe(true);
+  });
+
+  it("blocks a protected path the agent COMMITTED even with a clean working tree (MUS-281)", () => {
+    // The agent committed a workflow change and left nothing in the working
+    // tree — porcelain is empty, but the committed diff must still be evaluated.
+    configureGitChanges({
+      porcelain: "",
+      committed: ".github/workflows/deploy.yml\nsrc/lib/foo.ts\n",
+    });
+
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "feature/MUS-213-enforce",
+      baseCommitSha: "base000",
+      permissions: getWorkerPermissions("autonomous"),
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations.some((v) => v.rule === "protected-file")).toBe(true);
+    const offendingPaths = result.violations
+      .filter((v) => v.path !== undefined)
+      .map((v) => v.path);
+    expect(offendingPaths).toContain(".github/workflows/deploy.yml");
+  });
+
+  it("evaluates the union of committed and working-tree changes (MUS-281)", () => {
+    configureGitChanges({
+      porcelain: " M src/lib/foo.ts\n",
+      committed: ".env.production\n",
+    });
+
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "feature/MUS-213-enforce",
+      baseCommitSha: "base000",
+      permissions: getWorkerPermissions("autonomous"),
+    });
+
+    expect(result.changedFiles).toEqual(
+      expect.arrayContaining([".env.production", "src/lib/foo.ts"])
+    );
+    expect(result.passed).toBe(false);
+  });
+
+  it("passes a clean src-only committed change (no working-tree diff) (MUS-281)", () => {
+    configureGitChanges({
+      porcelain: "",
+      committed: "src/lib/foo.ts\nsrc/lib/foo.test.ts\n",
+    });
+
+    const result = evaluatePrePushGuardrails({
+      checkoutPath: "/tmp/x",
+      branchName: "feature/MUS-213-enforce",
+      baseCommitSha: "base000",
+      permissions: getWorkerPermissions("assist"),
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.changedFiles).toEqual(["src/lib/foo.ts", "src/lib/foo.test.ts"]);
   });
 
   it("enforces guardrails regardless of a broad (full) permission profile", () => {

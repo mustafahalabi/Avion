@@ -247,7 +247,10 @@ export interface PrePushViolation {
 export interface PrePushGuardResult {
   /** True only when there are zero `block`-severity violations. */
   readonly passed: boolean;
-  /** Files the agent changed in the working tree (the evaluated set). */
+  /**
+   * Files the agent changed — committed since the checkout base and/or in the
+   * working tree (the evaluated set).
+   */
   readonly changedFiles: string[];
   /** All violations discovered, in evaluation order. */
   readonly violations: PrePushViolation[];
@@ -259,6 +262,13 @@ export interface PrePushGuardInput {
   readonly checkoutPath: string;
   /** Session branch that would be pushed. */
   readonly branchName: string;
+  /**
+   * HEAD SHA at checkout, before the agent ran. When provided, the guardrail
+   * also evaluates files the agent **committed** since this base — not just the
+   * working tree — so a protected-path commit cannot slip past a clean working
+   * tree (MUS-281). The worker supplies it from the checkout result.
+   */
+  readonly baseCommitSha?: string;
   /** Resolved worker permission profile (autonomy-derived, not agent mode). */
   readonly permissions: WorkerPermissions;
   /**
@@ -294,7 +304,7 @@ export function defaultIntendedGitCommands(branchName: string): string[] {
 export function evaluatePrePushGuardrails(
   input: PrePushGuardInput
 ): PrePushGuardResult {
-  const changedFiles = getChangedFiles(input.checkoutPath);
+  const changedFiles = getChangedFiles(input.checkoutPath, input.baseCommitSha);
   const violations: PrePushViolation[] = [];
 
   // Protected paths (repository-guardrails) — absolute, profile-independent.
@@ -396,28 +406,53 @@ export function summarizePrePushBlock(result: PrePushGuardResult): string {
 }
 
 /**
- * Returns the relative paths of all files changed in the working tree
- * (staged, unstaged, and untracked), resolving renames to their new path.
+ * Returns the relative paths of every file the push would carry: files the
+ * agent **committed** since the checkout base (when `baseCommitSha` is given)
+ * unioned with **working-tree** changes (staged, unstaged, untracked), renames
+ * resolved to their new path.
+ *
+ * The committed set matters because the agent routinely `git commit`s its own
+ * edits (a `bypassPermissions` run especially), leaving a clean working tree —
+ * so a protected-path change that was committed would be invisible to
+ * `git status --porcelain` alone and slip past the guardrail (MUS-281).
  *
  * @param checkoutPath - Local repository path.
- * @returns Changed file paths.
+ * @param baseCommitSha - HEAD SHA at checkout, before the agent ran. Omit to
+ *   evaluate the working tree only (legacy/degraded behavior).
+ * @returns Changed file paths (committed ∪ working-tree), deduplicated.
  */
-function getChangedFiles(checkoutPath: string): string[] {
+function getChangedFiles(checkoutPath: string, baseCommitSha?: string): string[] {
+  const files = new Set<string>();
+
+  // Committed changes since the checkout base (rename detection resolves to the
+  // new path by default).
+  if (baseCommitSha) {
+    const committed = execSync(`git diff --name-only ${baseCommitSha} HEAD`, {
+      cwd: checkoutPath,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    for (const line of committed.split("\n")) {
+      const path = line.trim();
+      if (path.length > 0) files.add(path);
+    }
+  }
+
+  // Working-tree changes.
   const output = execSync("git status --porcelain", {
     cwd: checkoutPath,
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
   });
-
-  const files: string[] = [];
   for (const rawLine of output.split("\n")) {
     if (rawLine.trim().length === 0) continue;
     // Porcelain v1: two status chars + a space, then the path.
     const pathPart = rawLine.slice(3);
     const renameIdx = pathPart.indexOf(" -> ");
-    files.push(renameIdx >= 0 ? pathPart.slice(renameIdx + 4) : pathPart);
+    files.add(renameIdx >= 0 ? pathPart.slice(renameIdx + 4) : pathPart);
   }
-  return files;
+
+  return [...files];
 }
 
 /**
