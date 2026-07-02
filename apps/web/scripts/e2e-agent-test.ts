@@ -1,13 +1,11 @@
 import { execSync } from "node:child_process";
 
+import { buildTaskImplementationBrief } from "../src/lib/auto-execution-service";
 import {
   createExecutionSession,
   prepareExecutionSession,
 } from "../src/lib/execution-session-service";
-import {
-  generateClaudeImplementationBrief,
-  type BriefRepositoryContext,
-} from "../src/lib/implementation-brief";
+import { type BriefRepositoryContext } from "../src/lib/implementation-brief";
 import { buildOutcomeCreateData } from "../src/lib/outcome-planning";
 import { recordOutcomeSubmittedEvent } from "../src/lib/outcome-planning-lifecycle";
 import {
@@ -61,11 +59,17 @@ function toBriefRepositoryContext(repo: {
 /**
  * Generates an implementation brief for the given task and sandbox repository.
  *
+ * Uses the production brief assembler ({@link buildTaskImplementationBrief}) so
+ * the smoke-test session carries the same company-memory section the real driver
+ * injects (MUS-273), rather than a hand-rolled brief that omits it.
+ *
+ * @param companyId - Company that owns the task (memory scope).
  * @param task - Task row with planning draft metadata.
  * @param repo - Sandbox repository record.
  * @returns Generated brief markdown string.
  */
 async function generateBriefForTask(
+  companyId: string,
   task: {
     id: string;
     title: string;
@@ -77,7 +81,8 @@ async function generateBriefForTask(
   },
   repo: BriefRepositoryContext
 ): Promise<string> {
-  const { brief } = generateClaudeImplementationBrief({
+  const { brief } = await buildTaskImplementationBrief({
+    companyId,
     taskId: task.id,
     taskTitle: task.title,
     taskDescription: task.description,
@@ -193,7 +198,7 @@ async function main(): Promise<void> {
   console.log("Step 5: Preparing execution session...");
   const task = tasks[0]!;
   const repoContext = toBriefRepositoryContext(repo);
-  const brief = await generateBriefForTask(task, repoContext);
+  const brief = await generateBriefForTask(COMPANY_ID!, task, repoContext);
 
   const session = await createExecutionSession({
     companyId: COMPANY_ID!,

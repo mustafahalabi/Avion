@@ -25,6 +25,7 @@ import { assessExecutionReadiness } from "@/lib/repository-readiness-gate";
 import {
   generateClaudeImplementationBrief,
   type BriefMemoryItem,
+  type BriefRepositoryContext,
   type ReworkContext,
 } from "@/lib/implementation-brief";
 import { getRelevantCompanyMemory } from "@/lib/memory/memory-retrieval-service";
@@ -43,6 +44,76 @@ export interface PrepareTaskExecutionResult {
   readonly sessionId: string;
   readonly brief: string;
   readonly branchName: string;
+}
+
+/** Inputs for {@link buildTaskImplementationBrief}. */
+export interface BuildTaskBriefInput {
+  readonly companyId: string;
+  readonly taskId: string;
+  readonly taskTitle: string;
+  readonly taskDescription: string | null;
+  readonly priority: string;
+  readonly planningDraftId: string | null;
+  readonly planItemId: string | null;
+  readonly generatedTasksJson: string | null;
+  readonly repository: BriefRepositoryContext | null;
+  readonly branchName: string | null;
+  readonly baseBranch: string;
+  readonly linearTicketUrl: string | null;
+  readonly reworkContext?: ReworkContext | null;
+}
+
+/**
+ * Assembles a Claude implementation brief for a task, injecting the company's
+ * durable memory (promoted standards + lessons) as the "Company Standards &
+ * Lessons" section (MUS-258).
+ *
+ * This is the single brief builder shared by the production prepare path
+ * ({@link prepareExecutionSessionForTask}) and the live/e2e dogfood scripts, so
+ * a dogfood run exercises the SAME memory-carrying brief production uses rather
+ * than a hand-rolled brief that silently omits memory (MUS-273).
+ *
+ * Memory retrieval is best-effort: a failure yields an empty memory section and
+ * never blocks the brief.
+ *
+ * @param input - Task, repository, branch, and rework context for the brief.
+ * @returns The assembled brief markdown and the resolved branch name.
+ */
+export async function buildTaskImplementationBrief(
+  input: BuildTaskBriefInput
+): Promise<{ readonly brief: string; readonly branchName: string }> {
+  // Durable company memory (promoted standards + lessons) flows into the
+  // implementation brief so the coding agent applies what the company already
+  // learned. Best-effort: a memory failure never blocks execution.
+  let companyMemory: BriefMemoryItem[] = [];
+  try {
+    const memory = await getRelevantCompanyMemory({
+      companyId: input.companyId,
+      limit: 8,
+    });
+    companyMemory = memory.map((item) => ({
+      category: item.category,
+      content: item.content,
+    }));
+  } catch {
+    companyMemory = [];
+  }
+
+  return generateClaudeImplementationBrief({
+    taskId: input.taskId,
+    taskTitle: input.taskTitle,
+    taskDescription: input.taskDescription,
+    priority: input.priority,
+    planningDraftId: input.planningDraftId,
+    planItemId: input.planItemId,
+    generatedTasksJson: input.generatedTasksJson,
+    repository: input.repository,
+    branchName: input.branchName,
+    baseBranch: input.baseBranch,
+    linearTicketUrl: input.linearTicketUrl,
+    reworkContext: input.reworkContext ?? null,
+    companyMemory,
+  });
 }
 
 /**
@@ -121,21 +192,8 @@ export async function prepareExecutionSessionForTask(
         }
       : null;
 
-  // Durable company memory (promoted standards + lessons) flows into the
-  // implementation brief so the coding agent applies what the company already
-  // learned. Best-effort: a memory failure never blocks execution.
-  let companyMemory: BriefMemoryItem[] = [];
-  try {
-    const memory = await getRelevantCompanyMemory({ companyId, limit: 8 });
-    companyMemory = memory.map((item) => ({
-      category: item.category,
-      content: item.content,
-    }));
-  } catch {
-    companyMemory = [];
-  }
-
-  const { brief, branchName } = generateClaudeImplementationBrief({
+  const { brief, branchName } = await buildTaskImplementationBrief({
+    companyId,
     taskId: task.id,
     taskTitle: task.title,
     taskDescription: task.description ?? null,
@@ -148,7 +206,6 @@ export async function prepareExecutionSessionForTask(
     baseBranch: priorSession?.baseBranch ?? "master",
     linearTicketUrl: null,
     reworkContext,
-    companyMemory,
   });
 
   const session = await createExecutionSession({

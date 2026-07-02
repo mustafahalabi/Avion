@@ -19,9 +19,9 @@
  * Run via: `npm run live:prepare` (which sources .env + .env.live first).
  */
 
+import { buildTaskImplementationBrief } from "../src/lib/auto-execution-service";
 import { recordGitHubConnection } from "../src/lib/github-connection-service";
 import { parseGitHubRepoUrl } from "../src/lib/github-pull-request";
-import { generateClaudeImplementationBrief } from "../src/lib/implementation-brief";
 import {
   createExecutionSession,
   prepareExecutionSession,
@@ -134,7 +134,10 @@ async function main(): Promise<void> {
     },
   });
 
-  const { brief, branchName } = generateClaudeImplementationBrief({
+  // Use the production brief assembler so this dogfood session carries the same
+  // company-memory section the real driver injects (MUS-273).
+  const { brief, branchName } = await buildTaskImplementationBrief({
+    companyId: COMPANY_ID,
     taskId: task.id,
     taskTitle: task.title,
     taskDescription: task.description ?? null,
