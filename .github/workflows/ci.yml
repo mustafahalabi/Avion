@@ -79,3 +79,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/avion
         run: pnpm --filter @avion/web exec vitest run
+
+      - name: Test @avion/api
+        # The api `test` script is `prisma generate && vitest run`; the client
+        # was already generated, so run vitest directly. Pure unit suites —
+        # no database needed.
+        run: pnpm --filter @avion/api exec vitest run
