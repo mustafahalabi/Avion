@@ -346,21 +346,38 @@ export async function findLiveSessionForTask(
   });
 }
 
-/** Default grace period before a `running` session is considered abandoned. */
-const DEFAULT_STALE_SESSION_TIMEOUT_SECONDS = 1800;
+/** Default agent phase timeout (mirrors the worker's WORKER_SESSION_TIMEOUT_SECONDS). */
+const DEFAULT_SESSION_PHASE_TIMEOUT_SECONDS = 1800;
+/** Default dependency-install timeout (mirrors WORKER_INSTALL_TIMEOUT_SECONDS). */
+const DEFAULT_INSTALL_TIMEOUT_SECONDS = 600;
+/** Margin over the worst-case runtime for clone/commit/PR overhead. */
+const STALE_SESSION_SAFETY_MARGIN_SECONDS = 300;
+
+/** Reads a non-negative seconds value from the environment, or a fallback. */
+function envSeconds(name: string, fallback: number): number {
+  const parsed = Number(process.env[name] ?? fallback);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
 
 /**
- * Resolves the stale-session grace period from the environment (mirrors the
- * worker's `WORKER_SESSION_TIMEOUT_SECONDS`, so a session is only reaped once it
- * has exceeded the time a legitimate run is allowed).
+ * Resolves the stale-session grace period: the **full worst-case worker runtime**,
+ * not just the agent phase. A healthy run spends agent (`WORKER_SESSION_TIMEOUT_SECONDS`)
+ * + dependency install (`WORKER_INSTALL_TIMEOUT_SECONDS`) + validation (the session
+ * timeout again) + clone/commit/PR overhead. The reaper must only reclaim sessions
+ * from a **crashed** worker, so its grace covers that whole budget plus a margin —
+ * reaping at just the agent timeout killed healthy long sessions mid-run (MUS-285).
  */
 function staleSessionTimeoutSeconds(): number {
-  const parsed = Number(
-    process.env.WORKER_SESSION_TIMEOUT_SECONDS ?? DEFAULT_STALE_SESSION_TIMEOUT_SECONDS
+  const sessionPhase = envSeconds(
+    "WORKER_SESSION_TIMEOUT_SECONDS",
+    DEFAULT_SESSION_PHASE_TIMEOUT_SECONDS
   );
-  return Number.isFinite(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_STALE_SESSION_TIMEOUT_SECONDS;
+  const installPhase = envSeconds(
+    "WORKER_INSTALL_TIMEOUT_SECONDS",
+    DEFAULT_INSTALL_TIMEOUT_SECONDS
+  );
+  // agent + validation both bounded by the session-phase timeout, plus install.
+  return sessionPhase * 2 + installPhase + STALE_SESSION_SAFETY_MARGIN_SECONDS;
 }
 
 /**
@@ -783,8 +800,12 @@ export async function ingestAgentExecutionResult(
     if (input.prStatus) branchData.prStatus = input.prStatus;
     if (input.mergeStatus) branchData.mergeStatus = input.mergeStatus;
 
-    const resultSession = await tx.executionSession.update({
-      where: { id: current.id },
+    // Conditional on the row still being "running": if a stale-session reaper
+    // flipped it to "failed" between our read above and here (TOCTOU), this
+    // matches zero rows and we abort rather than resurrect the session
+    // `failed → completed` and advance the task on discarded work (MUS-285).
+    const writeResult = await tx.executionSession.updateMany({
+      where: { id: current.id, status: "running" },
       data: {
         status: input.status,
         resultSummary: input.resultSummary ?? null,
@@ -794,6 +815,15 @@ export async function ingestAgentExecutionResult(
         completedAt: new Date(),
         ...branchData,
       },
+    });
+    if (writeResult.count === 0) {
+      throw new Error(
+        `Cannot record result for session ${input.sessionId}: it is no longer "running" (reaped or changed concurrently).`
+      );
+    }
+
+    const resultSession = await tx.executionSession.findFirstOrThrow({
+      where: { id: current.id },
     });
 
     return resultSession;
