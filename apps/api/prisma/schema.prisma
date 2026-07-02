@@ -19,10 +19,18 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id      String  @id
+  clerkId String? @unique
+
+  @@map("User")
+}
+
 model Company {
-  id   String @id
-  name String
-  slug String @unique
+  id      String @id
+  name    String
+  slug    String @unique
+  ownerId String
 
   @@map("Company")
 }
@@ -58,6 +66,7 @@ model Task {
 
 model Notification {
   id        String   @id
+  userId    String
   companyId String?
   type      String   @default("info")
   read      Boolean  @default(false)
