@@ -7,11 +7,18 @@ export const APPROVED_PLANNING_DRAFT_STATUSES = ["approved", "applied"] as const
 
 /**
  * Task statuses that are eligible for a new implementation attempt.
+ *
+ * `in-progress` is additionally executable as a *rework* when the task carries
+ * unresolved change requests (see {@link isExecutableCandidate}) — that is how
+ * PR feedback (CI failure / changes requested) re-enters the agent loop instead
+ * of dead-ending on a status the driver never selects.
  */
 export const EXECUTABLE_TASK_STATUSES = ["todo"] as const;
 
 /**
  * Task statuses that must never be selected for implementation.
+ * (`in-progress` is listed here for the *default* case; a rework candidate with
+ * unresolved change requests overrides it.)
  */
 export const NON_EXECUTABLE_TASK_STATUSES = [
   "blocked",
@@ -40,6 +47,12 @@ export interface TaskSelectionCandidate {
   readonly planningDraftStatus: PlanningDraftStatus;
   readonly planItemId: string | null;
   readonly createdAt: Date;
+  /**
+   * True when the task has unresolved change requests (from a review, QA, or
+   * PR feedback) and therefore needs a rework implementation attempt. Makes an
+   * `in-progress` task executable again.
+   */
+  readonly needsRework?: boolean;
 }
 
 export interface GeneratedTaskMetadata {
@@ -131,6 +144,19 @@ export function isExecutableTaskStatus(status: string): boolean {
 }
 
 /**
+ * Checks whether a candidate is eligible for an implementation attempt:
+ * either a fresh `todo` task, or an `in-progress` task that carries
+ * unresolved change requests and therefore needs a rework attempt.
+ *
+ * @param candidate - Task selection candidate
+ * @returns True when a session may be prepared for this candidate
+ */
+export function isExecutableCandidate(candidate: TaskSelectionCandidate): boolean {
+  if (isExecutableTaskStatus(candidate.status)) return true;
+  return candidate.status === "in-progress" && candidate.needsRework === true;
+}
+
+/**
  * Determines whether all declared task dependencies are satisfied.
  *
  * @param dependencies - Deterministic plan item IDs that must be complete first
@@ -190,7 +216,7 @@ export function selectNextExecutableTask(
   }
 
   const executableByStatus = eligibleCandidates.filter((candidate) =>
-    isExecutableTaskStatus(candidate.status)
+    isExecutableCandidate(candidate)
   );
 
   if (executableByStatus.length === 0) {
@@ -202,8 +228,8 @@ export function selectNextExecutableTask(
       task: null,
       reasonCode: hasNonExecutableOnly ? "all_blocked_by_status" : "no_executable_tasks",
       reason: hasNonExecutableOnly
-        ? "All candidate tasks are blocked, completed, in review, in progress, or cancelled."
-        : "No tasks are currently in the todo status for approved or applied plans.",
+        ? "All candidate tasks are blocked, completed, in review, in progress without rework, or cancelled."
+        : "No tasks are currently in the todo status (or awaiting rework) for approved or applied plans.",
     };
   }
 

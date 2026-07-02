@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   areDependenciesSatisfied,
   isApprovedOrAppliedPlanningDraft,
+  isExecutableCandidate,
   isExecutableTaskStatus,
   parseGeneratedTaskMetadata,
   selectNextExecutableTask,
@@ -106,6 +107,22 @@ describe("task-selection", () => {
       expect(isExecutableTaskStatus("in-progress")).toBe(false);
       expect(isExecutableTaskStatus("done")).toBe(false);
     });
+
+    it("treats an in-progress task with unresolved change requests as an executable rework", () => {
+      expect(
+        isExecutableCandidate({ ...BASE_CANDIDATE, status: "in-progress", needsRework: true })
+      ).toBe(true);
+      expect(
+        isExecutableCandidate({ ...BASE_CANDIDATE, status: "in-progress", needsRework: false })
+      ).toBe(false);
+      // Rework never resurrects terminal or blocked statuses.
+      expect(
+        isExecutableCandidate({ ...BASE_CANDIDATE, status: "done", needsRework: true })
+      ).toBe(false);
+      expect(
+        isExecutableCandidate({ ...BASE_CANDIDATE, status: "blocked", needsRework: true })
+      ).toBe(false);
+    });
   });
 
   describe("areDependenciesSatisfied", () => {
@@ -207,6 +224,26 @@ describe("task-selection", () => {
       );
 
       expect(result.task?.id).toBe("task-urgent");
+    });
+
+    it("selects an in-progress rework task (PR feedback re-loop)", () => {
+      const metadata = buildMetadata();
+      const completed = new Set(["task:inspect-source-tree-model"]);
+
+      const result = selectNextExecutableTask(
+        [
+          {
+            ...BASE_CANDIDATE,
+            status: "in-progress",
+            needsRework: true,
+          },
+        ],
+        completed,
+        metadata
+      );
+
+      expect(result.reasonCode).toBe("selected");
+      expect(result.task?.id).toBe("task-1");
     });
 
     it("returns a clear reason when no approved or applied plan tasks exist", () => {
