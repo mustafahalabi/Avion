@@ -5,6 +5,7 @@ import {
   isApprovedOrAppliedPlanningDraft,
   isExecutableCandidate,
   isExecutableTaskStatus,
+  isSelectableCandidate,
   parseGeneratedTaskMetadata,
   selectNextExecutableTask,
   type TaskSelectionCandidate,
@@ -122,6 +123,28 @@ describe("task-selection", () => {
       expect(
         isExecutableCandidate({ ...BASE_CANDIDATE, status: "blocked", needsRework: true })
       ).toBe(false);
+    });
+
+    it("keeps plan-linked selection gated on an approved or applied draft", () => {
+      expect(
+        isSelectableCandidate({ ...BASE_CANDIDATE, planningDraftStatus: "applied" })
+      ).toBe(true);
+      expect(
+        isSelectableCandidate({ ...BASE_CANDIDATE, planningDraftStatus: "draft" })
+      ).toBe(false);
+    });
+
+    it("makes a planless task selectable only when it needs rework (MUS-270)", () => {
+      const planless: TaskSelectionCandidate = {
+        ...BASE_CANDIDATE,
+        planningDraftId: "",
+        planningDraftStatus: "draft",
+        planItemId: null,
+      };
+      expect(isSelectableCandidate({ ...planless, needsRework: true })).toBe(true);
+      expect(isSelectableCandidate({ ...planless, needsRework: false })).toBe(false);
+      // A planless task with no rework signal is never selected for a first run.
+      expect(isSelectableCandidate(planless)).toBe(false);
     });
   });
 
@@ -244,6 +267,48 @@ describe("task-selection", () => {
 
       expect(result.reasonCode).toBe("selected");
       expect(result.task?.id).toBe("task-1");
+    });
+
+    it("selects a planless in-progress rework task created outside planning (MUS-270)", () => {
+      const result = selectNextExecutableTask(
+        [
+          {
+            ...BASE_CANDIDATE,
+            id: "task-adhoc",
+            status: "in-progress",
+            planningDraftId: "",
+            planningDraftStatus: "draft",
+            planItemId: null,
+            needsRework: true,
+          },
+        ],
+        new Set(),
+        new Map()
+      );
+
+      expect(result.reasonCode).toBe("selected");
+      expect(result.task?.id).toBe("task-adhoc");
+    });
+
+    it("does not select a planless task with no unresolved change requests", () => {
+      const result = selectNextExecutableTask(
+        [
+          {
+            ...BASE_CANDIDATE,
+            id: "task-adhoc",
+            status: "in-progress",
+            planningDraftId: "",
+            planningDraftStatus: "draft",
+            planItemId: null,
+            needsRework: false,
+          },
+        ],
+        new Set(),
+        new Map()
+      );
+
+      expect(result.task).toBeNull();
+      expect(result.reasonCode).toBe("no_approved_plans");
     });
 
     it("returns a clear reason when no approved or applied plan tasks exist", () => {
