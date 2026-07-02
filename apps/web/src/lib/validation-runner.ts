@@ -19,6 +19,8 @@
  */
 
 import { spawn as nodeSpawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { CheckCommand } from "./check-command-profile";
 import {
@@ -197,6 +199,93 @@ function truncateOutput(output: string): string {
  * if (!allPassed) { /* keep task in QA *\/ }
  * ```
  */
+/**
+ * Extracts the package script a command runs (`npm run build` → `build`,
+ * `npm test` → `test`), or null when the command is not a package-script runner.
+ *
+ * @param command - The shell command.
+ * @returns The script name, or null.
+ */
+function packageScriptForCommand(command: string): string | null {
+  const trimmed = command.trim();
+  const runMatch = trimmed.match(/^(?:npm|pnpm|yarn)\s+run\s+([\w:-]+)/);
+  if (runMatch) return runMatch[1];
+  // npm's built-in script aliases that don't need `run`.
+  const aliasMatch = trimmed.match(/^npm\s+(test|start)\b/);
+  if (aliasMatch) return aliasMatch[1];
+  return null;
+}
+
+/**
+ * Reads a checkout's `package.json` scripts, or null when it is missing/unreadable.
+ *
+ * @param repoPath - The checked-out repository path.
+ * @returns The scripts map, or null when it cannot be determined.
+ */
+function readPackageScripts(repoPath: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(join(repoPath, "package.json"), "utf-8")
+    );
+    if (parsed && typeof parsed === "object" && "scripts" in parsed) {
+      const scripts = (parsed as { scripts?: unknown }).scripts;
+      return scripts && typeof scripts === "object"
+        ? (scripts as Record<string, unknown>)
+        : {};
+    }
+    return {};
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decides whether a validation command is applicable to a checkout (MUS-272).
+ *
+ * A profile can carry commands a given repo doesn't support — e.g. `npm run test`
+ * on a repo with no `test` script, or `npx prisma validate` on a prisma-less repo.
+ * Running those produces a non-zero exit that is NOT caused by the change under
+ * test, which would then fail QA and open a spurious change request. Such commands
+ * are treated as *not applicable* (skipped-with-reason), not as failures.
+ *
+ * Only positively-determinable mismatches gate: when `package.json` is unreadable
+ * the command is allowed to run (conservative — preserves prior behavior).
+ *
+ * @param command - The shell command.
+ * @param repoPath - The checked-out repository path.
+ * @returns Applicability plus an honest reason when not applicable.
+ */
+export function isCommandApplicable(
+  command: string,
+  repoPath: string
+): { applicable: boolean; reason?: string } {
+  const script = packageScriptForCommand(command);
+  if (script) {
+    const scripts = readPackageScripts(repoPath);
+    if (scripts && !(script in scripts)) {
+      return {
+        applicable: false,
+        reason: `No "${script}" script in package.json — check not applicable to this repository.`,
+      };
+    }
+    return { applicable: true };
+  }
+
+  if (/\bprisma\b/.test(command)) {
+    const hasSchema =
+      existsSync(join(repoPath, "prisma", "schema.prisma")) ||
+      existsSync(join(repoPath, "schema.prisma"));
+    if (!hasSchema) {
+      return {
+        applicable: false,
+        reason: "No Prisma schema in the repository — check not applicable.",
+      };
+    }
+  }
+
+  return { applicable: true };
+}
+
 export async function runValidationCommands(input: {
   repoPath: string;
   commands: readonly CheckCommand[];
@@ -227,6 +316,24 @@ export async function runValidationCommands(input: {
         output: "",
         skipped: true,
         skipReason: guard.reason,
+      });
+      continue;
+    }
+
+    // Applicability (MUS-272): a profile command the repo doesn't support (missing
+    // npm script, prisma-less repo) is skipped-with-reason, not run as a failure —
+    // otherwise it would fail QA for something the change never touched.
+    const applicability = isCommandApplicable(command.command, repoPath);
+    if (!applicability.applicable) {
+      results.push({
+        id: command.id,
+        kind: command.id,
+        command: command.command,
+        passed: false,
+        exitCode: 0,
+        output: "",
+        skipped: true,
+        skipReason: applicability.reason,
       });
       continue;
     }

@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { CheckCommand } from "./check-command-profile";
 import {
+  isCommandApplicable,
   parseValidationChecksMarker,
   qaChecksFromValidation,
   runValidationCommands,
@@ -331,5 +335,89 @@ describe("validation checks marker (worker ↔ QA gate)", () => {
       '<!-- avion:validation-checks [{"label":"ok","passed":true},{"nope":1}] -->'
     );
     expect(parsed).toEqual([{ label: "ok", passed: true }]);
+  });
+});
+
+// ─── Applicability filtering (MUS-272) ───────────────────────────────────────
+
+describe("isCommandApplicable (MUS-272)", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function repoWith(pkg: Record<string, unknown>, opts?: { prisma?: boolean }): string {
+    const dir = mkdtempSync(join(tmpdir(), "eos-vr-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "package.json"), JSON.stringify(pkg));
+    if (opts?.prisma) {
+      mkdirSync(join(dir, "prisma"));
+      writeFileSync(join(dir, "prisma", "schema.prisma"), "// schema");
+    }
+    return dir;
+  }
+
+  it("skips an npm script the repo does not define", () => {
+    const dir = repoWith({ scripts: { build: "next build" } });
+    expect(isCommandApplicable("npm run build", dir).applicable).toBe(true);
+    const test = isCommandApplicable("npm run test", dir);
+    expect(test.applicable).toBe(false);
+    expect(test.reason).toContain('"test"');
+  });
+
+  it("skips prisma commands when there is no schema, allows them when there is", () => {
+    const noPrisma = repoWith({ scripts: {} });
+    expect(isCommandApplicable("npx prisma validate", noPrisma).applicable).toBe(false);
+
+    const withPrisma = repoWith({ scripts: {} }, { prisma: true });
+    expect(isCommandApplicable("npx prisma validate", withPrisma).applicable).toBe(true);
+  });
+
+  it("does not gate when package.json is unreadable (conservative)", () => {
+    expect(isCommandApplicable("npm run test", "/nonexistent-repo-path").applicable).toBe(true);
+  });
+
+  it("allows non-script, non-prisma commands", () => {
+    const dir = repoWith({ scripts: {} });
+    expect(isCommandApplicable("npx tsc --noEmit", dir).applicable).toBe(true);
+  });
+});
+
+describe("runValidationCommands — applicability (MUS-272)", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("skips an inapplicable command instead of failing QA for it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "eos-vr-run-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { build: "x" } }));
+
+    const spawn: CommandSpawn & { calls: { command: string }[] } = Object.assign(
+      async (command: string) => {
+        spawn.calls.push({ command });
+        return { exitCode: 0, output: "ok", timedOut: false };
+      },
+      { calls: [] as { command: string }[] }
+    );
+
+    const commands: CheckCommand[] = [
+      { id: "build", command: "npm run build", description: "", failOnError: true, timeoutSeconds: 60, order: 1 },
+      { id: "test", command: "npm run test", description: "", failOnError: true, timeoutSeconds: 60, order: 2 },
+    ];
+
+    const result = await runValidationCommands({ repoPath: dir, commands, spawn });
+
+    // Only the applicable command ran; the missing-script one was skipped-with-reason.
+    expect(spawn.calls.map((c) => c.command)).toEqual(["npm run build"]);
+    const testResult = result.results.find((r) => r.id === "test");
+    expect(testResult?.skipped).toBe(true);
+    expect(testResult?.skipReason).toContain('"test"');
+    // QA verdict passes on the applicable checks; the skipped one is excluded.
+    expect(result.allPassed).toBe(true);
+    expect(qaChecksFromValidation(result.results)).toEqual([
+      { label: "build: npm run build", passed: true, category: "validation", actionable: false },
+    ]);
   });
 });
