@@ -1,11 +1,16 @@
 # Engineering OS — Desktop App (Electron)
 
-> **⚠️ STATUS (July 2026): production packaging is deferred/broken since the PostgreSQL migration (MUS-247).**
-> The desktop build described below shipped a schema-only **SQLite** template database — but the platform
-> now runs on **hosted PostgreSQL** and `better-sqlite3` has been removed. `apps/web/scripts/build-db-template.mjs`
-> now **intentionally exits 1** rather than produce a broken template, and the better-sqlite3 Electron rebuild
-> step is stale. Reworking the packaging for a Postgres `DATABASE_URL` (connection-string config, no offline
-> file DB) is a deliberate follow-up that has not landed.
+> **⛔ STATUS (July 2026): formally SHELVED (MUS-267 decision).**
+> Electron production packaging is **parked**, not scheduled. The product ships as **web + hosted services**
+> (MUS-269), and the desktop build below was written for the pre-Postgres **SQLite** era: the PostgreSQL
+> migration (MUS-247) removed `better-sqlite3` and the bundled file DB, so `build-db-template.mjs` and
+> `build-electron.mjs` **fail fast** by design. There is no recorded demand for a desktop offering.
+>
+> **What still works:** `pnpm --filter @avion/web electron:dev` (local experimentation).
+> **To un-shelve:** reopen **MUS-267**, rework packaging for a hosted-Postgres `DATABASE_URL`
+> (connection-string config, no offline file DB), and remove the guard in `build-electron.mjs`
+> (or run with `EOS_ELECTRON_BUILD_UNSHELVE=1`). Nothing has been deleted — the code below is preserved.
+> The design notes below describe the pre-Postgres packaging and are kept for reference.
 > **Dev mode still works:** `pnpm --filter @avion/web electron:dev`.
 > Everything below documents the **pre-Postgres design** and is kept for that rework; its SQLite/`npm run`
 > references are historical.
