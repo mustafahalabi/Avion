@@ -14,8 +14,12 @@
  * deliberately narrow — it does NOT run the review/QA gate-advancement logic.
  */
 
+import { authorizeAutonomyAction } from "@/lib/autonomy-policy";
 import { prisma } from "@/lib/prisma";
-import { parseGitHubRepoUrl } from "@/lib/github-pull-request";
+import {
+  mergePullRequest,
+  parseGitHubRepoUrl,
+} from "@/lib/github-pull-request";
 import { getProviderConnection } from "@/lib/provider-connection-service";
 import { recordReviewResult } from "@/lib/review-service";
 import {
@@ -33,6 +37,8 @@ const PR_FEEDBACK_REVIEW_TITLE_PREFIX = "PR feedback:";
 export interface PrFeedbackIngestionDeps {
   /** Override the GitHub feedback fetcher (injected in tests). */
   readonly fetchFeedback?: typeof fetchPullRequestFeedback;
+  /** Override the GitHub merge caller (injected in tests). */
+  readonly mergePr?: typeof mergePullRequest;
 }
 
 /** Aggregate counts returned by {@link ingestPullRequestFeedbackForCompany}. */
@@ -43,6 +49,8 @@ export interface PrFeedbackIngestionResult {
   readonly changeRequestsOpened: number;
   /** Number of sessions whose PR was observed merged this run. */
   readonly merged: number;
+  /** Number of PRs this run merged itself via the auto_merge autonomy action. */
+  readonly autoMerged: number;
 }
 
 /**
@@ -98,15 +106,28 @@ export async function ingestPullRequestFeedbackForCompany(
   deps?: PrFeedbackIngestionDeps
 ): Promise<PrFeedbackIngestionResult> {
   const fetchFeedback = deps?.fetchFeedback ?? fetchPullRequestFeedback;
+  const mergePr = deps?.mergePr ?? mergePullRequest;
 
   let sessionsChecked = 0;
   let changeRequestsOpened = 0;
   let merged = 0;
+  let autoMerged = 0;
 
   // Company-level GitHub token (same for every session in the company).
   const connection = await getProviderConnection(companyId, "github");
   const token =
     connection?.tokens.accessToken ?? connection?.tokens.manualToken ?? null;
+
+  // Autonomy gate for auto_merge (MUS-254): only the `autonomous` level allows
+  // merging without a human, per the shared policy matrix.
+  const settings = await prisma.companySettings.findUnique({
+    where: { companyId },
+    select: { autonomyLevel: true },
+  });
+  const autoMergeAllowed = authorizeAutonomyAction(
+    settings?.autonomyLevel,
+    "auto_merge"
+  ).allowed;
 
   const sessions = await prisma.executionSession.findMany({
     where: {
@@ -148,7 +169,70 @@ export async function ingestPullRequestFeedbackForCompany(
       const needsChanges =
         feedback.checksConclusion === "failure" ||
         feedback.reviewDecision === "changes_requested";
-      if (!needsChanges) continue;
+
+      if (!needsChanges) {
+        // Gated auto-merge (MUS-254): "autonomous" actually ships. Merge only
+        // through the sanctioned PR path, and only when every signal is clean:
+        // - the autonomy matrix allows auto_merge at this level,
+        // - the task passed its internal gates (approved review + passed QA ⇒ done),
+        // - CI is green (or the repo has no CI) — never failing, never pending,
+        // - no reviewer stands against it (approved, or no reviews at all).
+        const internalGatesPassed = session.task?.status === "done";
+        const ciClean =
+          feedback.checksConclusion === "success" ||
+          feedback.checksConclusion === "none";
+        const reviewClean =
+          feedback.reviewDecision === "approved" ||
+          feedback.reviewDecision === "none";
+
+        if (
+          autoMergeAllowed &&
+          feedback.state === "open" &&
+          internalGatesPassed &&
+          ciClean &&
+          reviewClean
+        ) {
+          const result = await mergePr({
+            token,
+            owner: parsed.owner,
+            repo: parsed.repo,
+            prNumber: session.prNumber,
+            method: "squash",
+          });
+          if (result.merged) {
+            await prisma.executionSession.update({
+              where: { id: session.id },
+              data: {
+                prStatus: "merged",
+                mergeStatus: "merged",
+                updatedAt: new Date(),
+              },
+            });
+            if (session.taskId) {
+              try {
+                await prisma.timelineEntry.create({
+                  data: {
+                    entityType: "task",
+                    entityId: session.taskId,
+                    eventType: "pr_merged",
+                    summary: `Pull request #${session.prNumber} auto-merged (autonomy: auto_merge).`,
+                    metadata: JSON.stringify({
+                      sessionId: session.id,
+                      prNumber: session.prNumber,
+                      mergeSha: result.sha,
+                    }),
+                  },
+                });
+              } catch {
+                // Timeline writes are best-effort.
+              }
+            }
+            merged++;
+            autoMerged++;
+          }
+        }
+        continue;
+      }
 
       const taskId = session.taskId;
       if (!taskId) continue;
@@ -196,5 +280,5 @@ export async function ingestPullRequestFeedbackForCompany(
     }
   }
 
-  return { sessionsChecked, changeRequestsOpened, merged };
+  return { sessionsChecked, changeRequestsOpened, merged, autoMerged };
 }

@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
+import { evaluateTaskStatusChange } from "@/lib/task-status-gate";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 
@@ -172,21 +173,32 @@ export async function createTask(
   redirect(`/work/projects/${projectId}`);
 }
 
+export type UpdateTaskStatusResult = { error?: string };
+
 export async function updateTaskStatus(
   taskId: string,
   status: string
-): Promise<void> {
+): Promise<UpdateTaskStatusResult> {
   const user = await getCurrentUser();
-  if (!user) return;
+  if (!user) return { error: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
     where: { ownerId: user.id },
     select: { id: true },
   });
-  if (!company) return;
+  if (!company) return { error: "No company found." };
+
+  // Boundary gate: reject unknown statuses, and route `done` through the same
+  // acceptance evidence the automated loop requires (approved review + passed
+  // QA) — the dropdown must not bypass the product's core invariant.
+  const gate = await evaluateTaskStatusChange(company.id, taskId, status);
+  if (!gate.allowed) {
+    return { error: gate.reason ?? "Status change not allowed." };
+  }
 
   await prisma.task.updateMany({
     where: { id: taskId, companyId: company.id },
     data: { status },
   });
+  return {};
 }

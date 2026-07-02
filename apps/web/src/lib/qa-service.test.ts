@@ -109,6 +109,35 @@ describe("qa-service", () => {
       expect(task?.status).toBe("done");
     });
 
+    it("resolves the task's open change requests when QA passes (rework loop)", async () => {
+      // A prior QA failure left unresolved change requests on the approved review.
+      await prisma.changeRequest.create({
+        data: {
+          reviewId: "review-1",
+          reason: "[QA] Validation check failed: test",
+          requestedBy: "QA",
+        },
+      });
+
+      await createQa();
+      await service.recordQaResult({
+        companyId: "company-1",
+        qaResultId: "qa-1",
+        verdict: "passed",
+        notes: "Re-validated after rework.",
+      });
+
+      const open = await prisma.changeRequest.findMany({
+        where: { resolved: false, review: { entityId: "task-1" } },
+      });
+      expect(open).toHaveLength(0);
+      const resolved = await prisma.changeRequest.findFirst({
+        where: { reviewId: "review-1" },
+      });
+      expect(resolved?.resolved).toBe(true);
+      expect(resolved?.resolution).toMatch(/QA .* passed/i);
+    });
+
     it("creates a timeline entry with qa_passed event type", async () => {
       await createQa();
       const result = await service.recordQaResult({

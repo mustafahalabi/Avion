@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildPullRequestBody,
   buildPullRequestTitle,
+  mergePullRequest,
   openOrReusePullRequest,
   parseGitHubRepoUrl,
 } from "./github-pull-request";
@@ -198,5 +199,60 @@ describe("openOrReusePullRequest", () => {
 
     const result = await openOrReusePullRequest({ ...BASE_INPUT, fetchImpl });
     expect(result.prStatus).toBe("draft");
+  });
+});
+
+describe("mergePullRequest", () => {
+  const MERGE_INPUT = {
+    token: "ghp_test",
+    owner: "acme",
+    repo: "widgets",
+    prNumber: 7,
+  };
+
+  it("merges with the squash method by default", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ merged: true, sha: "abc123", message: "Merged" }));
+
+    const result = await mergePullRequest({ ...MERGE_INPUT, fetchImpl });
+
+    expect(result).toEqual({ merged: true, sha: "abc123", message: "Merged" });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.github.com/repos/acme/widgets/pulls/7/merge");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ merge_method: "squash" });
+  });
+
+  it("returns merged:false when GitHub refuses the merge (405) instead of throwing", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ message: "Pull Request is not mergeable" }, false, 405)
+      );
+
+    const result = await mergePullRequest({ ...MERGE_INPUT, fetchImpl });
+
+    expect(result.merged).toBe(false);
+    expect(result.message).toMatch(/refused the merge \(405\)/);
+  });
+
+  it("returns merged:false when the head moved (409)", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ message: "Head branch was modified" }, false, 409));
+
+    const result = await mergePullRequest({ ...MERGE_INPUT, fetchImpl });
+    expect(result.merged).toBe(false);
+  });
+
+  it("throws on unexpected failures (auth, 5xx)", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ message: "Bad credentials" }, false, 401));
+
+    await expect(mergePullRequest({ ...MERGE_INPUT, fetchImpl })).rejects.toThrow(
+      /GitHub PR merge failed \(401\)/
+    );
   });
 });

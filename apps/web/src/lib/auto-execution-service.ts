@@ -22,7 +22,11 @@ import {
   prepareExecutionSession,
 } from "@/lib/execution-session-service";
 import { assessExecutionReadiness } from "@/lib/repository-readiness-gate";
-import { generateClaudeImplementationBrief } from "@/lib/implementation-brief";
+import {
+  generateClaudeImplementationBrief,
+  type ReworkContext,
+} from "@/lib/implementation-brief";
+import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import { selectNextExecutableTaskForCompany } from "@/lib/task-selection-service";
 import {
@@ -88,6 +92,33 @@ export async function prepareExecutionSessionForTask(
   const resolvedProjectId = task.projectId ?? task.feature?.projectId ?? null;
   const repo = repoRow ? toBriefRepositoryContext(repoRow) : null;
 
+  // Rework support: unresolved change requests (review / QA / PR feedback)
+  // enter the brief as a "Rework Required" section, and the prior session's
+  // branch is reused so the fixes land on the same pull request.
+  const openChangeRequests = await prisma.changeRequest.findMany({
+    where: {
+      resolved: false,
+      review: { companyId, entityType: "task", entityId: taskId },
+    },
+    orderBy: { createdAt: "asc" },
+    select: { reason: true, requestedBy: true },
+  });
+  const priorSession =
+    openChangeRequests.length > 0
+      ? await prisma.executionSession.findFirst({
+          where: { companyId, taskId, branchName: { not: null } },
+          orderBy: { createdAt: "desc" },
+          select: { branchName: true, prUrl: true, baseBranch: true },
+        })
+      : null;
+  const reworkContext: ReworkContext | null =
+    openChangeRequests.length > 0
+      ? {
+          changeRequests: openChangeRequests,
+          priorPrUrl: priorSession?.prUrl ?? null,
+        }
+      : null;
+
   const { brief, branchName } = generateClaudeImplementationBrief({
     taskId: task.id,
     taskTitle: task.title,
@@ -97,9 +128,10 @@ export async function prepareExecutionSessionForTask(
     planItemId: task.planItemId ?? null,
     generatedTasksJson: task.planningDraft?.generatedTasks ?? null,
     repository: repo,
-    branchName: null,
-    baseBranch: "master",
+    branchName: priorSession?.branchName ?? null,
+    baseBranch: priorSession?.baseBranch ?? "master",
     linearTicketUrl: null,
+    reworkContext,
   });
 
   const session = await createExecutionSession({
@@ -111,7 +143,7 @@ export async function prepareExecutionSessionForTask(
     planningDraftId: task.planningDraftId ?? null,
     agentType: "claude_code",
     branchName,
-    baseBranch: "master",
+    baseBranch: priorSession?.baseBranch ?? "master",
   });
 
   const prepared = await prepareExecutionSession(companyId, session.id, brief);
@@ -129,7 +161,170 @@ export type AutoPrepareStatus =
   | "nothing_to_do"
   | "autonomy_below_threshold"
   | "blocked_repository"
+  | "retries_exhausted"
+  | "retry_backoff"
   | "error";
+
+// ─── Retry policy ────────────────────────────────────────────────────────────
+
+/**
+ * Number of retries permitted after a task's first failed session (i.e. a task
+ * gets `1 + WORKER_MAX_RETRIES` consecutive failed attempts before it is
+ * blocked and surfaced to the CEO). Counted since the last completed session,
+ * so a rework cycle starts with a fresh budget.
+ */
+function maxRetriesAfterFirstFailure(): number {
+  const parsed = Number(process.env.WORKER_MAX_RETRIES ?? 1);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
+}
+
+/** Base backoff between failed attempts; doubles per failure, capped at 15 min. */
+function retryBackoffBaseSeconds(): number {
+  const parsed = Number(process.env.WORKER_RETRY_BACKOFF_BASE_SECONDS ?? 60);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 60;
+}
+
+const RETRY_BACKOFF_CAP_SECONDS = 900;
+
+/** Consecutive-failure state for a task's retry decision. */
+export interface TaskRetryState {
+  /** Failed sessions since the last completed session (or ever, when none). */
+  readonly consecutiveFailures: number;
+  /** True when the failure budget is exhausted and the task must be blocked. */
+  readonly exhausted: boolean;
+  /** True when a retry is allowed but its backoff window has not elapsed. */
+  readonly inBackoff: boolean;
+  /** Seconds remaining in the backoff window (0 when not in backoff). */
+  readonly backoffRemainingSeconds: number;
+}
+
+/**
+ * Assesses whether a task may receive another execution attempt.
+ *
+ * Failures are counted *since the last completed session* so a task that
+ * shipped once and later re-entered the loop (rework) starts a fresh budget.
+ * Backoff doubles per consecutive failure (base `WORKER_RETRY_BACKOFF_BASE_SECONDS`,
+ * default 60s, capped at 15 minutes).
+ *
+ * @param companyId - Company that owns the task.
+ * @param taskId - Task being considered for a new session.
+ * @param now - Current time (injectable for tests).
+ * @returns The retry state used to gate session preparation.
+ */
+export async function assessTaskRetryState(
+  companyId: string,
+  taskId: string,
+  now: Date = new Date()
+): Promise<TaskRetryState> {
+  const lastCompleted = await prisma.executionSession.findFirst({
+    where: { companyId, taskId, status: "completed" },
+    orderBy: { completedAt: "desc" },
+    select: { completedAt: true },
+  });
+
+  const failedSince = {
+    companyId,
+    taskId,
+    status: "failed",
+    ...(lastCompleted?.completedAt
+      ? { completedAt: { gt: lastCompleted.completedAt } }
+      : {}),
+  };
+
+  const [consecutiveFailures, latestFailure] = await Promise.all([
+    prisma.executionSession.count({ where: failedSince }),
+    prisma.executionSession.findFirst({
+      where: failedSince,
+      orderBy: { completedAt: "desc" },
+      select: { completedAt: true },
+    }),
+  ]);
+
+  const exhausted = consecutiveFailures > maxRetriesAfterFirstFailure();
+  if (exhausted || consecutiveFailures === 0 || !latestFailure?.completedAt) {
+    return {
+      consecutiveFailures,
+      exhausted,
+      inBackoff: false,
+      backoffRemainingSeconds: 0,
+    };
+  }
+
+  const backoffSeconds = Math.min(
+    retryBackoffBaseSeconds() * 2 ** (consecutiveFailures - 1),
+    RETRY_BACKOFF_CAP_SECONDS
+  );
+  const elapsedSeconds =
+    (now.getTime() - latestFailure.completedAt.getTime()) / 1000;
+  const remaining = Math.ceil(backoffSeconds - elapsedSeconds);
+
+  return {
+    consecutiveFailures,
+    exhausted: false,
+    inBackoff: remaining > 0,
+    backoffRemainingSeconds: Math.max(remaining, 0),
+  };
+}
+
+/**
+ * Blocks a task whose retry budget is exhausted and notifies the CEO.
+ * Best-effort on the notification/timeline — the block itself always applies.
+ *
+ * @param companyId - Company that owns the task.
+ * @param taskId - Task to block.
+ * @param consecutiveFailures - Failure count that exhausted the budget.
+ */
+async function blockTaskAfterExhaustedRetries(
+  companyId: string,
+  taskId: string,
+  consecutiveFailures: number
+): Promise<void> {
+  await prisma.task.updateMany({
+    where: { id: taskId, companyId, status: { notIn: ["done", "cancelled"] } },
+    data: { status: "blocked", updatedAt: new Date() },
+  });
+
+  try {
+    await prisma.timelineEntry.create({
+      data: {
+        entityType: "task",
+        entityId: taskId,
+        eventType: "execution_retries_exhausted",
+        summary: `Blocked after ${consecutiveFailures} consecutive failed execution attempts.`,
+        metadata: JSON.stringify({ consecutiveFailures }),
+      },
+    });
+  } catch {
+    // Timeline writes are best-effort.
+  }
+
+  try {
+    const [company, task] = await Promise.all([
+      prisma.company.findFirst({
+        where: { id: companyId },
+        select: { ownerId: true },
+      }),
+      prisma.task.findFirst({
+        where: { id: taskId, companyId },
+        select: { title: true },
+      }),
+    ]);
+    if (!company) return;
+    await notify({
+      userId: company.ownerId,
+      companyId,
+      title: "Task blocked: retries exhausted",
+      body: `"${task?.title ?? taskId}" failed ${consecutiveFailures} execution attempts in a row and needs your attention.`,
+      type: "blocker",
+      priority: "urgent",
+      entityType: "task",
+      entityId: taskId,
+      actionUrl: `/work/tasks/${taskId}`,
+    });
+  } catch {
+    // Notifications are best-effort.
+  }
+}
 
 /** Result of an `autoPrepareNextExecutionSession` run, suitable for logging. */
 export interface AutoPrepareResult {
@@ -193,6 +388,30 @@ export async function autoPrepareNextExecutionSession(
       status: "skipped_existing_session",
       reason: `Task ${taskId} already has a live session (${live.status}).`,
       sessionId: live.id,
+      taskId,
+    };
+  }
+
+  // Bounded retries (MUS-252): a task whose consecutive failures exhausted the
+  // budget is blocked and surfaced to the CEO instead of burning agent runs
+  // forever; a permitted retry still waits out its backoff window.
+  const retry = await assessTaskRetryState(companyId, taskId);
+  if (retry.exhausted) {
+    await blockTaskAfterExhaustedRetries(
+      companyId,
+      taskId,
+      retry.consecutiveFailures
+    );
+    return {
+      status: "retries_exhausted",
+      reason: `Task ${taskId} failed ${retry.consecutiveFailures} consecutive execution attempts; blocked and escalated to the CEO.`,
+      taskId,
+    };
+  }
+  if (retry.inBackoff) {
+    return {
+      status: "retry_backoff",
+      reason: `Task ${taskId} is in retry backoff for another ${retry.backoffRemainingSeconds}s (failure ${retry.consecutiveFailures}).`,
       taskId,
     };
   }

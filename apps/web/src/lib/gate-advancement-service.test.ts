@@ -60,6 +60,9 @@ afterEach(async () => {
   await prisma.$executeRawUnsafe(
     `UPDATE "Task" SET "status" = 'in-review', "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = 'task-1'`
   );
+  await prisma.$executeRawUnsafe(
+    `UPDATE "ExecutionSession" SET "validationOutput" = NULL WHERE "id" = 'ses-1'`
+  );
 });
 
 afterAll(async () => {
@@ -183,5 +186,136 @@ describe("advanceTaskGates", () => {
       where: { entityId: "task-1", eventType: "review_requested" },
     });
     expect(events.length).toBe(1);
+  });
+
+  // ── Truthful automated QA (MUS-251) ──────────────────────────────────────
+
+  it("derives the automated QA verdict from real validation results (all passing → done)", async () => {
+    await setAutonomy("autonomous");
+    const { serializeValidationChecksMarker } = await import("./validation-runner");
+    const marker = serializeValidationChecksMarker([
+      { id: "tsc", kind: "tsc", command: "npx tsc --noEmit", passed: true, exitCode: 0, output: "", skipped: false },
+      { id: "test", kind: "test", command: "npm run test", passed: true, exitCode: 0, output: "", skipped: false },
+    ]);
+    await prisma.executionSession.update({
+      where: { id: "ses-1" },
+      data: { validationOutput: `## Validation\nall good\n\n${marker}` },
+    });
+
+    const result = await service.advanceTaskGates("company-1", "task-1");
+
+    expect(result.status).toBe("completed");
+    expect(await taskStatus()).toBe("done");
+
+    // The recorded QA checks ARE the real validation results, not a fabricated list.
+    const qa = await prisma.qAResult.findFirst({
+      where: { companyId: "company-1", entityId: "task-1" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(qa?.status).toBe("passed");
+    const checks = JSON.parse(qa?.checks ?? "[]") as { label: string; passed: boolean }[];
+    expect(checks).toHaveLength(2);
+    expect(checks.every((c) => c.passed)).toBe(true);
+    expect(qa?.notes).toMatch(/recorded validation/i);
+  });
+
+  it("fails automated QA on a failing validation check and opens a change request (rework loop)", async () => {
+    await setAutonomy("autonomous");
+    const { serializeValidationChecksMarker } = await import("./validation-runner");
+    const marker = serializeValidationChecksMarker([
+      { id: "tsc", kind: "tsc", command: "npx tsc --noEmit", passed: true, exitCode: 0, output: "", skipped: false },
+      { id: "test", kind: "test", command: "npm run test", passed: false, exitCode: 1, output: "2 failed", skipped: false },
+    ]);
+    await prisma.executionSession.update({
+      where: { id: "ses-1" },
+      data: { validationOutput: marker },
+    });
+
+    const result = await service.advanceTaskGates("company-1", "task-1");
+
+    expect(result.status).toBe("qa_failed");
+    // The task re-enters implementation — it can never reach done on a red check.
+    expect(await taskStatus()).toBe("in-progress");
+
+    const qa = await prisma.qAResult.findFirst({
+      where: { companyId: "company-1", entityId: "task-1" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(qa?.status).toBe("failed");
+
+    const changeRequests = await prisma.changeRequest.findMany({
+      where: { review: { companyId: "company-1", entityId: "task-1" } },
+    });
+    expect(changeRequests.length).toBeGreaterThan(0);
+    expect(changeRequests[0].resolved).toBe(false);
+    expect(changeRequests[0].reason).toMatch(/npm run test/);
+  });
+
+  it("passes automated QA with an honest note when no validation results were recorded", async () => {
+    await setAutonomy("autonomous");
+    // ses-1 has validationOutput NULL — no marker.
+    const result = await service.advanceTaskGates("company-1", "task-1");
+
+    expect(result.status).toBe("completed");
+    const qa = await prisma.qAResult.findFirst({
+      where: { companyId: "company-1", entityId: "task-1" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(qa?.status).toBe("passed");
+    // No fabricated checklist: checks stay empty and the note says why.
+    expect(qa?.checks).toBe("[]");
+    expect(qa?.notes).toMatch(/no validation-command results/i);
+  });
+
+  // ── Rework re-review (MUS-250) ────────────────────────────────────────────
+
+  it("opens a fresh review when rework completed after a changes-requested verdict", async () => {
+    // A stale changes_requested review, older than the completed session.
+    const stale = await prisma.review.create({
+      data: {
+        companyId: "company-1",
+        entityType: "task",
+        entityId: "task-1",
+        title: "Review: Add /health endpoint",
+        status: "changes_requested",
+        verdict: "changes_requested",
+      },
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Review" SET "updatedAt" = NOW() - INTERVAL '1 hour' WHERE "id" = '${stale.id}'`
+    );
+
+    // assist → the fresh review pauses for the CEO instead of dead-ending.
+    const result = await service.advanceTaskGates("company-1", "task-1");
+
+    expect(result.status).toBe("awaiting_review");
+    const reviews = await prisma.review.findMany({
+      where: { companyId: "company-1", entityId: "task-1" },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(reviews).toHaveLength(2);
+    expect(reviews[1].status).toBe("pending");
+  });
+
+  it("still reports no_action when changes were requested and no rework has landed", async () => {
+    // changes_requested review NEWER than the completed session → wait for rework.
+    await prisma.review.create({
+      data: {
+        companyId: "company-1",
+        entityType: "task",
+        entityId: "task-1",
+        title: "Review: Add /health endpoint",
+        status: "changes_requested",
+        verdict: "changes_requested",
+      },
+    });
+
+    const result = await service.advanceTaskGates("company-1", "task-1");
+
+    expect(result.status).toBe("no_action");
+    const reviews = await prisma.review.findMany({
+      where: { companyId: "company-1", entityId: "task-1" },
+    });
+    expect(reviews).toHaveLength(1);
   });
 });

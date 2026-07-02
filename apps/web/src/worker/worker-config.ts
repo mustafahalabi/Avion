@@ -4,7 +4,13 @@ export interface WorkerConfig {
   readonly WORKER_REPO_BASE_DIR: string;
   readonly WORKER_SESSION_TIMEOUT_SECONDS: number;
   readonly WORKER_PERMISSION_MODE_OVERRIDE: string | null;
+  /**
+   * Retries permitted after a task's first failed session. Enforced by the
+   * driver's enqueue path (`assessTaskRetryState` in auto-execution-service).
+   */
   readonly WORKER_MAX_RETRIES: number;
+  /** Wall-clock bound for installing dependencies in a checkout before validation. */
+  readonly WORKER_INSTALL_TIMEOUT_SECONDS: number;
   /** Interval between driver ticks (the scheduler that enqueues/advances work). */
   readonly DRIVER_TICK_INTERVAL_MS: number;
 }
@@ -20,6 +26,9 @@ export const WORKER_CONFIG: WorkerConfig = {
   ),
   WORKER_PERMISSION_MODE_OVERRIDE: process.env.WORKER_PERMISSION_MODE ?? null,
   WORKER_MAX_RETRIES: Number(process.env.WORKER_MAX_RETRIES ?? 1),
+  WORKER_INSTALL_TIMEOUT_SECONDS: Number(
+    process.env.WORKER_INSTALL_TIMEOUT_SECONDS ?? 600
+  ),
   DRIVER_TICK_INTERVAL_MS: Number(process.env.DRIVER_TICK_INTERVAL_MS ?? 15000),
 };
 

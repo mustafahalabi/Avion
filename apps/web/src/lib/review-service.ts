@@ -31,6 +31,12 @@ export interface RecordReviewResultOutput {
   /** Created ChangeRequest IDs when verdict is changes_requested. */
   readonly changeRequestIds: readonly string[];
   readonly timelineEntryId: string;
+  /**
+   * Number of previously-open change requests resolved by this verdict.
+   * Only non-zero on approval: a fresh approved review means the requested
+   * changes were addressed, so the rework loop can close them.
+   */
+  readonly resolvedChangeRequestCount: number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -80,6 +86,7 @@ export async function recordReviewResult(
   let qaResultId: string | null = null;
   const changeRequestIds: string[] = [];
   let timelineEntryId: string;
+  let resolvedChangeRequestCount = 0;
 
   if (verdict === "approved") {
     // Update review
@@ -93,6 +100,24 @@ export async function recordReviewResult(
         updatedAt: new Date(),
       },
     });
+
+    // A fresh approval means previously requested changes were addressed:
+    // resolve every open change request across this task's reviews so the
+    // rework loop (task-selection `needsRework`) stops re-selecting the task.
+    if (taskId) {
+      const resolved = await prisma.changeRequest.updateMany({
+        where: {
+          resolved: false,
+          review: { companyId, entityType: "task", entityId: taskId },
+        },
+        data: {
+          resolved: true,
+          resolution: `Addressed by a subsequent implementation; review ${reviewId} approved.`,
+          updatedAt: new Date(),
+        },
+      });
+      resolvedChangeRequestCount = resolved.count;
+    }
 
     // Move task to in-review (approved; QA step follows)
     if (taskId) {
@@ -247,5 +272,6 @@ export async function recordReviewResult(
     qaResultId,
     changeRequestIds,
     timelineEntryId,
+    resolvedChangeRequestCount,
   };
 }

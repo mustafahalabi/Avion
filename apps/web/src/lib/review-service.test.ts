@@ -397,4 +397,81 @@ describe("review-service", () => {
       ).resolves.toBeDefined();
     });
   });
+
+  // ── Rework loop: approval resolves open change requests (MUS-250) ─────────
+
+  describe("recordReviewResult — change-request resolution", () => {
+    it("resolves the task's open change requests when a fresh review is approved", async () => {
+      // A prior review requested changes and left unresolved change requests.
+      const prior = await prisma.review.create({
+        data: {
+          companyId: "company-1",
+          title: "PR feedback: Implement feature X",
+          entityType: "task",
+          entityId: "task-1",
+          status: "changes_requested",
+          verdict: "changes_requested",
+        },
+      });
+      await prisma.changeRequest.create({
+        data: { reviewId: prior.id, reason: "CI checks failed: test.", requestedBy: "Reviewer" },
+      });
+      await prisma.changeRequest.create({
+        data: { reviewId: prior.id, reason: "Fix lint errors.", requestedBy: "Reviewer" },
+      });
+
+      // The rework landed and a fresh review is approved.
+      await createReview();
+      const result = await service.recordReviewResult({
+        companyId: "company-1",
+        reviewId: "review-1",
+        verdict: "approved",
+        notes: "Rework addressed the feedback.",
+      });
+
+      expect(result.resolvedChangeRequestCount).toBe(2);
+      const open = await prisma.changeRequest.findMany({
+        where: { resolved: false, review: { entityId: "task-1" } },
+      });
+      expect(open).toHaveLength(0);
+
+      const resolved = await prisma.changeRequest.findMany({
+        where: { reviewId: prior.id },
+      });
+      expect(resolved.every((cr) => cr.resolved)).toBe(true);
+      expect(resolved[0].resolution).toMatch(/review .* approved/i);
+    });
+
+    it("does not touch change requests belonging to another company's tasks", async () => {
+      await prisma.task.create({
+        data: { id: "task-other", title: "Other task", companyId: "company-2", status: "in-review" },
+      });
+      const otherReview = await prisma.review.create({
+        data: {
+          companyId: "company-2",
+          title: "Review: other",
+          entityType: "task",
+          entityId: "task-other",
+          status: "changes_requested",
+        },
+      });
+      await prisma.changeRequest.create({
+        data: { reviewId: otherReview.id, reason: "Other company CR." },
+      });
+
+      await createReview();
+      const result = await service.recordReviewResult({
+        companyId: "company-1",
+        reviewId: "review-1",
+        verdict: "approved",
+        notes: null,
+      });
+
+      expect(result.resolvedChangeRequestCount).toBe(0);
+      const otherOpen = await prisma.changeRequest.findMany({
+        where: { reviewId: otherReview.id, resolved: false },
+      });
+      expect(otherOpen).toHaveLength(1);
+    });
+  });
 });

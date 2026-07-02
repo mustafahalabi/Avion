@@ -42,6 +42,20 @@ export interface BriefRepositoryContext {
 }
 
 /**
+ * Context for a rework attempt: the unresolved change requests (from review,
+ * QA, or PR feedback) the agent must address on the existing branch/PR.
+ */
+export interface ReworkContext {
+  /** Unresolved change requests the rework must address, oldest first. */
+  readonly changeRequests: readonly {
+    readonly reason: string;
+    readonly requestedBy: string | null;
+  }[];
+  /** Pull request the fixes must land on, when one is already open. */
+  readonly priorPrUrl: string | null;
+}
+
+/**
  * All input required to generate a Claude implementation brief for one task.
  */
 export interface ImplementationBriefInput {
@@ -75,6 +89,11 @@ export interface ImplementationBriefInput {
   readonly baseBranch: string | null;
   /** Optional Linear or external tracking ticket URL */
   readonly linearTicketUrl: string | null;
+  /**
+   * Present when this is a rework attempt: the brief gains a "Rework Required"
+   * section listing the unresolved change requests to address.
+   */
+  readonly reworkContext?: ReworkContext | null;
 }
 
 /**
@@ -367,9 +386,11 @@ export function generateClaudeImplementationBrief(
   );
 
   const reviewRequirements = taskPayload?.reviewRequirements ?? [];
+  const reworkSection = buildReworkSection(input.reworkContext ?? null, branchName);
 
   const sections: string[] = [
     buildHeader(input, branchName, baseBranch),
+    ...(reworkSection ? [reworkSection] : []),
     buildRepositoryContextSection(input, branchName, baseBranch),
     buildConstraintsSection(),
     buildFilesToInspectSection(taskPayload, input.repository),
@@ -381,6 +402,37 @@ export function generateClaudeImplementationBrief(
   const brief = sections.join("\n\n---\n\n");
 
   return { brief, branchName };
+}
+
+/**
+ * Builds the "Rework Required" section for a rework attempt.
+ *
+ * @param rework - Unresolved change requests + prior PR, or null on a fresh run.
+ * @param branchName - The existing implementation branch the fixes must land on.
+ * @returns Markdown section, or null when this is not a rework.
+ */
+function buildReworkSection(
+  rework: ReworkContext | null,
+  branchName: string
+): string | null {
+  if (!rework || rework.changeRequests.length === 0) return null;
+
+  const lines: string[] = [
+    "## Rework Required",
+    "",
+    "This is a **rework attempt**: a previous implementation for this task received change requests (from code review, QA, or pull-request feedback such as failing CI). Your job is to address every item below — do not start the task from scratch and do not open a new branch.",
+    "",
+    `Work on the existing branch \`${branchName}\`${rework.priorPrUrl ? ` (open PR: ${rework.priorPrUrl})` : ""} so the fixes land on the same pull request.`,
+    "",
+    "**Unresolved change requests:**",
+    "",
+    ...rework.changeRequests.map(
+      (cr, index) =>
+        `${index + 1}. ${cr.reason}${cr.requestedBy ? ` _(requested by ${cr.requestedBy})_` : ""}`
+    ),
+  ];
+
+  return lines.join("\n");
 }
 
 // ─── Section Helpers ───────────────────────────────────────────────────────────

@@ -202,6 +202,21 @@ export async function recordQaResult(
         },
         data: { status: "done", updatedAt: new Date() },
       });
+
+      // A passing QA closes the rework loop: any change requests that were
+      // still open for this task (e.g. from a prior QA failure whose fix was
+      // just re-validated) are now addressed.
+      await prisma.changeRequest.updateMany({
+        where: {
+          resolved: false,
+          review: { companyId, entityType: "task", entityId: taskId },
+        },
+        data: {
+          resolved: true,
+          resolution: `Addressed by a subsequent implementation; QA ${qaResultId} passed.`,
+          updatedAt: new Date(),
+        },
+      });
     }
 
     const entry = await prisma.timelineEntry.create({

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockTaskFindMany = vi.fn();
 const mockPlanningDraftFindMany = vi.fn();
+const mockReviewFindMany = vi.fn();
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     task: {
@@ -12,6 +13,9 @@ vi.mock("@/lib/prisma", () => ({
     },
     planningDraft: {
       findMany: (...args: unknown[]) => mockPlanningDraftFindMany(...args),
+    },
+    review: {
+      findMany: (...args: unknown[]) => mockReviewFindMany(...args),
     },
   },
 }));
@@ -67,6 +71,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockTaskFindMany.mockResolvedValue([]);
   mockPlanningDraftFindMany.mockResolvedValue([]);
+  mockReviewFindMany.mockResolvedValue([]);
 });
 
 describe("selectNextExecutableTaskForCompany", () => {
@@ -236,6 +241,41 @@ describe("selectNextExecutableTaskForCompany", () => {
 
     expect(result.reasonCode).toBe("selected");
     expect(result.task?.id).toBe("task-valid");
+  });
+
+  it("selects an in-progress task with unresolved change requests as a rework", async () => {
+    mockTaskFindMany.mockResolvedValue([
+      makeTaskRow({ id: "task-1", status: "in-progress", planItemId: "task:health" }),
+    ]);
+    mockPlanningDraftFindMany.mockResolvedValue([
+      makeDraftRow("draft-1", [{ planItemId: "task:health", dependencies: [] }]),
+    ]);
+    // A review on the task carries an unresolved change request.
+    mockReviewFindMany.mockResolvedValue([{ entityId: "task-1" }]);
+
+    const result = await selectNextExecutableTaskForCompany("company-1");
+
+    expect(result.reasonCode).toBe("selected");
+    expect(result.task?.id).toBe("task-1");
+    // The rework query is scoped to unresolved change requests on task reviews.
+    const reviewWhere = mockReviewFindMany.mock.calls[0][0].where;
+    expect(reviewWhere.changeRequests).toEqual({ some: { resolved: false } });
+    expect(reviewWhere.entityType).toBe("task");
+  });
+
+  it("does NOT select an in-progress task once its change requests are resolved", async () => {
+    mockTaskFindMany.mockResolvedValue([
+      makeTaskRow({ id: "task-1", status: "in-progress", planItemId: "task:health" }),
+    ]);
+    mockPlanningDraftFindMany.mockResolvedValue([
+      makeDraftRow("draft-1", [{ planItemId: "task:health", dependencies: [] }]),
+    ]);
+    mockReviewFindMany.mockResolvedValue([]);
+
+    const result = await selectNextExecutableTaskForCompany("company-1");
+
+    expect(result.task).toBeNull();
+    expect(result.reasonCode).toBe("all_blocked_by_status");
   });
 
   it("carries the planning draft id and plan item id onto the selected task", async () => {

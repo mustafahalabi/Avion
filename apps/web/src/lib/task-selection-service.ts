@@ -65,11 +65,47 @@ export async function selectNextExecutableTaskForCompany(
 
   const generatedTaskMetadata = buildGeneratedTaskMetadata(planningDrafts);
   const completedPlanItemIds = buildCompletedPlanItemIds(tasks);
+  const reworkTaskIds = await findTasksNeedingRework(
+    companyId,
+    tasks.map((task) => task.id)
+  );
   const candidates = tasks
     .filter((task) => task.planningDraft !== null && task.planningDraftId !== null)
-    .map((task) => toTaskSelectionCandidate(task));
+    .map((task) => toTaskSelectionCandidate(task, reworkTaskIds.has(task.id)));
 
   return selectNextExecutableTask(candidates, completedPlanItemIds, generatedTaskMetadata);
+}
+
+/**
+ * Finds tasks that carry unresolved change requests (review, QA, or PR
+ * feedback) and therefore need a rework implementation attempt.
+ *
+ * Change requests hang off reviews; a review's `entityId` is the task when
+ * `entityType` is "task". Any unresolved change request — regardless of the
+ * review's own status (a QA failure attaches its change requests to the
+ * already-approved review) — marks the task as needing rework.
+ *
+ * @param companyId - Company ID used for ownership scoping
+ * @param taskIds - Candidate task IDs to check
+ * @returns The subset of task IDs with at least one unresolved change request
+ */
+export async function findTasksNeedingRework(
+  companyId: string,
+  taskIds: readonly string[]
+): Promise<ReadonlySet<string>> {
+  if (taskIds.length === 0) return new Set();
+
+  const reviews = await prisma.review.findMany({
+    where: {
+      companyId,
+      entityType: "task",
+      entityId: { in: [...taskIds] },
+      changeRequests: { some: { resolved: false } },
+    },
+    select: { entityId: true },
+  });
+
+  return new Set(reviews.map((review) => review.entityId));
 }
 
 interface PlanningDraftMetadataSource {
@@ -138,9 +174,13 @@ function buildCompletedPlanItemIds(
  * Converts a Prisma task row into a task selection candidate.
  *
  * @param task - Task row with planning draft context
+ * @param needsRework - Whether the task carries unresolved change requests
  * @returns Normalized selection candidate
  */
-function toTaskSelectionCandidate(task: TaskWithPlanningDraft): TaskSelectionCandidate {
+function toTaskSelectionCandidate(
+  task: TaskWithPlanningDraft,
+  needsRework: boolean
+): TaskSelectionCandidate {
   return {
     id: task.id,
     title: task.title,
@@ -150,5 +190,6 @@ function toTaskSelectionCandidate(task: TaskWithPlanningDraft): TaskSelectionCan
     planningDraftStatus: (task.planningDraft?.status ?? "draft") as PlanningDraftStatus,
     planItemId: task.planItemId,
     createdAt: task.createdAt,
+    needsRework,
   };
 }

@@ -6,6 +6,7 @@ import {
   createReleaseCandidate as createReleaseCandidateRecord,
   listEligibleReleaseTasks,
 } from "@/lib/release-candidate-service";
+import { assessReleaseReadiness } from "@/lib/release-readiness";
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
 
@@ -66,6 +67,13 @@ export async function createRelease(
   return { success: true, id: release.id };
 }
 
+const checklistItemSchema = z.object({
+  id: z.string().min(1).max(100),
+  label: z.string().min(1).max(300),
+  checked: z.boolean(),
+});
+const checklistSchema = z.array(checklistItemSchema).max(50);
+
 export async function updateReleaseChecklist(
   releaseId: string,
   checklist: { id: string; label: string; checked: boolean }[]
@@ -79,13 +87,19 @@ export async function updateReleaseChecklist(
   });
   if (!company) return;
 
-  const allChecked = checklist.every((c) => c.checked);
+  // Boundary validation: the checklist is client-supplied — reject anything
+  // that is not a well-formed checklist before persisting it.
+  const parsed = checklistSchema.safeParse(checklist);
+  if (!parsed.success) return;
+
+  const allChecked =
+    parsed.data.length > 0 && parsed.data.every((c) => c.checked);
   const newStatus = allChecked ? "ready" : "draft";
 
   await prisma.release.updateMany({
     where: { id: releaseId, companyId: company.id },
     data: {
-      checklist: JSON.stringify(checklist),
+      checklist: JSON.stringify(parsed.data),
       status: newStatus,
       updatedAt: new Date(),
     },
@@ -117,15 +131,33 @@ export async function updateReleaseNotes(
   revalidatePath(`/work/releases/${releaseId}`);
 }
 
-export async function markReleased(releaseId: string): Promise<void> {
+export type MarkReleasedResult = { error?: string };
+
+export async function markReleased(releaseId: string): Promise<MarkReleasedResult> {
   const user = await getCurrentUser();
-  if (!user) return;
+  if (!user) return { error: "Not authenticated." };
 
   const company = await prisma.company.findFirst({
     where: { ownerId: user.id },
     select: { id: true },
   });
-  if (!company) return;
+  if (!company) return { error: "Company not found." };
+
+  const release = await prisma.release.findFirst({
+    where: { id: releaseId, companyId: company.id },
+    select: { checklist: true, status: true },
+  });
+  if (!release) return { error: "Release not found." };
+  if (release.status === "released") return {};
+
+  // Release gate: every checklist item must actually be checked before the
+  // release can be declared released/deployed.
+  const readiness = assessReleaseReadiness(release.checklist);
+  if (!readiness.ready) {
+    return {
+      error: `Cannot mark released — unchecked checklist items: ${readiness.missing.join(", ")}.`,
+    };
+  }
 
   await prisma.release.updateMany({
     where: { id: releaseId, companyId: company.id },
@@ -140,6 +172,7 @@ export async function markReleased(releaseId: string): Promise<void> {
   revalidatePath(`/work/releases/${releaseId}`);
   revalidatePath("/work/releases");
   revalidatePath("/dashboard");
+  return {};
 }
 
 export async function addTaskToRelease(releaseId: string, taskId: string): Promise<void> {

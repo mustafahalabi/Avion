@@ -130,6 +130,24 @@ export async function submitRequest(
   return { id: request.id };
 }
 
+/** Every status a runtime request may hold (see request-status-controls.tsx). */
+const RUNTIME_REQUEST_STATUSES = [
+  "intake",
+  "planning",
+  "awaiting_approval",
+  "executing",
+  "in_review",
+  "in_qa",
+  "complete",
+  "blocked",
+  "cancelled",
+] as const;
+
+const advanceRequestSchema = z.object({
+  newStatus: z.enum(RUNTIME_REQUEST_STATUSES),
+  description: z.string().min(1).max(2000).trim(),
+});
+
 export async function advanceRequestStatus(
   requestId: string,
   newStatus: string,
@@ -137,6 +155,10 @@ export async function advanceRequestStatus(
 ): Promise<void> {
   const user = await getCurrentUser();
   if (!user) return;
+
+  // Boundary validation: status and description are client-supplied.
+  const parsedInput = advanceRequestSchema.safeParse({ newStatus, description });
+  if (!parsedInput.success) return;
 
   const company = await prisma.company.findFirst({
     where: { ownerId: user.id },
