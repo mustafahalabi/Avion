@@ -109,7 +109,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
     throw new Error("Outcome not found for this company.");
   }
 
-  const [employees, repositories] = await Promise.all([
+  const [employees, repositories, companySettings] = await Promise.all([
     prisma.employee.findMany({
       where: { companyId: input.companyId, status: "active" },
       select: {
@@ -137,6 +137,10 @@ export async function createOrUpdatePlanningDraftForOutcome(
       },
       orderBy: [{ name: "asc" }],
     }),
+    prisma.companySettings.findUnique({
+      where: { companyId: input.companyId },
+      select: { planningProvider: true },
+    }),
   ]);
 
   const planningRepositories = await Promise.all(
@@ -148,7 +152,13 @@ export async function createOrUpdatePlanningDraftForOutcome(
   // deterministic generator renders the top items as explicit plan assumptions.
   const companyMemory = await getRelevantCompanyMemory({ companyId: input.companyId });
 
-  const generation = await resolvePlanningAdapter().generate({
+  // Per-company provider override (MUS-262): a stored CompanySettings.planningProvider
+  // wins; null falls through to the EOS_PLANNING_PROVIDER environment default. Only the
+  // adapter *selection* changes — validation, grounding, and the deterministic fallback
+  // inside the AI adapter are untouched.
+  const generation = await resolvePlanningAdapter({
+    provider: companySettings?.planningProvider ?? null,
+  }).generate({
     companyId: outcome.companyId,
     outcomeId: outcome.id,
     title: outcome.title,
