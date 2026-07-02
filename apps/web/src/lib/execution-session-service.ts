@@ -164,7 +164,32 @@ export async function getCompanyDefaultAgentType(
 }
 
 /**
+ * Thrown by {@link createExecutionSession} when a concurrent creator already
+ * has a live (queued / prepared / running) session for the task. Callers treat
+ * it as "already prepared" — the same outcome as the pre-create idempotency
+ * check, just enforced atomically at insert time (MUS-294).
+ */
+export class LiveSessionExistsError extends Error {
+  readonly existingSessionId: string;
+  readonly taskId: string;
+
+  constructor(taskId: string, existingSessionId: string, existingStatus: string) {
+    super(
+      `Task ${taskId} already has a live session (${existingStatus}); refusing to create a second.`
+    );
+    this.name = "LiveSessionExistsError";
+    this.taskId = taskId;
+    this.existingSessionId = existingSessionId;
+  }
+}
+
+/**
  * Creates a new ExecutionSession in the "queued" state for a given task.
+ *
+ * For task sessions this is atomic: it locks the task row, re-checks for a live
+ * session, and inserts in one transaction, so at most one live session can exist
+ * per task even under concurrent preparers (throws {@link LiveSessionExistsError}
+ * to the loser).
  *
  * @param input - Session creation parameters
  * @returns The newly created ExecutionSession
@@ -198,22 +223,52 @@ export async function createExecutionSession(
     );
   }
 
-  return prisma.executionSession.create({
-    data: {
-      companyId: input.companyId,
-      taskId: input.taskId ?? null,
-      projectId: input.projectId ?? null,
-      repositoryId: input.repositoryId ?? null,
-      employeeId: input.employeeId ?? null,
-      planningDraftId: input.planningDraftId ?? null,
-      // Explicit input wins; otherwise the company's configured default
-      // (CompanySettings.defaultAgentType, null → "claude_code") applies.
-      agentType:
-        input.agentType ?? (await getCompanyDefaultAgentType(input.companyId)),
-      status: "queued",
-      branchName,
-      baseBranch,
-    },
+  const data = {
+    companyId: input.companyId,
+    taskId: input.taskId ?? null,
+    projectId: input.projectId ?? null,
+    repositoryId: input.repositoryId ?? null,
+    employeeId: input.employeeId ?? null,
+    planningDraftId: input.planningDraftId ?? null,
+    // Explicit input wins; otherwise the company's configured default
+    // (CompanySettings.defaultAgentType, null → "claude_code") applies.
+    agentType:
+      input.agentType ?? (await getCompanyDefaultAgentType(input.companyId)),
+    status: "queued",
+    branchName,
+    baseBranch,
+  };
+
+  // Non-task sessions have nothing to serialize on — insert directly.
+  const taskId = input.taskId;
+  if (!taskId) {
+    return prisma.executionSession.create({ data });
+  }
+
+  // Atomic idempotency (MUS-294): the old find-then-create was non-atomic, so a
+  // manual "Prepare execution" racing a driver tick (or two driver instances)
+  // could both pass the "no live session" check and create a session for the
+  // same task → two branches, two PRs. Lock the task row, re-check for a live
+  // session, and insert — all in one transaction — so at most one live session
+  // per task can ever exist. The rare loser throws LiveSessionExistsError, which
+  // callers treat as "already prepared".
+  return prisma.$transaction(async (tx) => {
+    // Serialize concurrent creators on the task row (a no-op if the task is
+    // missing — the create's FK would then fail anyway).
+    await tx.$queryRaw`SELECT id FROM "Task" WHERE "companyId" = ${input.companyId} AND "id" = ${taskId} FOR UPDATE`;
+    const live = await tx.executionSession.findFirst({
+      where: {
+        companyId: input.companyId,
+        taskId,
+        status: { in: [...LIVE_EXECUTION_SESSION_STATUSES] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true },
+    });
+    if (live) {
+      throw new LiveSessionExistsError(taskId, live.id, live.status);
+    }
+    return tx.executionSession.create({ data });
   });
 }
 

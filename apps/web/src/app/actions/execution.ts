@@ -127,6 +127,15 @@ export async function generateTaskBrief(
     company.id,
     parsed.data.taskId
   );
+  if ("skippedExistingSessionId" in result) {
+    // A concurrent preparer (or the driver) already opened a live session for
+    // this task — surface that, don't double-create (MUS-294).
+    revalidatePath(`/work/tasks/${parsed.data.taskId}`);
+    return {
+      message: "This task already has a live execution session in progress.",
+      sessionId: result.skippedExistingSessionId,
+    };
+  }
   if ("error" in result) {
     return { message: result.error };
   }

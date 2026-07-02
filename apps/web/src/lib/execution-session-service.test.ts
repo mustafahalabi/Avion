@@ -258,7 +258,16 @@ describe("execution-session-service", () => {
 
   describe("listExecutionSessionsForTask", () => {
     it("returns sessions for a specific task", async () => {
-      await service.createExecutionSession({ companyId: "company-1", taskId: "task-1" });
+      const first = await service.createExecutionSession({
+        companyId: "company-1",
+        taskId: "task-1",
+      });
+      // A task accumulates multiple sessions over reworks — the prior must be
+      // terminal before the next is created (one live session per task, MUS-294).
+      await prisma.executionSession.update({
+        where: { id: first.id },
+        data: { status: "completed" },
+      });
       await service.createExecutionSession({ companyId: "company-1", taskId: "task-1" });
       await service.createExecutionSession({ companyId: "company-1" }); // no taskId
 
@@ -986,18 +995,22 @@ describe("execution-session-service", () => {
   });
 
   describe("reapStaleRunningSessions (MUS-280)", () => {
+    // Inserts a running session directly — this simulates raw DB state for the
+    // reaper (a crashed worker can transiently leave >1 running session on a
+    // task), so it deliberately bypasses the one-live-per-task creation guard
+    // (MUS-294) that `createExecutionSession` now enforces.
     async function createRunningSession(input: {
       companyId: string;
       taskId: string;
       startedAt: Date;
     }): Promise<string> {
-      const created = await service.createExecutionSession({
-        companyId: input.companyId,
-        taskId: input.taskId,
-      });
-      await prisma.executionSession.update({
-        where: { id: created.id },
-        data: { status: "running", startedAt: input.startedAt },
+      const created = await prisma.executionSession.create({
+        data: {
+          companyId: input.companyId,
+          taskId: input.taskId,
+          status: "running",
+          startedAt: input.startedAt,
+        },
       });
       return created.id;
     }
@@ -1081,5 +1094,61 @@ describe("execution-session-service", () => {
         (await prisma.executionSession.findUnique({ where: { id: c2 } }))?.status
       ).toBe("running");
     });
+  });
+});
+
+describe("createExecutionSession atomic idempotency (MUS-294)", () => {
+  it("creates exactly one live session when two preparers race the same task", async () => {
+    const [a, b] = await Promise.allSettled([
+      service.createExecutionSession({ companyId: "company-1", taskId: "task-1" }),
+      service.createExecutionSession({ companyId: "company-1", taskId: "task-1" }),
+    ]);
+
+    const fulfilled = [a, b].filter((r) => r.status === "fulfilled");
+    const rejected = [a, b].filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(
+      service.LiveSessionExistsError
+    );
+
+    // Exactly one session row exists for the task — no double-create.
+    const sessions = await prisma.executionSession.findMany({
+      where: { companyId: "company-1", taskId: "task-1" },
+    });
+    expect(sessions).toHaveLength(1);
+  });
+
+  it("refuses a second live session for a task that already has one", async () => {
+    await service.createExecutionSession({ companyId: "company-1", taskId: "task-1" });
+    await expect(
+      service.createExecutionSession({ companyId: "company-1", taskId: "task-1" })
+    ).rejects.toBeInstanceOf(service.LiveSessionExistsError);
+  });
+
+  it("allows a new session once the prior one is terminal (rework path)", async () => {
+    const first = await service.createExecutionSession({
+      companyId: "company-1",
+      taskId: "task-1",
+    });
+    await prisma.executionSession.update({
+      where: { id: first.id },
+      data: { status: "completed" },
+    });
+
+    const second = await service.createExecutionSession({
+      companyId: "company-1",
+      taskId: "task-1",
+    });
+    expect(second.id).not.toBe(first.id);
+    expect(second.status).toBe("queued");
+  });
+
+  it("does not guard task-less sessions (taskId null)", async () => {
+    const [a, b] = await Promise.all([
+      service.createExecutionSession({ companyId: "company-1" }),
+      service.createExecutionSession({ companyId: "company-1" }),
+    ]);
+    expect(a.id).not.toBe(b.id);
   });
 });
