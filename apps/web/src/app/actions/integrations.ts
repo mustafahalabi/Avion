@@ -64,14 +64,6 @@ export async function connectIntegration(
       },
       select: { id: true },
     });
-    await prisma.integrationSyncLog.create({
-      data: {
-        integrationId: existing.id,
-        status: "info",
-        message: `Credentials updated for ${providerDef.name}.`,
-        recordsCount: 0,
-      },
-    });
   } else {
     integration = await prisma.integration.create({
       data: {
@@ -83,14 +75,6 @@ export async function connectIntegration(
         config: "{}",
       },
       select: { id: true },
-    });
-    await prisma.integrationSyncLog.create({
-      data: {
-        integrationId: integration.id,
-        status: "info",
-        message: `${providerDef.name} credentials saved. Provider sync is not yet active.`,
-        recordsCount: 0,
-      },
     });
   }
 
@@ -123,15 +107,6 @@ export async function disconnectIntegration(integrationId: string): Promise<void
     },
   });
 
-  await prisma.integrationSyncLog.create({
-    data: {
-      integrationId,
-      status: "info",
-      message: `${integration.name} disconnected.`,
-      recordsCount: 0,
-    },
-  });
-
   revalidatePath("/integrations");
   revalidatePath(`/integrations/${integrationId}`);
 }
@@ -152,15 +127,12 @@ export async function triggerSync(integrationId: string): Promise<{ message: str
   if (!integration) return { message: "Integration not found." };
   if (integration.status !== "connected") return { message: "Integration is not connected." };
 
-  await prisma.integrationSyncLog.create({
-    data: {
-      integrationId,
-      status: "info",
-      message: `Sync requested for ${integration.name}. Live provider sync is not yet implemented — credentials are stored but no data has been fetched from the provider.`,
-      recordsCount: 0,
-    },
-  });
-
+  // Live provider sync is not yet implemented — credentials are stored but no
+  // data is fetched from the provider. (The write-only sync log was removed in
+  // MUS-298; reintroduce a reader/UI before logging sync history again.)
   revalidatePath(`/integrations/${integrationId}`);
-  return { message: "Sync request logged." };
+  return {
+    message:
+      "Live provider sync isn't implemented yet — your credentials are stored, but no data was fetched.",
+  };
 }

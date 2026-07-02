@@ -126,9 +126,6 @@ model CompanySettings {
   companyId      String   @unique
   autonomyLevel  String   @default("assist")
   cultureProfile String   @default("startup")
-  timezone       String   @default("UTC")
-  currency       String   @default("USD")
-  locale         String   @default("en")
   /// Per-company planning provider override ("deterministic" | "ai").
   /// Null means "use the EOS_PLANNING_PROVIDER environment default".
   planningProvider String?
@@ -332,28 +329,9 @@ model MemoryRecord {
   memory Memory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
 }
 
-model Knowledge {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  category    String?
-  tags        String   @default("[]")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  records KnowledgeRecord[]
-}
-
-model KnowledgeRecord {
-  id          String   @id @default(cuid())
-  knowledgeId String
-  content     String
-  format      String   @default("markdown")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  knowledge Knowledge @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
-}
+// NOTE: The `Knowledge` / `KnowledgeRecord` models were removed (MUS-298) — they
+// had zero accessors; `Memory` / `MemoryRecord` above are the real knowledge
+// store. Do not reintroduce a parallel one.
 
 // ─── Company Runtime Models ───────────────────────────────────────────────────
 
@@ -599,18 +577,8 @@ model Notification {
 
 // ─── Timeline / Events ────────────────────────────────────────────────────────
 
-model Event {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  type        String   @default("generic")
-  entityType  String?
-  entityId    String?
-  actorId     String?
-  metadata    String   @default("{}")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
+// NOTE: A near-duplicate `Event` model was removed (MUS-298) — it had zero
+// accessors; `TimelineEntry` below is the wired event log.
 
 model TimelineEntry {
   id         String   @id @default(cuid())
@@ -716,16 +684,9 @@ model Release {
   @@unique([planningDraftId, planItemId])
 }
 
-model Incident {
-  id          String    @id @default(cuid())
-  title       String
-  description String?
-  severity    String    @default("medium")
-  status      String    @default("open")
-  resolvedAt  DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-}
+// NOTE: The `Incident` model was removed (MUS-298) — it had zero accessors
+// (never created or read). Reintroduce with a real writer/reader if incident
+// tracking is built.
 
 // ─── Company Health ───────────────────────────────────────────────────────────
 //
@@ -863,17 +824,9 @@ model Integration {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  company  Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  syncLogs IntegrationSyncLog[]
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
-model IntegrationSyncLog {
-  id            String   @id @default(cuid())
-  integrationId String
-  status        String
-  message       String
-  recordsCount  Int      @default(0)
-  createdAt     DateTime @default(now())
-
-  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-}
+// NOTE: The write-only `IntegrationSyncLog` model was removed (MUS-298) — it was
+// written on every connect/sync but never read (no reader, never `include`d).
+// Reintroduce with a reader/UI if integration sync history is surfaced.
