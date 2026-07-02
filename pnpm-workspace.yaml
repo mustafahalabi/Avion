@@ -11,3 +11,14 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@merittdev/avion@0.2.0'
   - electron@42.5.1
+
+# Security floors for transitive pins flagged by dependabot (2026-07-02):
+# multer <2.2.0 (GHSA-72gw-mp4g-v24j, GHSA-3p4h-7m6x-2hcm) via @nestjs/platform-express
+# @hono/node-server <1.19.13 (GHSA-92pp-h63x-v22m) via @prisma/dev
+# postcss <8.5.10 (GHSA-qx2v-qp2m-jg93) via next's exact 8.4.31 pin
+# esbuild <0.28.1 (GHSA-g7r4-m6w7-qqqr) via tsup
+overrides:
+  multer: ^2.2.0
+  '@hono/node-server': ^1.19.13
+  postcss: ^8.5.16
+  esbuild: ^0.28.1
