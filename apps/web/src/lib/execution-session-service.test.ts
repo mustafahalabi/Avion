@@ -100,6 +100,92 @@ describe("execution-session-service", () => {
     });
   });
 
+  // ── Company default agent type (MUS-264) ──────────────────────────────────
+
+  describe("company default agent type", () => {
+    afterEach(async () => {
+      await prisma.$executeRawUnsafe(`DELETE FROM "CompanySettings"`);
+    });
+
+    it("getCompanyDefaultAgentType falls back to claude_code when no settings row exists", async () => {
+      const agentType = await service.getCompanyDefaultAgentType("company-1");
+      expect(agentType).toBe("claude_code");
+    });
+
+    it("getCompanyDefaultAgentType falls back to claude_code when defaultAgentType is null", async () => {
+      await prisma.companySettings.create({
+        data: { companyId: "company-1", defaultAgentType: null },
+      });
+      const agentType = await service.getCompanyDefaultAgentType("company-1");
+      expect(agentType).toBe("claude_code");
+    });
+
+    it("getCompanyDefaultAgentType returns a configured codex default", async () => {
+      await prisma.companySettings.create({
+        data: { companyId: "company-1", defaultAgentType: "codex" },
+      });
+      const agentType = await service.getCompanyDefaultAgentType("company-1");
+      expect(agentType).toBe("codex");
+    });
+
+    it("getCompanyDefaultAgentType falls back to claude_code for unrunnable values", async () => {
+      // "human" has no execution adapter, and garbage must never strand sessions.
+      await prisma.companySettings.create({
+        data: { companyId: "company-1", defaultAgentType: "human" },
+      });
+      expect(await service.getCompanyDefaultAgentType("company-1")).toBe(
+        "claude_code"
+      );
+
+      await prisma.companySettings.update({
+        where: { companyId: "company-1" },
+        data: { defaultAgentType: "gpt_engineer" },
+      });
+      expect(await service.getCompanyDefaultAgentType("company-1")).toBe(
+        "claude_code"
+      );
+    });
+
+    it("createExecutionSession uses the company default when agentType is omitted", async () => {
+      await prisma.companySettings.create({
+        data: { companyId: "company-1", defaultAgentType: "codex" },
+      });
+
+      const session = await service.createExecutionSession({
+        companyId: "company-1",
+        taskId: "task-1",
+      });
+
+      expect(session.agentType).toBe("codex");
+    });
+
+    it("createExecutionSession lets an explicit agentType override the company default", async () => {
+      await prisma.companySettings.create({
+        data: { companyId: "company-1", defaultAgentType: "codex" },
+      });
+
+      const session = await service.createExecutionSession({
+        companyId: "company-1",
+        taskId: "task-1",
+        agentType: "claude_code",
+      });
+
+      expect(session.agentType).toBe("claude_code");
+    });
+
+    it("createExecutionSession is company-scoped — another company's default does not leak", async () => {
+      await prisma.companySettings.create({
+        data: { companyId: "company-2", defaultAgentType: "codex" },
+      });
+
+      const session = await service.createExecutionSession({
+        companyId: "company-1",
+      });
+
+      expect(session.agentType).toBe("claude_code");
+    });
+  });
+
   // ── getExecutionSession ───────────────────────────────────────────────────
 
   describe("getExecutionSession", () => {

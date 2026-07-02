@@ -50,6 +50,7 @@ export default async function SettingsPage() {
             companyName={company.name}
             autonomyLevel={company.settings?.autonomyLevel ?? "assist"}
             cultureProfile={company.settings?.cultureProfile ?? "startup"}
+            defaultAgentType={company.settings?.defaultAgentType ?? "claude_code"}
           />
         </section>
 

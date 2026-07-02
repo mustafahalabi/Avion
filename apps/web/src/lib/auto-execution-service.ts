@@ -158,7 +158,8 @@ export async function prepareExecutionSessionForTask(
     projectId: resolvedProjectId,
     repositoryId: repoRow?.id ?? null,
     planningDraftId: task.planningDraftId ?? null,
-    agentType: "claude_code",
+    // agentType intentionally omitted: the company's configured default
+    // (CompanySettings.defaultAgentType, null → "claude_code") applies.
     branchName,
     baseBranch: priorSession?.baseBranch ?? "master",
   });
