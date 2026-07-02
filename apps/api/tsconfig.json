@@ -12,7 +12,6 @@
     "lib": ["ES2021"],
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
     "strict": true,
@@ -20,7 +19,18 @@
     "noImplicitAny": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": false,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // Explicit rootDir: TS 6 no longer infers it when an outDir is set and the
+    // common source directory is a subfolder (TS5011). The build compiles
+    // src/ → dist/.
+    "rootDir": "./src",
+    // TS 6 renamed moduleResolution "node" → "node10" and deprecates it (TS5107).
+    // Migrating to "node16"/"nodenext" would force converting this CommonJS Nest
+    // app to ESM (it imports the ESM-only @avion/shared, which yields TS1479/1541
+    // require-of-ESM errors under node16) — out of scope for a TypeScript-bump
+    // chore. Acknowledge the deprecation, scoped to this app, until that migration.
+    // TODO(MUS-275 follow-up): migrate apps/api to node16/nodenext resolution.
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
