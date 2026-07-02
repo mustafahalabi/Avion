@@ -1,52 +1,64 @@
-# Engineering OS — Project Knowledge Base
+# Avion (formerly Engineering OS) — Project Knowledge Base
 
-**Status:** June 2026 — Platform v1 released and frozen (`v1.0.0`); **Platform v2** effectively feature-complete on its core. The autonomous outcome→PR loop is built, unit-tested, **and verified live**. Since then the product around it has shipped: the full documentation/spec backlog, the **CEO Control Center**, **Onboarding**, **Repository Validation**, **real-AI outcome planning** (grounded + validated, behind a provider seam), and **compounding organizational memory**, and now **closing the loop with reality** (a pre-run validation gate, real validation-command runs in the worker, and GitHub PR review + CI feedback ingestion). The whole stack has now been **run live end-to-end and fully hands-off** — a CEO chat request (*"i want login screen"*) was AI-planned and autonomously driven to multiple real PRs → review → QA → `done` at `autonomous`, with no human steps after the single plan approval. **19 of 20 milestones are at 100%** (Repository Validation is at 75% — one migration-bound follow-up remains). Tracked in the Linear project **Engineering OS Platform v2** (`MUS` team). Tests: **~1,350 cases across ~72 files** (`npm run test`).
+**Status:** July 2026 — the product was **rebranded to Avion** (PR #76) and re-platformed into a **pnpm 11.9 / Turborepo monorepo** (PR #80). Platform v1 remains released and frozen (`v1.0.0`); **Platform v2**'s core — the autonomous outcome→PR loop — is built, tested, and **verified live** (a CEO chat request was AI-planned and autonomously driven to real PRs → review → QA → `done` at `autonomous`). Since the last knowledge-base update the platform moved to **PostgreSQL** (MUS-247), gained **nested workspace UX** (MUS-248), a **live workflow graph** (MUS-249), a **realtime board backend** (`apps/api`), and — in **PR #84 (in review, MUS-250–254)** — **loop integrity**: a self-correcting rework re-loop, truthful QA gates driven by real check results, bounded retries with no-op detection, a gated task-status mutation boundary, and gated auto-merge. Tracked in the Linear project **Engineering OS Platform v2** (team **Mustafa's Space**, `MUS`). Tests: **~1,500 cases across ~86 files**, all in `apps/web` (`pnpm --filter @avion/web test`).
 
 > **How to read this document.** It has two layers:
 > 1. **Current Build State (Platform v2)** — the actual, current software, grounded in the codebase *and* the Linear project. This is authoritative; where it disagrees with anything below, it wins.
-> 2. **The Vision & Philosophy** (everything from "What Engineering OS Is" onward) — the durable product vision and organizational design. It is intentionally aspirational and predates the platform; it is the north star, not a status report.
+> 2. **The Vision & Philosophy** (everything from "What Engineering OS Is" onward) — the durable product vision and organizational design. It is intentionally aspirational and predates the platform; it is the north star, not a status report. It retains the original **Engineering OS** name — Avion is the same product, rebranded.
 
 ---
 
 # Current Build State (Platform v2)
 
-This section reflects the real codebase **and** the Linear project. Last verified by code trace + Linear read, June 2026.
+This section reflects the real codebase **and** the Linear project. Last verified by code trace, July 2026.
 
 ## What Platform v2 is for
 
-From the Linear project charter: Platform v2 should turn Engineering OS from a working company-management platform into a **self-improving virtual software company**. The key shift is from *manually managing development* to **dogfooding Engineering OS as the system that plans, tracks, and helps build itself.**
+From the Linear project charter: Platform v2 should turn Avion from a working company-management platform into a **self-improving virtual software company**. The key shift is from *manually managing development* to **dogfooding Avion as the system that plans, tracks, and helps build itself.**
 
-- **Product goal.** v2 is complete when Engineering OS can be used as the primary operating layer for its own development: a user acts as CEO, requests a software outcome, and Engineering OS produces company-level planning, repository understanding, recommended next actions, tasks, ownership, review flow, QA flow, and release visibility.
-- **Operating principle.** From this project onward, **use Engineering OS to build Engineering OS wherever possible.**
-- **Non-goals (hard rules).** Do not mutate the frozen v1 baseline except through `release/v1` critical fixes. Do not rebuild v1 features from scratch. Do not create fake repository intelligence or fake automation. **AI behavior was gated behind specification — that gate is now satisfied:** *Engineering OS Specification v1.0* shipped (`docs/architecture/ENGINEERING_OS_SPECIFICATION.md`), and real-AI planning is now live behind a provider seam (deterministic by default; `EOS_PLANNING_PROVIDER=ai`), always validated against the quality + grounding gates with a deterministic fallback. New AI must keep that pattern: validated, grounded in real data, reviewable, never bypassing the gates.
+- **Product goal.** v2 is complete when Avion can be used as the primary operating layer for its own development: a user acts as CEO, requests a software outcome, and Avion produces company-level planning, repository understanding, recommended next actions, tasks, ownership, review flow, QA flow, and release visibility.
+- **Operating principle.** From this project onward, **use Avion to build Avion wherever possible.**
+- **Non-goals (hard rules).** Do not mutate the frozen v1 baseline except through `release/v1` critical fixes. Do not rebuild v1 features from scratch. Do not create fake repository intelligence or fake automation. AI behavior stays behind the specification's gates: real-AI planning is live behind a provider seam (deterministic by default; `EOS_PLANNING_PROVIDER=ai`), always validated against the quality + grounding gates with a deterministic fallback. New AI must keep that pattern: validated, grounded in real data, reviewable, never bypassing the gates.
+
+## The monorepo
+
+Root package `avion-monorepo` — **pnpm 11.9 workspaces + Turborepo** (never `npm install` here). Three packages:
+
+| Package | Path | What it is |
+|---|---|---|
+| `@avion/web` | `apps/web` | The platform itself — **Next.js 16** (App Router, Prisma 7, Clerk auth, ~37 domain models). All prior `src/…` code now lives at `apps/web/src/…`; the schema at `apps/web/prisma/schema.prisma`. Also owns the worker, driver, scripts, and the Electron shell (`apps/web/electron`). |
+| `@avion/api` | `apps/api` | **NestJS** realtime board backend — REST under `/api` + a **Socket.IO** gateway (namespace `/board`) on port **4000** that polls Postgres every 2s (`BOARD_POLL_MS`) and pushes `BoardSnapshot`s to the `/board` page. |
+| `@avion/shared` | `packages/shared` | The contract layer — `BoardSnapshot` types + Socket.IO event names imported by both ends. Dependency-free. |
+
+**Database: PostgreSQL** (MUS-247 — SQLite and `better-sqlite3` are gone). `apps/web/prisma/schema.prisma` has `provider = "postgresql"` via `@prisma/adapter-pg`; migrations were re-baselined at `20260630052132_init`. Local dev: `pnpm db:up` (docker compose, `postgres:16` on host port **5433**, database `avion`).
 
 ## What exists and works
 
-A working **Next.js 16** app (App Router, **Prisma 7 / SQLite**, **Clerk** auth, ~37 domain models) with a full management UI — dashboard, work board, tasks, plans, outcomes, repositories, releases, quality/QA, company/employees, integrations, memory, timeline, inbox, notifications. Behind it:
+A working management UI — dashboard, work board, tasks, plans, outcomes, repositories, releases, quality/QA, company/employees, integrations, memory, timeline, inbox, notifications. Behind it:
 
 - **Repository intelligence** — real file-tree ingestion, package-manager/dependency detection, framework/route/API detection, database/schema detection, a repository intelligence dashboard, and **change intelligence** (snapshot model + comparison + impact analysis between analyses).
-- **Outcome → plan → work** — a CEO submits an outcome; a planner generates a reviewable plan (projects/milestones/features/tasks/risks/assignments/QA/release); approval **applies** it idempotently into real Project/Feature/Task records with full traceability. Planning runs through a **provider seam** (`src/lib/planning/planning-adapter.ts`): **deterministic templated generator by default**, and a **real-AI planner** (`EOS_PLANNING_PROVIDER=ai`) that grounds in repository intelligence + company memory, validates output against `validatePlanningDraftQuality` + a hallucination guard, and **falls back to deterministic** on any failure (so AI is never worse than the baseline). Verified live.
-- **Compounding memory** — durable lessons are auto-captured from completed reviews/QA/releases (`src/lib/memory/`, idempotent by source), a learning engine promotes recurring findings to **standards**, and relevant memory is fed into the AI planner's prompt so plans improve as the company learns. The driver ingests + promotes each tick (best-effort).
-- **Product surfaces** — the **CEO Control Center** (`/control-center`: unified attention queue over approvals + stuck-work + provider health), guided **Onboarding** (`/onboarding`), and **Repository Validation & Environment** (env/validation profiles + readiness gate on the repo page).
-- **Company intelligence** — detects stuck work / waiting approvals and recommends the CEO's next action.
+- **Outcome → plan → work** — a CEO submits an outcome; a planner generates a reviewable plan; approval **applies** it idempotently into real Project/Feature/Task records with full traceability. Planning runs through a **provider seam** (`apps/web/src/lib/planning/planning-adapter.ts`): **deterministic templated generator by default**, and a **real-AI planner** (`EOS_PLANNING_PROVIDER=ai`) that grounds in repository intelligence + company memory, validates output against `validatePlanningDraftQuality` + a hallucination guard, and **falls back to deterministic** on any failure. Verified live.
+- **Compounding memory** — durable lessons auto-captured from completed reviews/QA/releases (`apps/web/src/lib/memory/`, idempotent by source), a learning engine that promotes recurring findings to **standards**, and memory fed into the **AI** planner's prompt. The driver ingests + promotes each tick (best-effort). *(Caveat: the default deterministic planner ignores memory entirely — MUS-258.)*
+- **Product surfaces** — the **CEO Control Center** (`/control-center`), guided **Onboarding** (`/onboarding`), **Repository Validation & Environment** (env/validation profiles + readiness gate), and the newer **workspace-scoped UX**: nested routing under `/w/[workspace]/…` with an active-workspace cookie + sidebar switcher (MUS-248), a **live workflow graph** at `/work/live` (React Flow over SSE, MUS-249), and a **realtime `/board`** view fed by `apps/api` over Socket.IO.
 - **Review + QA automation** — review briefs, change requests, QA checklists from acceptance criteria, and acceptance gates with truthful status transitions (no task reaches `done` without a recorded approved review **and** passing QA).
 - **Release automation** — release candidates from completed work + CEO release summaries.
-- **Integration auth** — first-class provider connections (GitHub app, Linear OAuth, hosting provider) with scopes/refresh/disconnect and **encrypted** credential storage.
-- **The runtime** — an **execution adapter** interface + a **Claude Code adapter**; an **execution worker** (`npm run worker`) that polls sessions, checks out a repo, runs `claude -p`, applies guardrails, commits/pushes and opens a PR; and a **continuous driver** (`npm run driver`) that enqueues and advances work per company with no manual clicks.
-- **Closing the loop with reality** — a **pre-run validation readiness gate** (`assessExecutionReadiness`) fails fast on bad environments before launching a run; the worker runs the repository's **real lint/typecheck/test/build commands** post-agent (`runValidationCommands`, skipped when deps absent) and folds the results into the PR body + QA signal; and the driver **ingests GitHub PR review decisions + CI status** each tick (`ingestPullRequestFeedbackForCompany`) — CI failure / changes-requested opens a change request and re-loops the task, merged PRs are recorded.
-- **Tests** — ~1,350 cases across ~72 files (`npm run test`; `npm run test:count` prints the total). Real-SQLite integration suites for the DB-backed services; pure unit suites for the planner/memory/view-model/close-the-loop helpers.
+- **Integration auth** — first-class provider connections (GitHub, Linear OAuth, hosting provider) with scopes/refresh/disconnect and **encrypted** credential storage.
+- **The runtime** — an **execution adapter** interface + a **Claude Code adapter**; an **execution worker** (`pnpm worker`) that polls sessions, checks out a repo, runs `claude -p`, applies guardrails, commits/pushes and opens a PR; and a **continuous driver** (`pnpm driver`) that enqueues and advances work per company with no manual clicks.
+- **Closing the loop with reality** — a pre-run validation readiness gate (`assessExecutionReadiness`); real validation-command runs in the worker; and driver ingestion of GitHub PR review decisions + CI status each tick (`ingestPullRequestFeedbackForCompany`) — CI failure / changes-requested opens a change request, merged PRs are recorded.
+- **Loop integrity (PR #84, in review — MUS-250–254)** — see the loop table below: the rework re-loop, dependency install + real-check-driven QA verdicts, no-op/retry handling, the gated status mutation boundary, and gated auto-merge.
+- **Tests** — ~1,500 cases across ~86 files, entirely in `apps/web` (`pnpm --filter @avion/web test`; `test:count` prints the total). Real-Postgres integration suites for the DB-backed services (each suite isolates into its own schema on `TEST_DATABASE_URL`/`DATABASE_URL`); pure unit suites for the planner/memory/view-model/loop helpers. `apps/api` and `packages/shared` have **no tests yet** (MUS-255 adds the first api tests).
 
 ## The self-driving loop — verified live
 
-The outcome→delivery loop, traced link by link. Every link is wired; the loop was run **end-to-end against a real GitHub sandbox** (a real `claude -p` agent opened real PRs):
+The outcome→delivery loop, traced link by link. The loop was run **end-to-end against a real GitHub sandbox** (a real `claude -p` agent opened real PRs):
 
 | Link | State |
 |---|---|
 | CEO submits outcome → record + timeline | ✅ wired |
-| Plan generation | ✅ wired; **deterministic by default, real AI planning available** (provider seam, `EOS_PLANNING_PROVIDER=ai`) — grounded in repo intelligence + company memory, validated, with deterministic fallback |
+| Plan generation (deterministic default; real AI via provider seam, validated, deterministic fallback) | ✅ wired |
 | Plan review → approve/reject → apply to real Project/Feature/Task records | ✅ wired, idempotent, fully traceable |
-| Prepare execution → brief + queued session | ✅ manual button **and** auto-prepared by the driver (MUS-210) |
-| Pre-push guardrail gate (protected paths/branch, denied/dangerous commands) | ✅ enforced, independent of the agent's `claude -p` permission mode (MUS-213) |
+| Prepare execution → brief + queued session (manual button **and** auto-prepared by the driver) | ✅ wired (MUS-210) |
+| Pre-push guardrail gate (protected paths/branch, denied/dangerous commands) | ✅ enforced, independent of the agent's permission mode (MUS-213) |
 | Autonomy approval-checkpoint policy (one source for manual + driver) | ✅ wired (MUS-214) |
 | Worker executes `claude -p` in a checked-out repo | ✅ **the one truly autonomous, real-AI step** |
 | Worker commits + pushes the session branch + opens a PR | ✅ wired (MUS-207/208) |
@@ -54,61 +66,68 @@ The outcome→delivery loop, traced link by link. Every link is wired; the loop 
 | Auto-advance review → QA → done by autonomy level | ✅ wired (MUS-212) |
 | Continuous driver loop enqueues + advances per company | ✅ wired (MUS-211) |
 | CEO execution audit trail (commands, files, guardrail blocks, outcome) | ✅ wired (MUS-215) |
-| Pre-run validation readiness gate (fail-fast on bad environments) | ✅ wired (close-the-loop, MUS-240) |
-| Worker runs real validation commands (lint/typecheck/test/build) post-agent | ✅ wired, best-effort (MUS-241/242) |
-| Ingest GitHub PR review + CI status → change requests / re-loop the task | ✅ wired; driver polls open PRs each tick (MUS-243/244/245) |
+| Pre-run validation readiness gate (fail-fast on bad environments) | ✅ wired (MUS-240) |
+| Ingest GitHub PR review + CI status → change requests / re-loop | ✅ wired; driver polls open PRs each tick (MUS-243/244/245) |
+| **Rework re-loop** — change-requested / CI-failed tasks re-enter the driver as rework candidates; briefs gain a "Rework Required" section pinning the existing branch/PR; approvals + passing QA resolve ChangeRequests | ✅ built (PR #84, in review — MUS-250) |
+| **Real validation in fresh checkouts** — the worker installs dependencies (lockfile-aware, permission-guarded) and runs the repo's real detected validation commands, embedding a machine-readable marker the QA gate parses | ✅ built (PR #84, in review — MUS-251) |
+| **Truthful automated QA verdicts** — derived from the REAL recorded results: failing checks fail QA → change request → rework loop; an honest note when no evidence exists | ✅ built (PR #84, in review — MUS-251) |
+| **No-op detection + bounded retries** — agent runs that succeed with no commit ingest as failed; `WORKER_MAX_RETRIES` with exponential backoff; exhausted tasks blocked + escalated | ✅ built (PR #84, in review — MUS-252) |
+| **Gated mutation boundary** — `updateTaskStatus` routes `done` through the acceptance gates (approved review + passed QA) and validates status enums; `markReleased` requires a complete checklist | ✅ built (PR #84, in review — MUS-253) |
+| **Gated auto-merge** — at `autonomous`, a PR whose task passed the internal gates merges (squash) when CI is green-or-absent and no reviewer objects | ✅ built (PR #84, in review — MUS-254) |
 
-**Verified live:** at `assist` autonomy the loop opened a real PR then **paused for CEO review** (`awaiting_review`); at `autonomous` it opened a real PR and **auto-advanced review → QA → `done`** with no human checkpoint. Same code, same guardrails — the only difference is the autonomy level. Guardrails are always on: never push to a protected branch, never touch protected paths (`.env*`, lockfiles, `prisma/migrations/**`, `.github/workflows/**`, secrets), never force-push; a blocked run fails the session with the offending paths recorded in the audit trail. **Verified again from a CEO request, fully hands-off:** with AI planning on and autonomy `autonomous`, a chat outcome (*"i want login screen"*) was AI-planned and the loop autonomously opened multiple real PRs and drove the tasks to `done` — proving the *full* chain (chat → AI plan → execute → PR → review → QA → done) on a real repo, with no human steps after the single plan approval.
+**Verified live:** at `assist` autonomy the loop opened a real PR then **paused for CEO review** (`awaiting_review`); at `autonomous` it opened a real PR and **auto-advanced review → QA → `done`** with no human checkpoint. Same code, same guardrails — the only difference is the autonomy level. Guardrails are always on: never push to a protected branch, never touch protected paths (`.env*`, lockfiles, `prisma/migrations/**`, `.github/workflows/**`, secrets), never force-push; a blocked run fails the session with the offending paths recorded in the audit trail. **Verified again from a CEO request, fully hands-off:** with AI planning on and autonomy `autonomous`, a chat outcome (*"i want login screen"*) was AI-planned and the loop autonomously opened multiple real PRs and drove the tasks to `done` — no human steps after the single plan approval.
 
-Dogfood it locally with no external accounts via `npm run dogfood:local` (real DB + a local git remote, agent step stubbed), or do the full real run via `scripts/DOGFOOD.md` (`npm run live:prepare` → `live:worker` → `live:status`).
+Dogfood it locally with no external accounts via `pnpm --filter @avion/web dogfood:local` (real Postgres schema + a local git remote, agent step stubbed), or do the full real run via `apps/web/scripts/DOGFOOD.md` (`live:prepare` → `live:worker` → `live:status`, all under `apps/web`).
 
-## Recent additions (the product around the loop)
+## Honest caveats (read before grounding a plan in this doc)
 
-- **Live dogfood run** — ran the full stack (app + worker + driver, AI planning on) against a real GitHub sandbox; a real `claude -p` agent opened real PRs **from AI-planned tasks**, hands-off at `autonomous`. This surfaced and fixed a real bug: AI-planned tasks attach to a *feature* (no direct project), so `prepareExecutionSessionForTask` now resolves the repository via the **feature's project** as a fallback (previously every AI-planned task failed with "No repository URL on session").
-- **Documentation/spec backlog complete** — ~67 docs (company systems, decision frameworks, memory, SOPs, UX, design, README indexes) **+ the canonical `docs/architecture/ENGINEERING_OS_SPECIFICATION.md`**.
-- **CEO Control Center** (`/control-center` — unified attention queue over approvals + stuck-work + provider health), guided **Onboarding** (`/onboarding`), **Repository Validation & Environment** (env/validation profiles + readiness gate on the repo page).
-- **Real-AI outcome planning** — provider seam (`src/lib/planning/`), grounded prompt, zod-validated draft, hallucination guard, deterministic fallback; eval harness (`scripts/planning-eval.ts`); **verified live** (AI scored equal to deterministic on grounding checks).
-- **Compounding memory** (`src/lib/memory/`) — auto-capture lessons from reviews/QA/releases, a learning engine that promotes recurring findings to **standards**, and memory fed into the AI planner; the driver ingests + promotes each tick (best-effort).
-- **Closing the loop with reality** (`src/lib/repository-readiness-gate.ts`, `validation-runner.ts`, `github-pr-feedback.ts`, `pr-feedback-ingestion-service.ts`) — fail-fast pre-run validation gate, real validation-command runs in the worker, and GitHub PR review + CI ingestion (CI/review failures → change requests that re-loop the task; merged → recorded), polled by the driver each tick.
-- **Approval alerts + dogfood/live-run tooling** — inbox approve/reject, `decision` notifications, sidebar/inbox/dashboard badges; `dogfood-local.ts`, `live-run-prepare.ts` / `live-run-status.ts`, `DOGFOOD.md`.
+- **`apps/api` has NO authentication** and serves **all companies' data** to any connected client. It is safe only as a local-dev backend; do not expose it. MUS-255 (in progress) adds auth + company scoping + the package's first tests.
+- **Electron production packaging is deliberately deferred/broken** since the Postgres migration: `apps/web/scripts/build-db-template.mjs` intentionally exits 1 (the shipped SQLite template DB no longer applies; `better-sqlite3` was removed), and the native rebuild step is stale. **Dev mode works**: `pnpm --filter @avion/web electron:dev`. `docs/ELECTRON.md` describes the pre-Postgres design.
+- **Two live views coexist**: `/board` (Socket.IO via `apps/api`) and `/work/live` (SSE served by the web app itself) overlap in purpose and have not been consolidated.
+- **Memory reaches only the AI planner.** The default deterministic planner ignores company memory entirely, and execution briefs carry none of it (MUS-258).
+- **The outcome lifecycle never completes** (MUS-259): outcomes don't terminate past `in_delivery`; a rejected plan strands its outcome (the draft version is hardcoded to 1, so no revision cycle); chat-born outcomes get no repository attached.
+- **No CI on the repo yet** — GitHub Actions is MUS-256 (in progress).
+- `MUS-225` (real `process.env.*` ingestion + the additive `RepositoryAnalysisSnapshot.envInventory` column) is still open — the one migration-bound Repository Validation follow-up.
 
-## Linear milestone map (20 milestones)
+## Linear state
 
-**19 of 20 milestones are at 100%.** The autonomous-loop epics (GitHub Workflow Foundation, Agent Execution Engine, Agent Safety and Permissions) closed earlier; since then every remaining roadmap milestone shipped — only Repository Validation sits below 100% (at 75%, one migration-bound follow-up).
+Project **Engineering OS Platform v2**, team **Mustafa's Space** (`MUS`). The original 20-milestone roadmap closed at **19 of 20 milestones at 100%** (Repository Validation at 75% — `MUS-225` remains); see the epics recorded in earlier sections of the git history for the full map. Since then:
 
-**Shipped (100%)**
-- Stabilization and Dogfooding; Outcome Planning Engine; Repository Intelligence V2 (+ Slice 2 / Change Intelligence); Company Intelligence; Review and QA Automation; Release Automation; Integration Authentication; Product UX and Visual Design.
-- Agent Execution Engine (+ Autonomous Execution Driver); GitHub Workflow Foundation (+ Close the GitHub Execution Loop); Agent Safety and Permissions; Product Alerts (approval alerts).
-- **Engineering OS Specification v1.0** (MUS-226–233) — the canonical spec doc **plus its first realization: real-AI outcome planning** (provider seam, grounded prompt, zod validation, hallucination guard, deterministic fallback, eval harness). Verified live.
-- **CEO Control Center** (MUS-178/179/181/217/218); **Onboarding and Setup** (MUS-219–221); **Product UX** surfaces.
-- **Repository Validation and Environment** — 3/4 shipped (MUS-222–224); `MUS-225` (real `process.env.*` ingestion + an additive `RepositoryAnalysisSnapshot.envInventory` column — the one item needing a migration) is the deliberate Backlog follow-up.
-- **Compounding Memory & Learning Engine** (MUS-234–239) — auto-capture, retrieval, learning engine, planner integration, driver auto-ingest.
-- **Close the Loop with Reality** (MUS-240–246) — pre-run validation readiness gate, real validation-command runner + worker integration, GitHub PR feedback fetcher + ingestion (CI/review → change requests / re-loop), driver auto-ingest each tick, **+ the live-dogfood fix (MUS-246): resolve a task's repository via its feature's project** (AI-planned tasks attach to a feature, not a direct project). *(Verified live: a CEO chat request was AI-planned and autonomously shipped to real PRs → `done`.)*
-
-**Remaining**
-- `MUS-225` env-var ingestion (needs a Prisma migration; deferred to keep sessions schema-free) — the only sub-100% item.
-- Strategic frontier (not yet ticketed): feed memory into the *execution* agents (not just planning) + semantic retrieval (pgvector); Company Chat + health scores; additional execution-provider adapters; per-company `EOS_PLANNING_PROVIDER` toggle; hard-gate QA on the worker's recorded real-check results.
+- **Done:** `MUS-247` (PostgreSQL migration), `MUS-248` (nested workspace UX), `MUS-249` (live workflow graph). `MUS-7`/`MUS-9` were canceled as superseded.
+- **In review:** `MUS-250`–`MUS-254` (loop integrity, PR #84 on `feat/v2-loop-integrity`).
+- **In progress:** `MUS-255` (authenticate + company-scope `apps/api`), `MUS-256` (GitHub Actions CI), `MUS-257` (this docs-reality rewrite).
+- **Open:** `MUS-258` (memory into execution briefs), `MUS-259` (outcome lifecycle completion), `MUS-225` (envInventory ingestion).
 
 ## How to run
 
 ```
-npm run dev            # the Next.js app
-npm run worker         # execution worker: claim sessions → claude -p → commit/push → PR
-npm run driver         # scheduler: enqueue next task + advance review/QA gates per company
-npm run test           # tsc --noEmit && vitest run
-npm run test:count     # print total test files / suites / cases
-npm run dogfood:local  # self-driving loop end-to-end, no external accounts (agent stubbed)
-# real live run (needs a sandbox repo + token in .env.live): see scripts/DOGFOOD.md
+pnpm install                          # pnpm-only workspace — never npm/yarn
+pnpm db:up                            # postgres:16 in docker on localhost:5433 (db "avion")
+pnpm db:generate                      # prisma generate for @avion/web + @avion/api
+pnpm --filter @avion/web exec prisma migrate deploy
+pnpm dev                              # turbo: @avion/web (:3000) + @avion/api (:4000)
+pnpm dev:web / pnpm dev:api           # one side only
+pnpm worker                           # execution worker: claim sessions → claude -p → commit/push → PR
+pnpm driver                           # scheduler: enqueue next task + advance review/QA gates
+pnpm --filter @avion/web test         # tsc --noEmit && vitest run (~86 files / ~1,500 cases)
+pnpm --filter @avion/web test:count   # print total test files / suites / cases
+pnpm --filter @avion/web dogfood:local  # self-driving loop end-to-end, agent stubbed
+# real live run (sandbox repo + token in apps/web/.env.live): see apps/web/scripts/DOGFOOD.md
 ```
+
+Environment gotchas:
+
+- **`DATABASE_URL` must be exported** for the worker, driver, and integration tests — they don't auto-load `.env` (e.g. `DATABASE_URL="postgresql://postgres:postgres@localhost:5433/avion" pnpm worker`). The `live:*` scripts source `apps/web/.env` themselves.
+- Postgres listens on **5433**, not 5432 (avoids clashing with a host Postgres).
+- Without Clerk keys, the app runs in **Clerk keyless mode** (generated credentials land in a gitignored `.clerk/` directory) — fine for local dev.
 
 ## Where to go next
 
-The autonomous loop, the product around it, real-AI planning, compounding memory, and **closing the loop with reality** (validation gates + real check runs + GitHub PR/CI feedback) are all shipped. What's left:
-- **Finish the validation gate end-to-end** — `MUS-225` (real env-var ingestion + a small migration) so completion gates run against guaranteed environments, and hard-gate QA on the real check results the worker now records (instead of recording them as signal only).
-- **Deepen memory** — feed memory into the *execution* agents (not just the planner), and add semantic retrieval (pgvector) once volume warrants it.
-- **CEO experience** — Company Chat (conversational "talk to your company"), company health scores.
-- **Breadth** — additional execution-provider adapters (Codex/others) to make provider independence real; per-company `EOS_PLANNING_PROVIDER`.
-- **(Done — turned on live.)** AI planning is enabled and a company has shipped AI-planned work to real PRs hands-off at `autonomous`. The next step here is **production hardening** for daily use: merge automation, retries on no-op / flaky agent runs (the live agent sometimes reports "0 files changed"), and surfacing live run progress (PRs, CI, gate state) in the Control Center.
+The roadmap is three tiers, from making the loop's claims true to making the mission real:
+
+- **Tier 1 — Loop truthfulness (built; land it).** PR #84 (`MUS-250`–`254`) closes the gap between what the loop *records* and what is *true*: the self-correcting rework re-loop, QA verdicts derived from real check runs in real (dependency-installed) checkouts, no-op detection + bounded retries with escalation, the gated `done`/release mutation boundary, and gated auto-merge at `autonomous`. Next step: merge it.
+- **Tier 2 — Platform health.** Authenticate + company-scope `apps/api` (`MUS-255`); GitHub Actions CI on the monorepo (`MUS-256`); this knowledge-base rewrite (`MUS-257`) so agents ground in reality. Also unfinished here: rework the Electron packaging for a hosted-Postgres world, and consolidate `/board` vs `/work/live`.
+- **Tier 3 — Mission frontier.** Feed company memory into the **execution** briefs, not just the AI planner (`MUS-258`); complete the outcome lifecycle — terminal states, plan-rejection revision cycle, repository attachment for chat-born outcomes (`MUS-259`); finish `MUS-225` (envInventory ingestion) so completion gates run against guaranteed environments. Beyond the ticketed work: semantic memory retrieval (pgvector), Company Chat + health scores, additional execution-provider adapters, and a per-company `EOS_PLANNING_PROVIDER` toggle.
 
 ---
 
@@ -767,7 +786,7 @@ This is considered a temporary implementation proving the operating model.
 
 # Biggest Missing Piece
 
-> **Updated:** This section described the pre-platform state. The runtime now exists (see Current Build State). The autonomous loop — agent work reaching GitHub (MUS-204), driving without manual clicks (MUS-205), and safety enforced before unattended runs (MUS-206) — is **closed and verified live** (a real agent opened real PRs; sub-threshold autonomy pauses for CEO approval, full autonomy drives to `done`). The biggest missing piece today is no longer the engineering loop — it is the **product around it**: the canonical **Engineering OS Specification v1.0** (which gates real-AI planning), the **CEO Control Center**, **Onboarding**, **Product Alerts**, and **Repository Validation & Environment**.
+> **Updated:** This section described the pre-platform state. The runtime now exists (see Current Build State). The autonomous loop — agent work reaching GitHub (MUS-204), driving without manual clicks (MUS-205), and safety enforced before unattended runs (MUS-206) — is **closed and verified live** (a real agent opened real PRs; sub-threshold autonomy pauses for CEO approval, full autonomy drives to `done`). The product around the loop (the Specification, CEO Control Center, Onboarding, Product Alerts, Repository Validation) has since shipped as well. The biggest missing pieces today are **platform health** (an authenticated, company-scoped realtime API; CI) and the **mission frontier** (memory into the execution agents, outcome lifecycle completion) — see "Where to go next" in the Current Build State layer.
 
 Original framing (kept for context):
 
@@ -905,11 +924,11 @@ Runtime Architecture:
 
 Platform Implementation:
 
-★★★★★★★★★★ — 18 of 19 v2 milestones shipped; the autonomous loop is **verified live**, plus real-AI planning and compounding memory on top
+★★★★★★★★★★ — the v2 core roadmap shipped (see the Current Build State layer for the live milestone map); the autonomous loop is **verified live**, plus real-AI planning and compounding memory on top
 
 Production Product:
 
-★★★★★★★☆☆☆ — usable, dogfooded, proven to open real PRs, and now first-run-ready (Onboarding, CEO Control Center, the Specification, and real-AI planning all shipped); the frontier is closing the loop with real GitHub/CI feedback and production hardening
+★★★★★★★☆☆☆ — usable, dogfooded, proven to open real PRs, and now first-run-ready (Onboarding, CEO Control Center, the Specification, and real-AI planning all shipped); the frontier is platform health (API auth, CI) and production hardening — see "Where to go next" in the Current Build State layer
 
 ---
 
