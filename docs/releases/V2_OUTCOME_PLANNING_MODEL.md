@@ -48,7 +48,7 @@ Rules:
 
 `Outcome` is company-scoped and optionally linked one-to-one to `RuntimeRequest`. It stores raw CEO request text, brief/business context, success criteria, constraints, priority, owner role, status, and failure/completion metadata.
 
-`PlanningDraft` is company-scoped and belongs to one `Outcome`. It stores versioned plan data as SQLite JSON strings:
+`PlanningDraft` is company-scoped and belongs to one `Outcome`. It stores versioned plan data as JSON strings (in PostgreSQL text columns; a carry-over from the SQLite era — see V2-I-003 in the V2 backlog):
 
 - `scope`
 - `nonScope`
@@ -80,7 +80,7 @@ The database enforces company ownership for trace links with composite foreign k
 
 Project and feature ownership is required. The migration backfills `Project.companyId` from its workspace and `Feature.companyId` from its project before making both columns non-nullable. `Project.workspaceId`, `Feature.projectId`, `Task.projectId`, `Task.featureId`, and `Task.assigneeId` use company-scoped composite relations where the related model has a company owner.
 
-SQLite cannot enforce polymorphic `entityType`/`entityId` ownership on `Review` and `QAResult`, and `Release.taskIds` remains a JSON array until the deferred `ReleaseTask` join table work. Current server actions validate linked task ownership before creating or mutating those rows, and `assertWorkEntityBelongsToCompany()` exists as the shared helper for future generated-work code.
+The relational schema does not enforce polymorphic `entityType`/`entityId` ownership on `Review` and `QAResult` (a polymorphic reference cannot be a foreign key), and `Release.taskIds` remains a JSON array until the deferred `ReleaseTask` join table work. Current server actions validate linked task ownership before creating or mutating those rows, and `assertWorkEntityBelongsToCompany()` exists as the shared helper for future generated-work code.
 
 ## Idempotency Model
 

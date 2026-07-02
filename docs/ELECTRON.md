@@ -1,5 +1,15 @@
 # Engineering OS — Desktop App (Electron)
 
+> **⚠️ STATUS (July 2026): production packaging is deferred/broken since the PostgreSQL migration (MUS-247).**
+> The desktop build described below shipped a schema-only **SQLite** template database — but the platform
+> now runs on **hosted PostgreSQL** and `better-sqlite3` has been removed. `apps/web/scripts/build-db-template.mjs`
+> now **intentionally exits 1** rather than produce a broken template, and the better-sqlite3 Electron rebuild
+> step is stale. Reworking the packaging for a Postgres `DATABASE_URL` (connection-string config, no offline
+> file DB) is a deliberate follow-up that has not landed.
+> **Dev mode still works:** `pnpm --filter @avion/web electron:dev`.
+> Everything below documents the **pre-Postgres design** and is kept for that rework; its SQLite/`npm run`
+> references are historical.
+
 Engineering OS ships as a desktop application via Electron. The desktop build
 runs the **entire Next.js application** (UI, Server Components, Server Actions,
 API routes, the SQLite database, and optionally the autonomous worker/driver)

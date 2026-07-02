@@ -114,7 +114,7 @@ Ownership of the surrounding layers is defined in the Domain Model: the [Memory]
 
 ## 5. Data Model
 
-**Implemented today.** Company Memory is stored as a `Memory` bank whose `category` is `company`, containing many `MemoryRecord` rows. The shape that ships today (`prisma/schema.prisma`) is:
+**Implemented today.** Company Memory is stored as a `Memory` bank whose `category` is `company`, containing many `MemoryRecord` rows. The shape that ships today (`apps/web/prisma/schema.prisma`) is:
 
 **`Memory` (the bank)**
 
@@ -140,9 +140,9 @@ Ownership of the surrounding layers is defined in the Domain Model: the [Memory]
 | `confidence` | float, default `1.0` | 0.0–1.0; how strongly the company holds this fact |
 | `createdAt` / `updatedAt` | datetime | Timestamps |
 
-**Seeded banks (Implemented today).** At company creation, `src/lib/company-seed.ts` provisions five memory banks: **Company Memory** (`company`), **Architecture Memory** (`architecture`), **Product Memory** (`product`), **Security Memory** (`security`), and **Operations Memory** (`operations`). The `employee`, `feature`, and `decision` categories are valid but created on demand rather than seeded.
+**Seeded banks (Implemented today).** At company creation, `apps/web/src/lib/company-seed.ts` provisions five memory banks: **Company Memory** (`company`), **Architecture Memory** (`architecture`), **Product Memory** (`product`), **Security Memory** (`security`), and **Operations Memory** (`operations`). The `employee`, `feature`, and `decision` categories are valid but created on demand rather than seeded.
 
-**Surfaces (Implemented today).** The memory module is reachable at `/memory` (bank list with counts of banks, records, and categories), `/memory/[id]` (a bank's records, each showing content, source, and confidence as a percentage), and `/memory/new` (create a bank). Records are added through the `addMemoryRecord` server action (`src/app/actions/memory.ts`). Every read and write is scoped to the authenticated CEO's company.
+**Surfaces (Implemented today).** The memory module is reachable at `/memory` (bank list with counts of banks, records, and categories), `/memory/[id]` (a bank's records, each showing content, source, and confidence as a percentage), and `/memory/new` (create a bank). Records are added through the `addMemoryRecord` server action (`apps/web/src/app/actions/memory.ts`). Every read and write is scoped to the authenticated CEO's company.
 
 > The richer record semantics in the Domain Model — per-record `type`, `scope`, `status` (`active` / `deprecated` / `superseded`), and version chains — are **Designed / planned**. The shipped schema models distinctness through `category` (on the bank) plus `source` and `confidence` (on the record). Write records with that in mind; see [Section 12](#12-implemented-today-vs-designed--planned).
 
@@ -193,7 +193,7 @@ Autonomy gating: per the [Domain Model — Company](../architecture/DOMAIN_MODEL
 
 ## 9. Validation
 
-**Implemented today** (enforced in `src/app/actions/memory.ts`):
+**Implemented today** (enforced in `apps/web/src/app/actions/memory.ts`):
 
 - A bank `title` is required, trimmed, and ≤ 200 characters.
 - A bank `summary` is optional and ≤ 2,000 characters.

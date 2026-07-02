@@ -312,7 +312,7 @@ These events feed the dashboard's pending-plan and recently-approved views and t
 - The review → approve / reject → apply lifecycle, all idempotent and company-scoped, with transactional, traceable work creation.
 - Planning timeline (and runtime) events and dashboard surfacing of pending and recently approved plans.
 
-Key implementing modules: `src/lib/planning-generator.ts`, `src/lib/planning-draft-service.ts`, `src/lib/plan-application-service.ts`, `src/lib/outcome-planning.ts`, `src/lib/outcome-planning-lifecycle.ts`, `src/lib/planning-review-service.ts`, `src/app/actions/outcomes.ts`, and `src/app/actions/planning.ts`. The `Outcome` and `PlanningDraft` models live in `prisma/schema.prisma`.
+Key implementing modules: `apps/web/src/lib/planning-generator.ts`, `apps/web/src/lib/planning-draft-service.ts`, `apps/web/src/lib/plan-application-service.ts`, `apps/web/src/lib/outcome-planning.ts`, `apps/web/src/lib/outcome-planning-lifecycle.ts`, `apps/web/src/lib/planning-review-service.ts`, `apps/web/src/app/actions/outcomes.ts`, and `apps/web/src/app/actions/planning.ts`. The `Outcome` and `PlanningDraft` models live in `apps/web/prisma/schema.prisma`.
 
 **Designed / planned**
 

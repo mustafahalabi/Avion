@@ -87,7 +87,7 @@ The CEO interacts with the company in exactly four ways. Every product surface e
 | **Browse** | Reviews company state, work, history, and memory | Dashboard, Work, Memory, Timeline |
 | **Configure** | Adjusts company settings (autonomy, repository) | Settings |
 
-**Implemented today:** all four modes have working surfaces — outcome submission (`src/app/actions/outcomes.ts`), approval actions (`src/app/actions/approvals.ts`), browse views under `/dashboard`, `/work`, `/memory`, `/timeline`, and configuration under `/settings`.
+**Implemented today:** all four modes have working surfaces — outcome submission (`apps/web/src/app/actions/outcomes.ts`), approval actions (`apps/web/src/app/actions/approvals.ts`), browse views under `/dashboard`, `/work`, `/memory`, `/timeline`, and configuration under `/settings`.
 
 ---
 
@@ -201,7 +201,7 @@ An **approval moment** is a point where the company pauses and waits for the CEO
 
 ### 6.2 The gated actions
 
-The single source of truth for which actions require approval at which posture is the **autonomy policy** (`src/lib/autonomy-policy.ts`). Both the manual path (the CEO clicking a button) and the autonomous driver consult the same policy, so authorization is identical regardless of how the action was initiated. The gated agentic actions are:
+The single source of truth for which actions require approval at which posture is the **autonomy policy** (`apps/web/src/lib/autonomy-policy.ts`). Both the manual path (the CEO clicking a button) and the autonomous driver consult the same policy, so authorization is identical regardless of how the action was initiated. The gated agentic actions are:
 
 | Action | Meaning |
 |---|---|
@@ -221,7 +221,7 @@ When a sub-threshold action pauses, the company surfaces it to the CEO as a **"n
 
 **Implemented today.** Approval checkpoints are visible and actionable:
 
-- Tasks paused at a review or QA gate are listed as the CEO's decision queue (`listPendingCheckpoints`, `src/lib/approval-checkpoints.ts`).
+- Tasks paused at a review or QA gate are listed as the CEO's decision queue (`listPendingCheckpoints`, `apps/web/src/lib/approval-checkpoints.ts`).
 - The CEO approves or rejects from the **Inbox**; approval resumes the flow through the real review/QA services (`approveReviewCheckpoint`, `rejectReviewCheckpoint`, `approveQaCheckpoint`), and a rejected review sends the task back to implementation.
 - A `decision` notification fires, and pending counts appear on the **sidebar bell**, the **Inbox badge**, and a **dashboard "Pending approvals" card** (`countPendingCheckpoints`).
 
@@ -253,7 +253,7 @@ A **decision moment** is broader than an approval. An approval is a yes/no on a 
 
 The CEO should never have to hunt for what needs their attention. The company computes a prioritized **next action** from live workspace state and presents it.
 
-**Implemented today.** A deterministic recommendation engine (`src/lib/next-action-recommendation.ts`) ranks the CEO's attention items by priority — urgent → high → medium → low — and surfaces one primary action plus up to three secondary actions. Its priority order is:
+**Implemented today.** A deterministic recommendation engine (`apps/web/src/lib/next-action-recommendation.ts`) ranks the CEO's attention items by priority — urgent → high → medium → low — and surfaces one primary action plus up to three secondary actions. Its priority order is:
 
 1. Pending plan approvals (urgent)
 2. Failed or stalled executions, and sessions needing clarification (high)
@@ -283,7 +283,7 @@ Trust between the CEO and the company is **configurable, not assumed.** A new CE
 
 ### 8.1 The five levels
 
-The implemented autonomy ladder has five levels (`AutonomyLevel` in `src/lib/worker-permissions.ts`). The company default is **`assist`**.
+The implemented autonomy ladder has five levels (`AutonomyLevel` in `apps/web/src/lib/worker-permissions.ts`). The company default is **`assist`**.
 
 | Level | Posture |
 |---|---|

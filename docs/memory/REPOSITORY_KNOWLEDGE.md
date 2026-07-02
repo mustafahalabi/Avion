@@ -67,7 +67,7 @@ The two are deliberately separated. Confusing them is the most common way memory
 | Dimension | Repository Knowledge | Company-Wide Knowledge |
 |---|---|---|
 | Subject | One specific Repository | The organization as a whole |
-| Examples | "This repo uses Next.js App Router with Prisma + SQLite; `prisma/schema.prisma` is the data spine; run `npm run test` to validate." | "We follow one-owner accountability." "Reviews block on any Blocking finding." "Documentation is engineering." |
+| Examples | "This repo is a pnpm/Turborepo monorepo; the Next.js app uses Prisma + PostgreSQL; `apps/web/prisma/schema.prisma` is the data spine; run `pnpm --filter @avion/web test` to validate." | "We follow one-owner accountability." "Reviews block on any Blocking finding." "Documentation is engineering." |
 | Source | Deterministic analysis of the codebase (file tree, manifests, schema) | Authored handbooks, decisions, retrospectives, accumulated experience |
 | Volatility | Changes whenever the codebase changes; refreshed by re-analysis | Changes slowly and deliberately; changed by authoring and approval |
 | Owner | CTO (authority) · Tech Lead (operational) | CTO oversight; each employee owns their domain records |
@@ -92,7 +92,7 @@ A Repository's knowledge corresponds to the **Repository Memory** layer named in
 
 ## 5. Required Facts to Capture
 
-These are the facts a Repository's knowledge must contain for the company to plan and execute safely. All of the following are produced today by `analyzeRepositoryPath` in `src/lib/repository-analyzer.ts` and persisted on the `Repository` record and/or its latest `RepositoryAnalysisSnapshot`.
+These are the facts a Repository's knowledge must contain for the company to plan and execute safely. All of the following are produced today by `analyzeRepositoryPath` in `apps/web/src/lib/repository-analyzer.ts` and persisted on the `Repository` record and/or its latest `RepositoryAnalysisSnapshot`.
 
 **Identity and stack**
 - Repository name and URL.
@@ -129,7 +129,7 @@ These are the facts a Repository's knowledge must contain for the company to pla
 
 ## 6. What Must Be Known Before Work Starts
 
-No implementation task should begin until the following are known and recorded. This is the company's pre-flight contract, materialized today by `generateRepositoryTaskContext` in `src/lib/repository-task-context.ts`, which assembles a **truthful** context for each task — reporting only what is actually stored and emitting explicit warnings for anything missing.
+No implementation task should begin until the following are known and recorded. This is the company's pre-flight contract, materialized today by `generateRepositoryTaskContext` in `apps/web/src/lib/repository-task-context.ts`, which assembles a **truthful** context for each task — reporting only what is actually stored and emitting explicit warnings for anything missing.
 
 A task is ready to execute when its repository context resolves:
 
@@ -168,7 +168,7 @@ Repository Knowledge must be **truthful** and **safe**. These rules are enforced
 
 **Safety (guardrails — always on)**
 
-The execution path enforces guardrails independent of any agent's permission mode, via `src/lib/repository-guardrails.ts`. A task's repository context restates these as constraints, and the worker blocks a run that violates them:
+The execution path enforces guardrails independent of any agent's permission mode, via `apps/web/src/lib/repository-guardrails.ts`. A task's repository context restates these as constraints, and the worker blocks a run that violates them:
 
 - **Protected paths are never written.** `.env*`, lockfiles, `prisma/migrations/**`, `.github/workflows/**`, and secret-bearing files are off-limits.
 - **Protected branches are never pushed to.** A direct push to `master`/`main` (and the configured protected set) is refused; work happens on a derived implementation branch.
@@ -182,7 +182,7 @@ The execution path enforces guardrails independent of any agent's permission mod
 
 ## 9. Examples
 
-**Example A — A well-understood repository (this codebase).** Analysis records: Next.js (App Router) at high confidence; tech stack including Prisma, Clerk, Tailwind, Vitest, Zod; package manager `npm`; the App Router pages and API route handlers; server-action modules under `src/app/actions`; ~37 Prisma models with `companyId` ownership; validation commands `npm run typecheck` → `npm run lint` → `npm run build` → `npm run test`; a low test-coverage risk if the ratio dipped. A task brief built from this resolves with `hasAnalysis: true`, a concrete file-read list, and a full validation sequence.
+**Example A — A well-understood repository (this codebase, as analyzed before the monorepo re-platform).** Analysis records: Next.js (App Router) at high confidence; tech stack including Prisma, Clerk, Tailwind, Vitest, Zod; the App Router pages and API route handlers; server-action modules; ~37 Prisma models with `companyId` ownership; derived validation commands in the repo's detected package-manager form (today, for this pnpm monorepo: `pnpm typecheck` → `pnpm lint` → `pnpm build` → `pnpm test`); a low test-coverage risk if the ratio dipped. A task brief built from this resolves with `hasAnalysis: true`, a concrete file-read list, and a full validation sequence.
 
 **Example B — Repository attached but not yet analyzed.** `analysisStatus` is `pending`. The task context returns `hasAnalysis: false` and warns that analysis has not completed. Planning declines to start implementation and routes the Repository back through analysis first.
 
@@ -209,12 +209,12 @@ The execution path enforces guardrails independent of any agent's permission mod
 Separated per the project's hard rule: describe only what genuinely exists today.
 
 **Implemented today**
-- Deterministic, read-only repository analysis: `src/lib/repository-analyzer.ts` (`analyzeRepositoryPath`) — file-tree walk, package-manager and framework detection, route / API / server-action detection, Prisma model and database-layer detection, risk findings, validation-command derivation, and a human-readable summary. Secrets and generated outputs are excluded; analysis is bounded and never mutates the repository.
-- Persistence: the `Repository` model and the append-only `RepositoryAnalysisSnapshot` model in `prisma/schema.prisma`, written via `createRepositoryAnalysisSnapshot` (`src/lib/repository-snapshot-service.ts`).
-- Change and impact: snapshot comparison and impact analysis (`compareLatestRepositoryAnalysisSnapshots`, `analyzeLatestRepositoryImpact`, `analyzeRepositoryImpact`) surfaced through `getLatestRepositoryChangeIntelligence` (`src/lib/repository-change-intelligence.ts`).
-- Pre-work context: `generateRepositoryTaskContext` (`src/lib/repository-task-context.ts`) builds the truthful, warning-bearing repository context for an implementation task.
-- Safety: `src/lib/repository-guardrails.ts` enforces protected paths, protected branches, and denied/dangerous commands on the execution path.
-- A repository intelligence view (`src/lib/repository-intelligence-service.ts`) and dashboard under the Repositories surface.
+- Deterministic, read-only repository analysis: `apps/web/src/lib/repository-analyzer.ts` (`analyzeRepositoryPath`) — file-tree walk, package-manager and framework detection, route / API / server-action detection, Prisma model and database-layer detection, risk findings, validation-command derivation, and a human-readable summary. Secrets and generated outputs are excluded; analysis is bounded and never mutates the repository.
+- Persistence: the `Repository` model and the append-only `RepositoryAnalysisSnapshot` model in `apps/web/prisma/schema.prisma`, written via `createRepositoryAnalysisSnapshot` (`apps/web/src/lib/repository-snapshot-service.ts`).
+- Change and impact: snapshot comparison and impact analysis (`compareLatestRepositoryAnalysisSnapshots`, `analyzeLatestRepositoryImpact`, `analyzeRepositoryImpact`) surfaced through `getLatestRepositoryChangeIntelligence` (`apps/web/src/lib/repository-change-intelligence.ts`).
+- Pre-work context: `generateRepositoryTaskContext` (`apps/web/src/lib/repository-task-context.ts`) builds the truthful, warning-bearing repository context for an implementation task.
+- Safety: `apps/web/src/lib/repository-guardrails.ts` enforces protected paths, protected branches, and denied/dangerous commands on the execution path.
+- A repository intelligence view (`apps/web/src/lib/repository-intelligence-service.ts`) and dashboard under the Repositories surface.
 
 **Designed / planned (not built)**
 - A dedicated, queryable **Repository Memory** store distinct from the analysis snapshot — today repository knowledge is materialized on the `Repository` record plus snapshot history; the generic `Memory` / `MemoryRecord` tables exist but are company-scoped, not the repository knowledge store.

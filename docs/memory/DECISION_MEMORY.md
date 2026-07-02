@@ -114,8 +114,8 @@ The **Decision System** is the runtime mechanism by which the company surfaces c
 
 **Implemented today**, the Decision System manifests as:
 
-- The `decision`-typed notification — when a request reaches `awaiting_approval`, the runtime emits a "Decision needed" notification to the CEO (`src/app/actions/runtime.ts`, `type: "decision"` in `src/lib/notify.ts`).
-- The **approval-checkpoint queue** — at sub-threshold autonomy the gate-advancement service halts a task at a review or QA gate, and `src/lib/approval-checkpoints.ts` reads those paused `Review` / `QAResult` rows as the CEO's "needs your decision" queue, resuming the flow through the real review/QA services on approve (or sending it back on reject). Autonomy levels determine which gates require a decision (see the [Technical Architecture — Autonomy Level Enforcement](../architecture/TECHNICAL_ARCHITECTURE.md#autonomy-level-enforcement)).
+- The `decision`-typed notification — when a request reaches `awaiting_approval`, the runtime emits a "Decision needed" notification to the CEO (`apps/web/src/app/actions/runtime.ts`, `type: "decision"` in `apps/web/src/lib/notify.ts`).
+- The **approval-checkpoint queue** — at sub-threshold autonomy the gate-advancement service halts a task at a review or QA gate, and `apps/web/src/lib/approval-checkpoints.ts` reads those paused `Review` / `QAResult` rows as the CEO's "needs your decision" queue, resuming the flow through the real review/QA services on approve (or sending it back on reject). Autonomy levels determine which gates require a decision (see the [Technical Architecture — Autonomy Level Enforcement](../architecture/TECHNICAL_ARCHITECTURE.md#autonomy-level-enforcement)).
 
 These are **decision *points*** — moments where the company pauses for a human choice. When such a point resolves a *significant* choice (not a routine approve-and-continue), it should leave a **Decision Record** in Decision Memory. The notification and checkpoint are the act; the record is the memory. The act is also a [Timeline](../architecture/DOMAIN_MODEL.md#timeline-entry) entry and, where approval is required, a [Notification](../architecture/DOMAIN_MODEL.md#notification); none of those is a substitute for the durable Decision Record.
 
@@ -173,7 +173,7 @@ A Decision Record is the permanent written form of a Decision. The fields below 
 
 ## 7. Data Model
 
-**Implemented today.** Engineering OS does **not** yet have a first-class `Decision` or `DecisionRecord` table. Decisions are stored as memory records inside a memory bank whose `category` is `decision`. The `decision` category is one of the eight valid categories enforced in the memory action layer (`VALID_CATEGORIES` in `src/app/actions/memory.ts`), alongside `company`, `architecture`, `product`, `security`, `operations`, `employee`, and `feature`.
+**Implemented today.** Engineering OS does **not** yet have a first-class `Decision` or `DecisionRecord` table. Decisions are stored as memory records inside a memory bank whose `category` is `decision`. The `decision` category is one of the eight valid categories enforced in the memory action layer (`VALID_CATEGORIES` in `apps/web/src/app/actions/memory.ts`), alongside `company`, `architecture`, `product`, `security`, `operations`, `employee`, and `feature`.
 
 A Decision Record therefore ships today as a `MemoryRecord` row inside a `decision`-category `Memory` bank:
 
@@ -199,7 +199,7 @@ A Decision Record therefore ships today as a `MemoryRecord` row inside a `decisi
 | `confidence` | float, default `1.0` | How firmly the decision stands; lower it toward `0` when the decision is superseded or reversed |
 | `createdAt` / `updatedAt` | datetime | Timestamps |
 
-**Created on demand (Implemented today).** Unlike the five banks seeded at company creation (`company`, `architecture`, `product`, `security`, `operations` — see `src/lib/company-seed.ts`), a `decision` bank is **not** seeded. It is created on demand through `/memory/new` (choosing the `decision` category) the first time the company records a decision. Records are added through the `addMemoryRecord` server action (`src/app/actions/memory.ts`). Every read and write is scoped to the authenticated CEO's company.
+**Created on demand (Implemented today).** Unlike the five banks seeded at company creation (`company`, `architecture`, `product`, `security`, `operations` — see `apps/web/src/lib/company-seed.ts`), a `decision` bank is **not** seeded. It is created on demand through `/memory/new` (choosing the `decision` category) the first time the company records a decision. Records are added through the `addMemoryRecord` server action (`apps/web/src/app/actions/memory.ts`). Every read and write is scoped to the authenticated CEO's company.
 
 > The structured per-field semantics in the Domain Model — discrete `type`, `status` (`proposed` / `approved` / `implemented` / `superseded` / `reversed`), an explicit `approval_path`, and a `supersedes` link — are **Designed / planned**. Until they ship, the full [Decision Record structure](#6-decision-record-structure) is encoded **inside the record's `content`** as labeled sections, with `source` carrying provenance and `confidence` carrying the standing of the decision. Write decisions with that in mind; see [Section 13](#13-implemented-today-vs-designed--planned).
 
@@ -240,7 +240,7 @@ A Decision Record is a historical fact: it records that a choice *was made*, und
 
 ## 10. Validation
 
-**Implemented today** (enforced in `src/app/actions/memory.ts`):
+**Implemented today** (enforced in `apps/web/src/app/actions/memory.ts`):
 
 - A decision bank `title` is required, trimmed, and ≤ 200 characters; its `category` must be `decision` (one of the eight valid categories).
 - A record `content` is required, trimmed, and between 1 and 10,000 characters.

@@ -8,7 +8,7 @@ to "done" with no manual clicks.
 ## 1. Local dogfood — no external accounts (run this first)
 
 ```bash
-npm run dogfood:local
+pnpm --filter @avion/web dogfood:local
 ```
 
 Proves the whole loop against **real code paths**, a **real temp database**, and a
@@ -53,9 +53,9 @@ commits/PRs, and spends Claude usage, so it is run manually rather than in CI.
 4. Run:
 
    ```bash
-   npm run live:prepare      # seed company + repo + encrypted token, prepare one session
-   npm run live:worker       # the real worker: clone → claude -p → commit → push → open PR
-   npm run live:status       # watch it; prints the PR URL when done
+   pnpm --filter @avion/web live:prepare      # seed company + repo + encrypted token, prepare one session
+   pnpm --filter @avion/web live:worker       # the real worker: clone → claude -p → commit → push → open PR
+   pnpm --filter @avion/web live:status       # watch it; prints the PR URL when done
    ```
 
    The worker auto-detects the sandbox's default branch and opens the PR against
@@ -99,14 +99,14 @@ commits/PRs, and spends Claude usage, so it is run manually rather than in CI.
    pushes, opens the PR):
 
    ```bash
-   DATABASE_URL="postgresql://postgres:postgres@localhost:5433/avion" npm run worker
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5433/avion" pnpm worker
    ```
 
 4. **Start the driver** (turns approved work into sessions and advances gates on
    an interval — this is what removes the manual clicks):
 
    ```bash
-   DATABASE_URL="postgresql://postgres:postgres@localhost:5433/avion" npm run driver
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5433/avion" pnpm driver
    ```
 
 ### What you should see

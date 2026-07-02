@@ -221,11 +221,11 @@ The Context Builder (designed; see the [Technical Architecture — Context Build
 Separated per the project's hard rule: describe only what genuinely exists today.
 
 **Implemented today**
-- **Company-scoped composite-key edges** across the work hierarchy — Project, Feature, Task, Review, QA Result, Release, and Execution Session all reference their neighbors by `(companyId, id)`, making cross-company edges impossible (`prisma/schema.prisma`).
-- **The full traceability spine** Outcome → Planning Draft → Project / Feature / Task, with each generated record carrying `planningDraftId` + `planItemId`, applied **idempotently** via upsert on `(planningDraftId, planItemId)` (`src/lib/plan-application-service.ts`).
-- **Execution/delivery edges** — `ExecutionSession` links task, project, repository, employee, and planning draft, and records `commitSha`, `prUrl`, `prNumber`, and `filesChanged` (`src/lib/execution-session-service.ts`).
-- **Quality edges** — `Review` and `QAResult` attach to work via `entityType`/`entityId` plus `outcomeId`/`planningDraftId`/`planItemId`; `ChangeRequest` belongs to a `Review`; gates read these edges before advancing (`src/lib/gate-advancement-service.ts`, `src/lib/approval-checkpoints.ts`).
-- **Change/impact edges** — append-only `RepositoryAnalysisSnapshot` history, snapshot comparison, and impact analysis mapping a diff to `affectedAreas` and `affectedRoles` (`src/lib/repository-change-intelligence.ts`, `src/lib/repository-impact-analysis.ts`).
+- **Company-scoped composite-key edges** across the work hierarchy — Project, Feature, Task, Review, QA Result, Release, and Execution Session all reference their neighbors by `(companyId, id)`, making cross-company edges impossible (`apps/web/prisma/schema.prisma`).
+- **The full traceability spine** Outcome → Planning Draft → Project / Feature / Task, with each generated record carrying `planningDraftId` + `planItemId`, applied **idempotently** via upsert on `(planningDraftId, planItemId)` (`apps/web/src/lib/plan-application-service.ts`).
+- **Execution/delivery edges** — `ExecutionSession` links task, project, repository, employee, and planning draft, and records `commitSha`, `prUrl`, `prNumber`, and `filesChanged` (`apps/web/src/lib/execution-session-service.ts`).
+- **Quality edges** — `Review` and `QAResult` attach to work via `entityType`/`entityId` plus `outcomeId`/`planningDraftId`/`planItemId`; `ChangeRequest` belongs to a `Review`; gates read these edges before advancing (`apps/web/src/lib/gate-advancement-service.ts`, `apps/web/src/lib/approval-checkpoints.ts`).
+- **Change/impact edges** — append-only `RepositoryAnalysisSnapshot` history, snapshot comparison, and impact analysis mapping a diff to `affectedAreas` and `affectedRoles` (`apps/web/src/lib/repository-change-intelligence.ts`, `apps/web/src/lib/repository-impact-analysis.ts`).
 - **Soft observability edges** — `TimelineEntry`, `Event`, and `Notification` reference an entity by `entityType` + `entityId` (and `actionUrl` for notifications).
 - **Provenance pointer** — `MemoryRecord.source` records where a fact came from.
 - **Provider connection edges** — `ProviderConnection` links a company/user to GitHub, Linear, or Vercel.

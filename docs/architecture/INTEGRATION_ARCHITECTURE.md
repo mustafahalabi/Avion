@@ -101,7 +101,7 @@ The codebase contains **two** connection models that exist for different reasons
 
 `ProviderConnection` is the modern, authoritative connection record (Linear epic MUS-172–177). It models a real OAuth / app / token connection with scope and refresh metadata. It is what the runtime actually consumes.
 
-Backing model (`prisma/schema.prisma`, model `ProviderConnection`):
+Backing model (`apps/web/prisma/schema.prisma`, model `ProviderConnection`):
 
 | Field | Purpose |
 |---|---|
@@ -118,9 +118,9 @@ Backing model (`prisma/schema.prisma`, model `ProviderConnection`):
 | `errorCode` / `errorMessage` | Last recorded failure |
 | `lastConnectedAt` / `disconnectedAt` | Connection timeline |
 
-Uniqueness is enforced on the composite `(companyId, provider, userId)`. Because SQLite does not enforce uniqueness across `NULL`s, company-level uniqueness (where `userId IS NULL`) is enforced in application code in `upsertProviderConnection` (`src/lib/provider-connection-service.ts`).
+Uniqueness is enforced on the composite `(companyId, provider, userId)`. The database is PostgreSQL, and SQL unique constraints treat `NULL`s as distinct values, so the composite index alone cannot guarantee a single company-level row; company-level uniqueness (where `userId IS NULL`) is therefore enforced in application code in `upsertProviderConnection` (`apps/web/src/lib/provider-connection-service.ts`) as defense-in-depth.
 
-The service layer (`src/lib/provider-connection-service.ts`) is the only sanctioned way to touch this model:
+The service layer (`apps/web/src/lib/provider-connection-service.ts`) is the only sanctioned way to touch this model:
 
 - `upsertProviderConnection(input)` — create or refresh a connection; encrypts tokens before write.
 - `getProviderConnection(companyId, provider, userId?)` — fetch with tokens decrypted.
@@ -130,7 +130,7 @@ The service layer (`src/lib/provider-connection-service.ts`) is the only sanctio
 - `deleteProviderConnection(companyId, connectionId)` — hard-delete a connection (ownership-guarded).
 - `getConnectionScopes(connection)` / `isConnectionTokenExpired(connection)` — pure helpers.
 
-GitHub has a dedicated facade, `src/lib/github-connection-service.ts`, that adds provider-specific knowledge on top of the generic service:
+GitHub has a dedicated facade, `apps/web/src/lib/github-connection-service.ts`, that adds provider-specific knowledge on top of the generic service:
 
 - `GITHUB_REQUIRED_SCOPES = ["repo", "read:org", "workflow"]`, each with a human-readable description shown to the CEO before connecting.
 - `recordGitHubConnection(input)` — records an OAuth callback or manual-token entry as a `ProviderConnection`.
@@ -138,9 +138,9 @@ GitHub has a dedicated facade, `src/lib/github-connection-service.ts`, that adds
 
 ### 4.2 `Integration` — the generic connection catalog (Implemented today, sync stubbed)
 
-`Integration` is the older, generic catalog model. It backs the `/integrations` settings UI and a provider catalog (`INTEGRATION_PROVIDERS` in `src/lib/integrations.ts`: Linear, GitHub, Slack, Vercel), each with declared credential fields. It owns a child `IntegrationSyncLog` model (`status`, `message`, `recordsCount`) used as an audit trail of connect/disconnect/sync events.
+`Integration` is the older, generic catalog model. It backs the `/integrations` settings UI and a provider catalog (`INTEGRATION_PROVIDERS` in `apps/web/src/lib/integrations.ts`: Linear, GitHub, Slack, Vercel), each with declared credential fields. It owns a child `IntegrationSyncLog` model (`status`, `message`, `recordsCount`) used as an audit trail of connect/disconnect/sync events.
 
-Its server actions live in `src/app/actions/integrations.ts`:
+Its server actions live in `apps/web/src/app/actions/integrations.ts`:
 
 - `connectIntegration` — collects declared credential fields, encrypts them, upserts one `Integration` per provider per company, and writes a sync-log entry.
 - `disconnectIntegration` — sets status `disconnected` and overwrites `credentials` with `{}`.
@@ -200,14 +200,14 @@ Boundary rules:
 
 - **One canonical token path.** Tokens are decrypted only inside the service layer and handed to the consumer that needs them (e.g., the worker). They are never persisted decrypted and never returned to the client.
 - **Provider-specific knowledge is isolated.** GitHub's required scopes, scope descriptions, and PR URL parsing live in GitHub-specific modules (`github-connection-service.ts`, `github-pull-request.ts`). Generic connection mechanics live in the generic service. Adding a provider means adding a facade, not rewriting the core.
-- **Display state is pure.** UI status is derived by a pure function, `computeProviderCardState` (`src/lib/provider-card-state.ts`), which never performs I/O. The view layer cannot accidentally read a secret.
+- **Display state is pure.** UI status is derived by a pure function, `computeProviderCardState` (`apps/web/src/lib/provider-card-state.ts`), which never performs I/O. The view layer cannot accidentally read a secret.
 - **Consumers depend on the abstraction, not the vendor.** The execution worker asks for "the GitHub connection for this company," not "this token." Swapping how the token is obtained (manual entry today, OAuth tomorrow) does not change the consumer.
 
 ---
 
 ## 7. Credential Storage and Encryption
 
-All credentials are encrypted at rest by `src/lib/credentials-crypto.ts`.
+All credentials are encrypted at rest by `apps/web/src/lib/credentials-crypto.ts`.
 
 - **Algorithm:** AES-256-GCM with a 12-byte random IV per encryption.
 - **Key:** a 32-byte key supplied as a 64-character hex string in the `CREDENTIALS_ENCRYPTION_KEY` environment variable. The module refuses to operate without a correctly sized key.
@@ -268,7 +268,7 @@ Security is a design constraint on every integration, not a later hardening pass
 - Company-level vs user-scoped connections are distinguished by `userId` (nullable), with uniqueness enforced per `(companyId, provider, userId)`.
 
 **Blast-radius control at execution time.**
-- A connected credential does not grant unrestricted action. When the execution worker uses a GitHub token, it operates behind the worker guardrails: protected paths (`.env`, `.env.*`, `*.key`, `prisma/migrations/**`, `.github/workflows/**`) and protected branches are blocked regardless of token power (`src/lib/worker-permissions.ts`; see [GitHub Workflow Foundation](./GITHUB_WORKFLOW_FOUNDATION.md)). Possessing a token is necessary but not sufficient to make a dangerous change.
+- A connected credential does not grant unrestricted action. When the execution worker uses a GitHub token, it operates behind the worker guardrails: protected paths (`.env`, `.env.*`, `*.key`, `prisma/migrations/**`, `.github/workflows/**`) and protected branches are blocked regardless of token power (`apps/web/src/lib/worker-permissions.ts`; see [GitHub Workflow Foundation](./GITHUB_WORKFLOW_FOUNDATION.md)). Possessing a token is necessary but not sufficient to make a dangerous change.
 
 **Auditability.**
 - The `Integration` surface records connect/disconnect/sync events as `IntegrationSyncLog` rows. `ProviderConnection` records `errorCode`/`errorMessage` and connection timestamps. Together these provide a queryable history of how a connection has behaved.
@@ -321,7 +321,7 @@ Bidirectional issue-tracker sync (Linear), deployment/health sync (Vercel), and 
 
 The only end-to-end integration consumption path in the platform today is the **execution worker using the GitHub connection** to deliver agent work. It demonstrates the intended shape for all future consumers.
 
-Path (`src/worker/index.ts`):
+Path (`apps/web/src/worker/index.ts`):
 
 1. The worker claims a queued `ExecutionSession` and resolves its repository.
 2. It fetches the company's GitHub connection: `getProviderConnection(companyId, "github")`.
@@ -386,13 +386,13 @@ The hard project rule applies throughout: **do not create fake repository intell
 
 | Capability | Status | Where |
 |---|---|---|
-| `ProviderConnection` model + service | **Implemented** | `prisma/schema.prisma`, `src/lib/provider-connection-service.ts` |
-| GitHub connection facade (scopes, status, expiry) | **Implemented** | `src/lib/github-connection-service.ts` |
-| AES-256-GCM credential encryption | **Implemented** | `src/lib/credentials-crypto.ts` |
-| Generic `Integration` catalog + sync log | **Implemented** | `src/lib/integrations.ts`, `src/app/actions/integrations.ts` |
-| Pure UI status derivation | **Implemented** | `src/lib/provider-card-state.ts` |
-| Live GitHub consumption (clone / push / PR) | **Implemented** | `src/worker/index.ts`, `src/lib/github-pull-request.ts` |
-| Guardrails over token use | **Implemented** | `src/lib/worker-permissions.ts` |
+| `ProviderConnection` model + service | **Implemented** | `apps/web/prisma/schema.prisma`, `apps/web/src/lib/provider-connection-service.ts` |
+| GitHub connection facade (scopes, status, expiry) | **Implemented** | `apps/web/src/lib/github-connection-service.ts` |
+| AES-256-GCM credential encryption | **Implemented** | `apps/web/src/lib/credentials-crypto.ts` |
+| Generic `Integration` catalog + sync log | **Implemented** | `apps/web/src/lib/integrations.ts`, `apps/web/src/app/actions/integrations.ts` |
+| Pure UI status derivation | **Implemented** | `apps/web/src/lib/provider-card-state.ts` |
+| Live GitHub consumption (clone / push / PR) | **Implemented** | `apps/web/src/worker/index.ts`, `apps/web/src/lib/github-pull-request.ts` |
+| Guardrails over token use | **Implemented** | `apps/web/src/lib/worker-permissions.ts` |
 | OAuth code flow / token refresh | Designed | model fields present; flow not built |
 | Live Linear / Vercel / Slack sync | Designed | credentials stored; not consumed |
 | Centralized retry/backoff; key rotation | Designed | — |

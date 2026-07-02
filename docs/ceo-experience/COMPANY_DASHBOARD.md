@@ -7,7 +7,7 @@
 
 ---
 
-The Company Dashboard is the primary surface of Engineering OS — the screen the CEO lands on when they open the product. It exists to answer one question in a single view: *what is the state of my company right now, and what, if anything, needs me?* This document defines the content and behavior of the dashboard. It does not prescribe layout, components, colors, or routes — those belong to the frontend. Where this document references concrete behavior, that behavior is grounded in the current implementation (`src/app/(app)/dashboard/page.tsx` and its supporting services); aspirational content is explicitly marked.
+The Company Dashboard is the primary surface of Engineering OS — the screen the CEO lands on when they open the product. It exists to answer one question in a single view: *what is the state of my company right now, and what, if anything, needs me?* This document defines the content and behavior of the dashboard. It does not prescribe layout, components, colors, or routes — those belong to the frontend. Where this document references concrete behavior, that behavior is grounded in the current implementation (`apps/web/src/app/(app)/dashboard/page.tsx` and its supporting services); aspirational content is explicitly marked.
 
 This document is a CEO-experience specification. It defines *what the CEO sees and why*, in outcome language. It is downstream of [Information Architecture](../architecture/INFORMATION_ARCHITECTURE.md) §8 (Dashboard Structure) and the [Product Requirements](../product/PRODUCT_REQUIREMENTS.md) feature F-01 (Company Dashboard), and it draws its live data from the [Company Runtime](../architecture/COMPANY_RUNTIME.md).
 
@@ -231,7 +231,7 @@ Each risk item is paired with a destination so the CEO can act, never just obser
 
 ### 8.2 Stuck-work detection (read-only intelligence)
 
-Beyond live `blocked` status, the company runs a **read-only stuck-work detector** (`src/lib/stuck-work-detector.ts`) that scans for work that is technically progressing but has stalled past time thresholds:
+Beyond live `blocked` status, the company runs a **read-only stuck-work detector** (`apps/web/src/lib/stuck-work-detector.ts`) that scans for work that is technically progressing but has stalled past time thresholds:
 
 - Tasks stuck in review beyond a review threshold (default 24h)
 - Tasks blocked for an extended period

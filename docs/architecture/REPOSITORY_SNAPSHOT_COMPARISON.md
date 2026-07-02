@@ -4,7 +4,7 @@
 
 Repository snapshot comparison answers: what changed between two persisted repository analysis snapshots?
 
-The pure comparison function is `compareSnapshots` in `src/lib/repository-snapshot-comparison.ts`.
+The pure comparison function is `compareSnapshots` in `apps/web/src/lib/repository-snapshot-comparison.ts`.
 
 ## Inputs
 
@@ -50,4 +50,4 @@ The comparison function has no database access, filesystem reads, AI calls, rand
 
 ## Service Path
 
-`compareLatestRepositoryAnalysisSnapshots` in `src/lib/repository-snapshot-service.ts` loads the latest two snapshots for a repository/company, compares them oldest-to-newest, and returns the pure comparison result.
+`compareLatestRepositoryAnalysisSnapshots` in `apps/web/src/lib/repository-snapshot-service.ts` loads the latest two snapshots for a repository/company, compares them oldest-to-newest, and returns the pure comparison result.
