@@ -80,6 +80,7 @@ afterEach(async () => {
   await prisma.$executeRawUnsafe(`DELETE FROM "ChangeRequest"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "QAResult"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Review"`);
+  await prisma.$executeRawUnsafe(`DELETE FROM "Notification"`);
   await prisma.$executeRawUnsafe(
     `UPDATE "Task" SET "status" = 'in-review', "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = 'task-1'`
   );
@@ -141,6 +142,39 @@ describe("ingestPullRequestFeedbackForCompany", () => {
     });
     expect(changeRequests).toHaveLength(1);
     expect(changeRequests[0].reason).toMatch(/CI checks failed/i);
+  });
+
+  it("escalates to the CEO (and does not oscillate) when CI fails on an already-done task (MUS-287)", async () => {
+    await prisma.task.update({
+      where: { id: "task-1" },
+      data: { status: "done" },
+    });
+
+    const result = await service.ingestPullRequestFeedbackForCompany("company-1", {
+      fetchFeedback: stubFeedback(CI_FAILURE),
+    });
+
+    expect(result.sessionsChecked).toBe(1);
+
+    // The done task is NOT pulled back into the loop (no done ⇄ in-progress).
+    const task = await prisma.task.findUnique({ where: { id: "task-1" } });
+    expect(task?.status).toBe("done");
+
+    // A CI-conflict timeline entry + a CEO decision notification are recorded.
+    const conflict = await prisma.timelineEntry.findFirst({
+      where: { entityType: "task", entityId: "task-1", eventType: "pr_ci_conflict" },
+    });
+    expect(conflict).not.toBeNull();
+
+    const notification = await prisma.notification.findFirst({
+      where: {
+        companyId: "company-1",
+        userId: "user-1",
+        entityId: "task-1",
+        type: "decision",
+      },
+    });
+    expect(notification).not.toBeNull();
   });
 
   it("is idempotent — a second run opens no duplicate ChangeRequest", async () => {

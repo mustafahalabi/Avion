@@ -189,10 +189,13 @@ export async function recordReviewResult(
       changeRequestIds.push(cr.id);
     }
 
-    // Return task to implementation
+    // Return task to implementation — but never resurrect a task that already
+    // reached a terminal status. A changes-requested review (human or PR-feedback
+    // driven) must not pull a `done`/`cancelled` task back into the loop, which
+    // would oscillate it done ⇄ in-progress on a persistently red CI (MUS-287).
     if (taskId) {
       await prisma.task.updateMany({
-        where: { id: taskId, companyId },
+        where: { id: taskId, companyId, status: { notIn: ["done", "cancelled"] } },
         data: { status: "in-progress", updatedAt: new Date() },
       });
     }

@@ -231,6 +231,24 @@ describe("review-service", () => {
       expect(task?.status).toBe("in-progress");
     });
 
+    it("does not resurrect a task that already reached done (MUS-287)", async () => {
+      await prisma.task.update({
+        where: { id: "task-1" },
+        data: { status: "done" },
+      });
+      await createReview();
+      await service.recordReviewResult({
+        companyId: "company-1",
+        reviewId: "review-1",
+        verdict: "changes_requested",
+        notes: "CI red on the merged-work PR.",
+      });
+      const task = await prisma.task.findUnique({ where: { id: "task-1" } });
+      // The change request is recorded, but a done task is NOT pulled back into
+      // the loop (which would oscillate it done ⇄ in-progress on a red CI).
+      expect(task?.status).toBe("done");
+    });
+
     it("does not create a QA result", async () => {
       await createReview();
       const result = await service.recordReviewResult({
