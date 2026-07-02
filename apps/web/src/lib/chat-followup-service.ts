@@ -28,6 +28,7 @@ import { prisma } from "@/lib/prisma";
 import { parseJsonStringArray } from "@/lib/planning-generator";
 import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
 import { TERMINAL_OUTCOME_STATUSES } from "@/lib/outcome-completion-service";
+import { resolveChatReplyAdapter } from "@/lib/chat/chat-reply-provider";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 
 /** Runtime request statuses after which a conversation has no active request. */
@@ -74,6 +75,13 @@ export interface FollowUpReplyContext {
   } | null;
   readonly openCeoQuestions: readonly string[];
   readonly taskCounts: FollowUpTaskCounts;
+  /**
+   * Unresolved change requests on this outcome's work (changes-requested review,
+   * failed QA, or a CI conflict). When present, the CEO's message is answering a
+   * pending decision — the reply acknowledges it's routed to the rework loop
+   * inline, so no `/inbox` visit is needed (MUS-304). Defaults to 0.
+   */
+  readonly openChangeRequests?: number;
 }
 
 /** What `handleConversationFollowUp` did with the message. */
@@ -273,13 +281,19 @@ export async function handleConversationFollowUp(
     planRegenerated,
   });
 
+  // Deterministic by default; an opt-in AI provider answers in natural language
+  // grounded in the SAME context, and falls back to the deterministic reply on
+  // any failure (never fabricated). The reply is only a message — it never
+  // mutates a gate — so grounding, not gate-safety, is the concern (MUS-304).
+  const reply = await resolveChatReplyAdapter().reply({ context, message: content });
+
   await prisma.message.create({
     data: {
       conversationId: input.conversationId,
       role: "company",
       type: "text",
       requestId: active.requestId,
-      content: buildFollowUpReply(context),
+      content: reply.text,
     },
   });
 
@@ -313,6 +327,15 @@ export function buildFollowUpReply(context: FollowUpReplyContext): string {
     });
   }
 
+  const openChangeRequests = context.openChangeRequests ?? 0;
+  if (openChangeRequests > 0) {
+    const plural = openChangeRequests === 1 ? "" : "s";
+    lines.push(
+      "",
+      `**Your input is routed:** ${openChangeRequests} open change request${plural} will absorb this note and re-loop through review/QA — nothing else for you to do.`
+    );
+  }
+
   lines.push("", `**Delivery:** ${describeTaskCounts(context.taskCounts, context.plan)}`);
 
   return lines.join("\n");
@@ -344,9 +367,25 @@ async function loadFollowUpReplyContext(input: {
         companyId: input.companyId,
         OR: [{ outcomeId: input.outcomeId }, { planningDraft: { outcomeId: input.outcomeId } }],
       },
-      select: { status: true },
+      select: { id: true, status: true },
     }),
   ]);
+
+  const taskIds = tasks.map((t) => t.id);
+  // A pending decision the CEO's message may be answering: a changes-requested
+  // review, failed QA, or CI conflict recorded as an unresolved change request.
+  const openChangeRequests = taskIds.length
+    ? await prisma.changeRequest.count({
+        where: {
+          resolved: false,
+          review: {
+            companyId: input.companyId,
+            entityType: "task",
+            entityId: { in: taskIds },
+          },
+        },
+      })
+    : 0;
 
   return {
     requestTitle: request?.title ?? "your request",
@@ -366,6 +405,7 @@ async function loadFollowUpReplyContext(input: {
         )
       : [],
     taskCounts: countTasks(tasks),
+    openChangeRequests,
   };
 }
 
