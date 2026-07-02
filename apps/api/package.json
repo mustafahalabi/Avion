@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@avion/shared": "workspace:*",
-    "@clerk/backend": "^3.9.0",
+    "@clerk/backend": "^3.10.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",

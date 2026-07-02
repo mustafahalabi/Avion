@@ -22,6 +22,6 @@
     "db:generate": "pnpm --filter @avion/web exec prisma generate && pnpm --filter @avion/api exec prisma generate"
   },
   "devDependencies": {
-    "turbo": "^2.5.5"
+    "turbo": "^2.10.2"
   }
 }
