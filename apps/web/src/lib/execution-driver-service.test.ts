@@ -38,6 +38,11 @@ vi.mock("@/lib/execution-session-service", () => ({
   LIVE_EXECUTION_SESSION_STATUSES: ["queued", "prepared", "running"],
 }));
 
+const mockAutoApplyPlans = vi.fn();
+vi.mock("@/lib/plan-application-service", () => ({
+  autoApplyPendingPlansForCompany: (...args: unknown[]) => mockAutoApplyPlans(...args),
+}));
+
 import {
   runDriverTick,
   runDriverTickForCompany,
@@ -61,6 +66,7 @@ beforeEach(() => {
     snapshotId: "health-1",
     dayKey: "2026-07-02",
   });
+  mockAutoApplyPlans.mockResolvedValue({ approved: 0, applied: 0 });
 });
 
 describe("runDriverTickForCompany — enqueue", () => {
@@ -116,6 +122,45 @@ describe("runDriverTickForCompany — enqueue", () => {
 
     expect(mockAutoPrepare).toHaveBeenCalledTimes(1);
     expect(result.enqueued[0]?.status).toBe("skipped_existing_session");
+  });
+});
+
+describe("runDriverTickForCompany — auto-apply plans (MUS-301)", () => {
+  it("auto-approves+applies pending plans at autonomous (no human click)", async () => {
+    mockCompanySettingsFindUnique.mockResolvedValue({ autonomyLevel: "autonomous" });
+    mockAutoApplyPlans.mockResolvedValue({ approved: 1, applied: 1 });
+
+    const result = await runDriverTickForCompany("company-1");
+
+    expect(mockAutoApplyPlans).toHaveBeenCalledWith("company-1");
+    expect(result.plansApplied).toEqual({ approved: 1, applied: 1 });
+  });
+
+  it("auto-applies at delegate too (apply_plan is allowed there)", async () => {
+    mockCompanySettingsFindUnique.mockResolvedValue({ autonomyLevel: "delegate" });
+
+    await runDriverTickForCompany("company-1");
+
+    expect(mockAutoApplyPlans).toHaveBeenCalledWith("company-1");
+  });
+
+  it("does NOT auto-apply at assist (plan approval still required)", async () => {
+    mockCompanySettingsFindUnique.mockResolvedValue({ autonomyLevel: "assist" });
+
+    const result = await runDriverTickForCompany("company-1");
+
+    expect(mockAutoApplyPlans).not.toHaveBeenCalled();
+    expect(result.plansApplied).toBeNull();
+  });
+
+  it("keeps the tick alive if auto-apply throws (best-effort)", async () => {
+    mockCompanySettingsFindUnique.mockResolvedValue({ autonomyLevel: "autonomous" });
+    mockAutoApplyPlans.mockRejectedValue(new Error("boom"));
+
+    const result = await runDriverTickForCompany("company-1");
+
+    expect(result.plansApplied).toBeNull();
+    expect(result.companyId).toBe("company-1");
   });
 });
 

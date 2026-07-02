@@ -156,6 +156,19 @@ async function seedApprovedDraft(id = "draft-1") {
   });
 }
 
+/** Seeds a still-pending (draft) plan WITH generated work, for auto-apply tests. */
+async function seedPendingDraft(id = "draft-1") {
+  await prisma.planningDraft.create({
+    data: makeDraftData({
+      id,
+      status: "draft",
+      generatedProjects: GENERATED_PROJECTS,
+      generatedFeatures: GENERATED_FEATURES,
+      generatedTasks: GENERATED_TASKS,
+    }),
+  });
+}
+
 // ─── approvePlanningDraft ─────────────────────────────────────────────────────
 
 describe("approvePlanningDraft", () => {
@@ -626,5 +639,42 @@ describe("applyApprovedPlan", () => {
     });
     expect(tasks[0]?.estimate).toBe(3);
     expect(tasks[1]?.estimate).toBe(5);
+  });
+});
+
+describe("autoApplyPendingPlansForCompany (MUS-301)", () => {
+  it("approves + applies a pending draft with no human click", async () => {
+    await seedPendingDraft();
+
+    const result = await service.autoApplyPendingPlansForCompany("company-1");
+
+    expect(result.approved).toBe(1);
+    expect(result.applied).toBe(1);
+    const draft = await prisma.planningDraft.findUnique({ where: { id: "draft-1" } });
+    expect(draft?.status).toBe("applied");
+    const tasks = await prisma.task.count({ where: { companyId: "company-1" } });
+    expect(tasks).toBe(2);
+  });
+
+  it("is idempotent — a second sweep applies nothing and creates no duplicate work", async () => {
+    await seedPendingDraft();
+    await service.autoApplyPendingPlansForCompany("company-1");
+
+    const result = await service.autoApplyPendingPlansForCompany("company-1");
+
+    expect(result.approved).toBe(0);
+    expect(result.applied).toBe(0);
+    const tasks = await prisma.task.count({ where: { companyId: "company-1" } });
+    expect(tasks).toBe(2);
+  });
+
+  it("only touches the requested company's drafts", async () => {
+    await seedPendingDraft();
+
+    const result = await service.autoApplyPendingPlansForCompany("company-2");
+
+    expect(result.applied).toBe(0);
+    const draft = await prisma.planningDraft.findUnique({ where: { id: "draft-1" } });
+    expect(draft?.status).toBe("draft");
   });
 });

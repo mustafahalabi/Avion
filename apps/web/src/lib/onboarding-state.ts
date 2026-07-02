@@ -74,7 +74,10 @@ export async function getOnboardingSnapshot(
   return {
     companyId: company.id,
     companyName: company.name,
-    defaultAutonomy: company.settings?.autonomyLevel ?? "assist",
+    // Hands-off by default: a new company lands on `autonomous` so the CEO can
+    // just chat and the company ships without approval clicks (MUS-301). They
+    // can still dial it down in the wizard/settings. Guardrails stay on.
+    defaultAutonomy: company.settings?.autonomyLevel ?? "autonomous",
     defaultCulture: company.settings?.cultureProfile ?? "startup",
     snapshot,
   };

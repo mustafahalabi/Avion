@@ -34,6 +34,8 @@ import type { AutonomyLevel } from "@/lib/worker-permissions";
  * - `auto_merge`     — merge the PR without human review.
  * - `auto_review`    — drive an automated code review without human sign-off.
  * - `auto_qa`        — drive automated QA and pass the gate without human sign-off.
+ * - `apply_plan`     — approve + apply a generated planning draft (create the
+ *   Project/Feature/Task records) without a human clicking Approve/Apply.
  */
 export const AUTONOMY_ACTIONS = [
   "create_session",
@@ -43,6 +45,7 @@ export const AUTONOMY_ACTIONS = [
   "auto_merge",
   "auto_review",
   "auto_qa",
+  "apply_plan",
 ] as const;
 
 export type AutonomyAction = (typeof AUTONOMY_ACTIONS)[number];
@@ -73,6 +76,7 @@ export type AutonomyActionMatrix = Readonly<Record<AutonomyAction, AutonomyDispo
  * | auto_merge      | deny   | deny    | appr.  | appr.    | allow      |
  * | auto_review     | appr.  | appr.   | appr.  | allow    | allow      |
  * | auto_qa         | appr.  | appr.   | appr.  | allow    | allow      |
+ * | apply_plan      | appr.  | appr.   | appr.  | allow    | allow      |
  *
  * (`appr.` = requires_approval). Rationale:
  * - manual: a human performs each step; every agent action is gated and merges
@@ -81,9 +85,11 @@ export type AutonomyActionMatrix = Readonly<Record<AutonomyAction, AutonomyDispo
  *   is gated; merges are never automated.
  * - assist: the agent executes with a confirmation gate before running; pushing
  *   and opening a PR proceed, merging and review/QA sign-off stay gated.
- * - delegate: supervised — everything proceeds (incl. automated review/QA)
- *   except auto-merge, which is gated.
- * - autonomous: fully automated, including auto-merge (still within guardrails).
+ * - delegate: supervised — everything proceeds (incl. automated review/QA and
+ *   auto-applying plans) except auto-merge, which is gated.
+ * - autonomous: fully automated, including auto-merge and applying plans (still
+ *   within guardrails). A single chat message can reach a shipped PR with no
+ *   human click.
  */
 export const AUTONOMY_POLICY_MATRIX: Readonly<
   Record<AutonomyLevel, AutonomyActionMatrix>
@@ -96,6 +102,7 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     auto_merge: "deny",
     auto_review: "requires_approval",
     auto_qa: "requires_approval",
+    apply_plan: "requires_approval",
   },
   suggest: {
     create_session: "allow",
@@ -105,6 +112,7 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     auto_merge: "deny",
     auto_review: "requires_approval",
     auto_qa: "requires_approval",
+    apply_plan: "requires_approval",
   },
   assist: {
     create_session: "allow",
@@ -114,6 +122,7 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     auto_merge: "requires_approval",
     auto_review: "requires_approval",
     auto_qa: "requires_approval",
+    apply_plan: "requires_approval",
   },
   delegate: {
     create_session: "allow",
@@ -123,6 +132,7 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     auto_merge: "requires_approval",
     auto_review: "allow",
     auto_qa: "allow",
+    apply_plan: "allow",
   },
   autonomous: {
     create_session: "allow",
@@ -132,6 +142,7 @@ export const AUTONOMY_POLICY_MATRIX: Readonly<
     auto_merge: "allow",
     auto_review: "allow",
     auto_qa: "allow",
+    apply_plan: "allow",
   },
 };
 

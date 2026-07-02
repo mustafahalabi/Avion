@@ -502,3 +502,63 @@ function mapEstimateToPriority(points: number): string {
   if (points >= 5) return "medium";
   return "low";
 }
+
+/** Result of an autonomous plan-application sweep. */
+export interface AutoApplyPlansResult {
+  /** Drafts moved draft/reviewing → approved this sweep. */
+  readonly approved: number;
+  /** Drafts applied (Project/Feature/Task records created) this sweep. */
+  readonly applied: number;
+}
+
+/**
+ * Approves + applies every pending planning draft for a company, with no human
+ * click. This is the autonomous replacement for the manual Approve/Apply
+ * buttons; the driver calls it each tick when the company's autonomy level
+ * permits the `apply_plan` action (delegate/autonomous), so a single chat
+ * message reaches shipped work hands-off (MUS-301).
+ *
+ * Reuses the idempotent {@link approvePlanningDraft} + {@link applyApprovedPlan}
+ * with the company owner as the actor. Best-effort per draft: one draft that
+ * fails to apply never blocks the others, and an already-applied draft is a
+ * no-op (both underlying functions short-circuit on terminal statuses).
+ *
+ * @param companyId - Company whose pending drafts to apply.
+ * @returns Counts of drafts approved and applied.
+ */
+export async function autoApplyPendingPlansForCompany(
+  companyId: string
+): Promise<AutoApplyPlansResult> {
+  const company = await prisma.company.findFirst({
+    where: { id: companyId },
+    select: { ownerId: true },
+  });
+  const actorId = company?.ownerId ?? "system";
+
+  const drafts = await prisma.planningDraft.findMany({
+    where: { companyId, status: { in: ["draft", "reviewing", "approved"] } },
+    select: { id: true, status: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  let approved = 0;
+  let applied = 0;
+  for (const draft of drafts) {
+    try {
+      if (draft.status === "draft" || draft.status === "reviewing") {
+        await approvePlanningDraft({
+          companyId,
+          planningDraftId: draft.id,
+          actorId,
+        });
+        approved += 1;
+      }
+      await applyApprovedPlan({ companyId, planningDraftId: draft.id, actorId });
+      applied += 1;
+    } catch {
+      // Best-effort per draft — a single failure must not block the rest.
+    }
+  }
+
+  return { approved, applied };
+}

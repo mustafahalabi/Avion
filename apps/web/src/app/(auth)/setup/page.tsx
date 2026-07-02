@@ -17,7 +17,7 @@ export default async function SetupPage() {
   return (
     <SetupWizard
       companyId={company.id}
-      defaultAutonomy={company.settings?.autonomyLevel ?? "assist"}
+      defaultAutonomy={company.settings?.autonomyLevel ?? "autonomous"}
       defaultCulture={company.settings?.cultureProfile ?? "startup"}
     />
   );
