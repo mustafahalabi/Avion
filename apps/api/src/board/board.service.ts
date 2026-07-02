@@ -5,6 +5,7 @@ import {
   type SessionSummary,
   type StatusCount,
 } from "@avion/shared";
+import type { AuthContext } from "../auth/auth.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
@@ -12,10 +13,36 @@ export class BoardService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Build the full board state from the live database in a handful of batched
-   * queries. Read-only; safe to call on every poll tick.
+   * Build the board state for ONE authenticated caller from the live database
+   * in a handful of batched queries. Every query is bounded to the caller's
+   * companies; notification counts are bounded to the caller. Read-only; safe
+   * to call on every poll tick.
+   *
+   * @param scope - The authenticated caller's company/user scope.
+   * @param limit - Max recent sessions to include.
    */
-  async getSnapshot(limit = 12): Promise<BoardSnapshot> {
+  async getSnapshot(scope: AuthContext, limit = 12): Promise<BoardSnapshot> {
+    // A caller with no companies sees an empty board — never someone else's.
+    if (scope.companyIds.length === 0) {
+      return {
+        generatedAt: new Date().toISOString(),
+        metrics: {
+          totalSessions: 0,
+          activeSessions: 0,
+          completedSessions: 0,
+          failedSessions: 0,
+          openPullRequests: 0,
+          tasksInProgress: 0,
+          unreadNotifications: 0,
+        },
+        statusCounts: [],
+        recentSessions: [],
+        companies: [],
+      };
+    }
+
+    const companyFilter = { in: [...scope.companyIds] };
+
     const [
       sessions,
       statusGroups,
@@ -26,23 +53,33 @@ export class BoardService {
       totalSessions,
     ] = await Promise.all([
       this.prisma.executionSession.findMany({
+        where: { companyId: companyFilter },
         orderBy: { updatedAt: "desc" },
         take: limit,
       }),
       this.prisma.executionSession.groupBy({
         by: ["status"],
+        where: { companyId: companyFilter },
         _count: { _all: true },
       }),
       this.prisma.company.findMany({
+        where: { id: companyFilter },
         select: { id: true, name: true },
         orderBy: { name: "asc" },
       }),
-      this.prisma.executionSession.count({ where: { prStatus: "open" } }),
-      this.prisma.task.count({
-        where: { status: { in: ["in-progress", "in_progress", "in-review", "in_review"] } },
+      this.prisma.executionSession.count({
+        where: { companyId: companyFilter, prStatus: "open" },
       }),
-      this.prisma.notification.count({ where: { read: false } }),
-      this.prisma.executionSession.count(),
+      this.prisma.task.count({
+        where: {
+          companyId: companyFilter,
+          status: { in: ["in-progress", "in_progress", "in-review", "in_review"] },
+        },
+      }),
+      this.prisma.notification.count({
+        where: { userId: scope.userId, read: false },
+      }),
+      this.prisma.executionSession.count({ where: { companyId: companyFilter } }),
     ]);
 
     const companyNameById = new Map(companies.map((c) => [c.id, c.name]));
@@ -53,7 +90,7 @@ export class BoardService {
       .filter((id): id is string => Boolean(id));
     const tasks = taskIds.length
       ? await this.prisma.task.findMany({
-          where: { id: { in: taskIds } },
+          where: { id: { in: taskIds }, companyId: companyFilter },
           select: { id: true, title: true },
         })
       : [];
@@ -99,8 +136,8 @@ export class BoardService {
     };
   }
 
-  async getSessions(limit = 20): Promise<SessionSummary[]> {
-    const snapshot = await this.getSnapshot(limit);
+  async getSessions(scope: AuthContext, limit = 20): Promise<SessionSummary[]> {
+    const snapshot = await this.getSnapshot(scope, limit);
     return snapshot.recentSessions;
   }
 }
