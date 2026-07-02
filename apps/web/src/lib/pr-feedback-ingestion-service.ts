@@ -30,8 +30,9 @@ import {
 /**
  * Title prefix marking a Review that was opened from PR feedback. Used to make
  * ingestion idempotent without colliding with human/agent-authored reviews.
+ * Exported so the company-health fetch layer can select exactly these rows.
  */
-const PR_FEEDBACK_REVIEW_TITLE_PREFIX = "PR feedback:";
+export const PR_FEEDBACK_REVIEW_TITLE_PREFIX = "PR feedback:";
 
 /** Injectable dependencies for {@link ingestPullRequestFeedbackForCompany}. */
 export interface PrFeedbackIngestionDeps {

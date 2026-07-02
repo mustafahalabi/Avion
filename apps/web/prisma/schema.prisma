@@ -57,6 +57,7 @@ model Company {
   executionSessions           ExecutionSession[]
   repositoryAnalysisSnapshots RepositoryAnalysisSnapshot[]
   providerConnections         ProviderConnection[]
+  healthSnapshots             CompanyHealthSnapshot[]
 }
 
 model Department {
@@ -759,6 +760,65 @@ model Incident {
   resolvedAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+// ─── Company Health ───────────────────────────────────────────────────────────
+//
+// A daily, per-company snapshot of HONEST organizational health metrics derived
+// exclusively from rows that already exist (tasks, change requests, QA results,
+// execution sessions, memory records, timeline entries). Written by the driver
+// tick at most once per UTC day (MUS-263). Raw counts are stored alongside the
+// computed rates so every number remains auditable against its source rows.
+// Trailing-window fields (`…7d`) cover the 7 UTC days before `capturedAt`.
+
+model CompanyHealthSnapshot {
+  id         String   @id @default(cuid())
+  companyId  String
+  capturedAt DateTime @default(now())
+  // UTC calendar day ("YYYY-MM-DD") the snapshot was captured on — the
+  // uniqueness key that enforces at most one snapshot per company per day.
+  dayKey     String
+
+  // ── Delivery ───────────────────────────────────────────────────────────────
+  // Tasks with status "done" (all-time / reaching done in the trailing window).
+  tasksDoneTotal           Int
+  tasksDone7d              Int
+  // Tasks currently blocked (e.g. by exhausted execution retries).
+  tasksBlocked             Int
+  // ChangeRequests (resolved + unresolved) across the company's reviews.
+  changeRequestsTotal      Int
+  changeRequestsUnresolved Int
+  // changeRequestsTotal / tasksDoneTotal — null when no task is done yet.
+  reworkRatePerDoneTask    Float?
+  // "execution_retries_exhausted" timeline events in the trailing window.
+  retriesExhausted7d       Int
+
+  // ── Quality ────────────────────────────────────────────────────────────────
+  // QAResult verdicts (passed/failed) with at least one recorded check.
+  qaResultsWithChecks7d Int
+  qaPassedWithChecks7d  Int
+  // qaPassedWithChecks7d / qaResultsWithChecks7d — null when no verdicts exist.
+  qaPassRate7d          Float?
+  // Execution-session PRs observed merged in the trailing window.
+  prsMerged7d           Int
+  // "PR feedback:" reviews opened from real GitHub feedback; the CI subset.
+  prFeedbackReviews7d   Int
+  prCiFailures7d        Int
+
+  // ── Learning ───────────────────────────────────────────────────────────────
+  // Memory records written; the subset promoted to standards ("learning:…").
+  memoryRecords7d     Int
+  memoryRecordsTotal  Int
+  standardsPromoted7d Int
+  standardsTotal      Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, dayKey])
+  @@index([companyId, capturedAt])
 }
 
 // ─── Provider Connections ─────────────────────────────────────────────────────
