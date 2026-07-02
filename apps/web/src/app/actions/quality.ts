@@ -173,9 +173,20 @@ export async function createQAResult(
   });
   if (!qaTask) return { error: "Task not found or not accessible." };
 
+  // Boundary validation: only well-formed { label, passed } entries survive —
+  // the raw client JSON is never persisted verbatim.
   let checksData: { label: string; passed: boolean }[] = [];
   try {
-    checksData = JSON.parse(parsed.data.checks);
+    const raw = JSON.parse(parsed.data.checks) as unknown;
+    if (Array.isArray(raw)) {
+      checksData = raw.filter(
+        (item): item is { label: string; passed: boolean } =>
+          typeof item === "object" &&
+          item !== null &&
+          typeof (item as { label?: unknown }).label === "string" &&
+          typeof (item as { passed?: unknown }).passed === "boolean"
+      );
+    }
   } catch {
     checksData = [];
   }
@@ -192,7 +203,7 @@ export async function createQAResult(
       status: allPassed ? "passed" : failed > 0 ? "failed" : "pending",
       passedCount: passed,
       failedCount: failed,
-      checks: parsed.data.checks,
+      checks: JSON.stringify(checksData),
     },
   });
 

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { prisma as PrismaSingleton } from "./prisma";
 import type * as IngestionModule from "./pr-feedback-ingestion-service";
@@ -225,5 +225,138 @@ describe("ingestPullRequestFeedbackForCompany", () => {
 
     expect(result.sessionsChecked).toBe(0);
     expect(result.changeRequestsOpened).toBe(0);
+  });
+});
+
+// ─── Auto-merge (MUS-254) ─────────────────────────────────────────────────────
+
+describe("auto-merge via the auto_merge autonomy action", () => {
+  /** Sets company autonomy, creating the settings row on first use. */
+  async function setAutonomy(level: string): Promise<void> {
+    await prisma.companySettings.upsert({
+      where: { companyId: "company-1" },
+      create: { companyId: "company-1", autonomyLevel: level },
+      update: { autonomyLevel: level },
+    });
+  }
+
+  async function setTaskStatus(status: string): Promise<void> {
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Task" SET "status" = '${status}' WHERE "id" = 'task-1'`
+    );
+  }
+
+  function mergeStub(result: { merged: boolean; sha?: string | null }) {
+    return vi.fn(async () => ({
+      merged: result.merged,
+      sha: result.sha ?? (result.merged ? "merge-sha" : null),
+      message: result.merged ? "merged" : "refused",
+    }));
+  }
+
+  it("merges a clean PR at autonomous when the task passed its internal gates", async () => {
+    await setAutonomy("autonomous");
+    await setTaskStatus("done");
+    const mergePr = mergeStub({ merged: true });
+
+    const result = await service.ingestPullRequestFeedbackForCompany("company-1", {
+      fetchFeedback: stubFeedback(APPROVED_SUCCESS),
+      mergePr,
+    });
+
+    expect(mergePr).toHaveBeenCalledWith(
+      expect.objectContaining({ owner: "acme", repo: "widgets", prNumber: 7, method: "squash" })
+    );
+    expect(result.autoMerged).toBe(1);
+    expect(result.merged).toBe(1);
+
+    const session = await prisma.executionSession.findUnique({ where: { id: "ses-1" } });
+    expect(session?.prStatus).toBe("merged");
+    expect(session?.mergeStatus).toBe("merged");
+
+    const events = await prisma.timelineEntry.findMany({
+      where: { entityId: "task-1", eventType: "pr_merged" },
+    });
+    expect(events).toHaveLength(1);
+  });
+
+  it("merges when the repo has no CI and no reviews (all-none signals)", async () => {
+    await setAutonomy("autonomous");
+    await setTaskStatus("done");
+    const mergePr = mergeStub({ merged: true });
+
+    const result = await service.ingestPullRequestFeedbackForCompany("company-1", {
+      fetchFeedback: stubFeedback({
+        state: "open",
+        reviewDecision: "none",
+        checksConclusion: "none",
+        checks: [],
+      }),
+      mergePr,
+    });
+
+    expect(result.autoMerged).toBe(1);
+  });
+
+  it("never merges below autonomous (delegate requires approval)", async () => {
+    await setAutonomy("delegate");
+    await setTaskStatus("done");
+    const mergePr = mergeStub({ merged: true });
+
+    const result = await service.ingestPullRequestFeedbackForCompany("company-1", {
+      fetchFeedback: stubFeedback(APPROVED_SUCCESS),
+      mergePr,
+    });
+
+    expect(mergePr).not.toHaveBeenCalled();
+    expect(result.autoMerged).toBe(0);
+  });
+
+  it("never merges while the task has not passed its internal gates", async () => {
+    await setAutonomy("autonomous");
+    await setTaskStatus("in-review");
+    const mergePr = mergeStub({ merged: true });
+
+    const result = await service.ingestPullRequestFeedbackForCompany("company-1", {
+      fetchFeedback: stubFeedback(APPROVED_SUCCESS),
+      mergePr,
+    });
+
+    expect(mergePr).not.toHaveBeenCalled();
+    expect(result.autoMerged).toBe(0);
+  });
+
+  it("waits while CI is still pending", async () => {
+    await setAutonomy("autonomous");
+    await setTaskStatus("done");
+    const mergePr = mergeStub({ merged: true });
+
+    const result = await service.ingestPullRequestFeedbackForCompany("company-1", {
+      fetchFeedback: stubFeedback({
+        state: "open",
+        reviewDecision: "approved",
+        checksConclusion: "pending",
+        checks: [{ name: "ci", conclusion: "in_progress" }],
+      }),
+      mergePr,
+    });
+
+    expect(mergePr).not.toHaveBeenCalled();
+    expect(result.autoMerged).toBe(0);
+  });
+
+  it("records nothing when GitHub refuses the merge (retry on a later poll)", async () => {
+    await setAutonomy("autonomous");
+    await setTaskStatus("done");
+    const mergePr = mergeStub({ merged: false });
+
+    const result = await service.ingestPullRequestFeedbackForCompany("company-1", {
+      fetchFeedback: stubFeedback(APPROVED_SUCCESS),
+      mergePr,
+    });
+
+    expect(result.autoMerged).toBe(0);
+    const session = await prisma.executionSession.findUnique({ where: { id: "ses-1" } });
+    expect(session?.prStatus).toBe("open");
   });
 });

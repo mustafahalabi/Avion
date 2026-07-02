@@ -61,6 +61,7 @@ export interface DriverTickResult {
     readonly sessionsChecked: number;
     readonly changeRequestsOpened: number;
     readonly merged: number;
+    readonly autoMerged: number;
   } | null;
 }
 
@@ -98,6 +99,7 @@ export async function runDriverTickForCompany(
       sessionsChecked: ingested.sessionsChecked,
       changeRequestsOpened: ingested.changeRequestsOpened,
       merged: ingested.merged,
+      autoMerged: ingested.autoMerged,
     };
   } catch {
     prFeedback = null;

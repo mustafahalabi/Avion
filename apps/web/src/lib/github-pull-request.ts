@@ -265,3 +265,83 @@ export async function openOrReusePullRequest(
     reused: false,
   };
 }
+
+// ─── Merge (auto_merge autonomy action) ──────────────────────────────────────
+
+/** Inputs for {@link mergePullRequest}. */
+export interface MergePullRequestInput {
+  /** GitHub access/personal token with `repo` scope. */
+  readonly token: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  /** Merge method; defaults to `squash` for a linear history. */
+  readonly method?: "merge" | "squash" | "rebase";
+  /** Injected fetch implementation for testing. Defaults to global `fetch`. */
+  readonly fetchImpl?: FetchLike;
+}
+
+/** Result of a merge attempt. */
+export interface MergePullRequestResult {
+  /** True when GitHub reports the PR merged. */
+  readonly merged: boolean;
+  /** Merge commit SHA when merged. */
+  readonly sha: string | null;
+  /** GitHub's message (e.g. "Pull Request is not mergeable" on 405). */
+  readonly message: string;
+}
+
+/**
+ * Merges a pull request via the GitHub REST API. Never force-merges: a PR that
+ * GitHub reports as not mergeable (405) or whose head moved (409) returns
+ * `merged: false` with the reason instead of throwing, so callers can simply
+ * retry on a later poll.
+ *
+ * @param input - Token, repo coordinates, PR number, and merge method.
+ * @returns Whether the merge happened, with the merge SHA or the refusal reason.
+ * @throws Error on unexpected GitHub API failures (auth, 5xx, …).
+ */
+export async function mergePullRequest(
+  input: MergePullRequestInput
+): Promise<MergePullRequestResult> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const res = await fetchImpl(
+    `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/pulls/${input.prNumber}/merge`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ merge_method: input.method ?? "squash" }),
+    }
+  );
+
+  if (res.ok) {
+    const payload = (await res.json()) as {
+      merged?: boolean;
+      sha?: string;
+      message?: string;
+    };
+    return {
+      merged: payload.merged === true,
+      sha: payload.sha ?? null,
+      message: payload.message ?? "merged",
+    };
+  }
+
+  // 405: not mergeable (checks/branch protection); 409: head SHA moved.
+  if (res.status === 405 || res.status === 409) {
+    return {
+      merged: false,
+      sha: null,
+      message: `GitHub refused the merge (${res.status}): ${await safeText(res)}`,
+    };
+  }
+
+  throw new Error(
+    `GitHub PR merge failed (${res.status}): ${await safeText(res)}`
+  );
+}
