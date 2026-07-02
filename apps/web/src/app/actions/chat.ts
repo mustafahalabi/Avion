@@ -9,6 +9,7 @@ import { resolveDefaultRepositoryId } from "@/lib/active-workspace";
 import { REQUEST_ROUTING } from "@/lib/request-routing";
 import { buildOutcomeCreateData } from "@/lib/outcome-planning";
 import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
+import { handleConversationFollowUp } from "@/lib/chat-followup-service";
 
 export type SendMessageState =
   | undefined
@@ -74,11 +75,28 @@ export async function sendMessage(
 
   const isFirstMessage = conv._count.messages === 0;
 
+  // Follow-ups attach to the conversation's active request: outcome brief +
+  // constraints append, a runtime event, a pending-plan regeneration, and a
+  // deterministic real-state reply (MUS-261). When the conversation has no
+  // active request (it completed / was cancelled), fall through and start a
+  // new request from this message — same contract as the first message.
+  if (!isFirstMessage) {
+    const followUp = await handleConversationFollowUp({
+      companyId: company.id,
+      conversationId,
+      content,
+      actorId: user.id,
+    });
+
+    if (followUp.kind === "attached") {
+      revalidateChatPaths(conversationId);
+      return { conversationId };
+    }
+  }
+
   // Chat-born outcomes get scoped to the active workspace's repository so plan
   // application inherits a real repo instead of the default workspace (MUS-259).
-  const repositoryId = isFirstMessage
-    ? await resolveDefaultRepositoryId(company.id)
-    : null;
+  const repositoryId = await resolveDefaultRepositoryId(company.id);
 
   const planningTarget = await prisma.$transaction(async (tx) => {
     // User message
@@ -92,107 +110,88 @@ export async function sendMessage(
       },
     });
 
-    // On first message, auto-create a RuntimeRequest and set conversation title
-    if (isFirstMessage) {
-      // Derive a short title from the content
-      const title = content.length > 80 ? content.slice(0, 77) + "…" : content;
-      const assignedTo = REQUEST_ROUTING[requestType] ?? "Company";
+    // Derive a short title from the content
+    const title = content.length > 80 ? content.slice(0, 77) + "…" : content;
+    const assignedTo = REQUEST_ROUTING[requestType] ?? "Company";
 
-      const request = await tx.runtimeRequest.create({
-        data: {
-          companyId: company.id,
-          title,
-          goal: content,
-          requestType,
-          status: "intake",
-          assignedTo,
-        },
-      });
+    const request = await tx.runtimeRequest.create({
+      data: {
+        companyId: company.id,
+        title,
+        goal: content,
+        requestType,
+        status: "intake",
+        assignedTo,
+      },
+    });
 
-      const outcome = await tx.outcome.upsert({
-        where: {
-          companyId_runtimeRequestId: {
-            companyId: company.id,
-            runtimeRequestId: request.id,
-          },
-        },
-        create: buildOutcomeCreateData({
+    const outcome = await tx.outcome.upsert({
+      where: {
+        companyId_runtimeRequestId: {
           companyId: company.id,
           runtimeRequestId: request.id,
-          title: request.title,
-          rawRequest: request.goal,
-          repositoryId,
-        }),
-        update: {
-          title: request.title,
-          rawRequest: request.goal,
         },
-        select: { id: true },
-      });
+      },
+      create: buildOutcomeCreateData({
+        companyId: company.id,
+        runtimeRequestId: request.id,
+        title: request.title,
+        rawRequest: request.goal,
+        repositoryId,
+      }),
+      update: {
+        title: request.title,
+        rawRequest: request.goal,
+      },
+      select: { id: true },
+    });
 
-      // Set conversation title to the request title
-      await tx.conversation.update({
-        where: { id: conversationId },
-        data: { title, updatedAt: new Date() },
-      });
+    // Set conversation title to the request title
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { title, updatedAt: new Date() },
+    });
 
-      // Company response message
-      await tx.message.create({
-        data: {
-          conversationId,
-          role: "company",
-          type: "request_created",
-          requestId: request.id,
-          content: `Your request has been received and routed to **${assignedTo}**. The team is now reviewing your goal and will begin planning.`,
-        },
-      });
+    // Company response message
+    await tx.message.create({
+      data: {
+        conversationId,
+        role: "company",
+        type: "request_created",
+        requestId: request.id,
+        content: `Your request has been received and routed to **${assignedTo}**. The team is now reviewing your goal and will begin planning.`,
+      },
+    });
 
-      // Log intake event on the request
-      await tx.runtimeEvent.create({
-        data: {
-          requestId: request.id,
-          type: "intake",
-          description: `Request received via company chat. Routed to ${assignedTo}.`,
-          actor: "System",
-        },
-      });
+    // Log intake event on the request
+    await tx.runtimeEvent.create({
+      data: {
+        requestId: request.id,
+        type: "intake",
+        description: `Request received via company chat. Routed to ${assignedTo}.`,
+        actor: "System",
+      },
+    });
 
-      return { outcomeId: outcome.id };
-    } else {
-      // Update conversation timestamp
-      await tx.conversation.update({
-        where: { id: conversationId },
-        data: { updatedAt: new Date() },
-      });
-
-      // Acknowledge follow-up
-      await tx.message.create({
-        data: {
-          conversationId,
-          role: "company",
-          type: "text",
-          content: `Message noted. The team will factor this into ongoing work. Check the **Inbox** to track or advance any active requests.`,
-        },
-      });
-
-      return null;
-    }
+    return { outcomeId: outcome.id };
   });
 
-  if (planningTarget) {
-    await createOrUpdatePlanningDraftForOutcome({
-      companyId: company.id,
-      outcomeId: planningTarget.outcomeId,
-      actorId: user.id,
-    });
-  }
+  await createOrUpdatePlanningDraftForOutcome({
+    companyId: company.id,
+    outcomeId: planningTarget.outcomeId,
+    actorId: user.id,
+  });
 
+  revalidateChatPaths(conversationId);
+
+  return { conversationId };
+}
+
+function revalidateChatPaths(conversationId: string): void {
   revalidatePath(`/chat/${conversationId}`);
   revalidatePath("/chat");
   revalidatePath("/inbox");
   revalidatePath("/dashboard");
-
-  return { conversationId };
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {

@@ -154,6 +154,60 @@ describe("createOrUpdatePlanningDraftForOutcome — draft versioning (MUS-259)",
     expect(drafts).toHaveLength(1);
     expect(drafts[0].version).toBe(1);
   });
+
+  it("regenerates a pending draft in place when regeneratePendingDraft is set (MUS-261)", async () => {
+    const outcomeId = await seedOutcome();
+    const first = await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+
+    const regenerated = await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+      regeneratePendingDraft: true,
+    });
+
+    // Regenerated (not reused): same draft row, same version, fresh generation.
+    expect(regenerated.planningDraftId).toBe(first.planningDraftId);
+    expect(regenerated.message).not.toMatch(/already exists/i);
+    const drafts = await prisma.planningDraft.findMany({
+      where: { companyId: "company-1", outcomeId },
+    });
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].version).toBe(1);
+    expect(drafts[0].status).toBe("draft");
+  });
+
+  it("never regenerates an approved draft, even with regeneratePendingDraft", async () => {
+    const outcomeId = await seedOutcome();
+    const first = await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+    await prisma.planningDraft.update({
+      where: { id: first.planningDraftId },
+      data: { status: "approved", approvedAt: new Date() },
+    });
+
+    const reused = await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+      regeneratePendingDraft: true,
+    });
+
+    expect(reused.planningDraftId).toBe(first.planningDraftId);
+    expect(reused.message).toMatch(/already exists/i);
+    const draft = await prisma.planningDraft.findUniqueOrThrow({
+      where: { id: first.planningDraftId },
+      select: { status: true },
+    });
+    expect(draft.status).toBe("approved");
+  });
 });
 
 describe("createOrUpdatePlanningDraftForOutcome — per-company planning provider (MUS-262)", () => {
