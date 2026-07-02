@@ -125,9 +125,9 @@ export interface OutcomePlanningInput {
   readonly employees: readonly PlanningEmployeeContext[];
   readonly repositories: readonly PlanningRepositoryContext[];
   /**
-   * Durable company memory (lessons learned, promoted standards) surfaced to the AI planner
-   * so plans incorporate accumulated experience. Optional and ignored by the deterministic
-   * generator, which keeps deterministic behavior unchanged.
+   * Durable company memory (lessons learned, promoted standards) surfaced to the planner
+   * so plans incorporate accumulated experience. The AI planner renders it into its prompt;
+   * the deterministic generator renders the top items as explicit plan assumptions.
    */
   readonly companyMemory?: readonly CompanyMemoryItem[];
 }
@@ -357,7 +357,10 @@ export function generateDeterministicPlanningDraft(
       status: "draft",
       scope: buildScope(template.id, normalizedOutcome, repositories),
       nonScope: COMMON_NON_SCOPE,
-      assumptions: buildAssumptions(template.id, repositories),
+      assumptions: [
+        ...buildAssumptions(template.id, repositories),
+        ...buildMemoryAssumptions(input.companyMemory),
+      ],
       risks,
       dependencies,
       recommendedAssignments: assignments,
@@ -1462,6 +1465,29 @@ function buildDependencies(
  * @param repositories - Sorted company repositories.
  * @returns Risk register entries.
  */
+/** Maximum memory-derived assumptions rendered into a deterministic plan. */
+const MAX_MEMORY_ASSUMPTIONS = 5;
+
+/**
+ * Renders durable company memory into plan assumptions so the deterministic
+ * generator (the default provider) also compounds prior experience — not just
+ * the AI planner. Standards and lessons become explicit, reviewable plan lines.
+ *
+ * @param memory - Retrieved company memory, highest-confidence first.
+ * @returns Assumption lines, capped at {@link MAX_MEMORY_ASSUMPTIONS}.
+ */
+export function buildMemoryAssumptions(
+  memory: readonly CompanyMemoryItem[] | undefined
+): readonly string[] {
+  if (!memory || memory.length === 0) return [];
+  return memory
+    .slice(0, MAX_MEMORY_ASSUMPTIONS)
+    .map(
+      (item) =>
+        `Company memory (${item.category}): ${item.content} — the plan and its execution must honor this.`
+    );
+}
+
 function buildRisks(
   templateId: string,
   repositories: readonly PlanningRepositoryContext[]

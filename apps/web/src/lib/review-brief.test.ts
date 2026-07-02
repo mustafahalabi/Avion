@@ -263,4 +263,26 @@ describe("generateReviewBrief", () => {
     const brief = generateReviewBrief(FULL_INPUT);
     expect(brief.length).toBeGreaterThan(100);
   });
+
+  // ── Company memory (MUS-258) ────────────────────────────────────────────────
+
+  it("renders company standards & lessons for the reviewer when memory is provided", () => {
+    const brief = generateReviewBrief({
+      ...FULL_INPUT,
+      memory: [
+        { category: "standards", content: "Never expose decrypted tokens to the client." },
+      ],
+    });
+
+    expect(brief).toContain("## Company Standards & Lessons");
+    expect(brief).toContain("**[standards]** Never expose decrypted tokens to the client.");
+    expect(brief).toContain("blocker");
+  });
+
+  it("omits the memory section when no memory is provided", () => {
+    expect(generateReviewBrief(FULL_INPUT)).not.toContain("Company Standards & Lessons");
+    expect(generateReviewBrief({ ...FULL_INPUT, memory: [] })).not.toContain(
+      "Company Standards & Lessons"
+    );
+  });
 });

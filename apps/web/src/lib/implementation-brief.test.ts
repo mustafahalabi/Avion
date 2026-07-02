@@ -309,4 +309,43 @@ describe("generateClaudeImplementationBrief", () => {
       expect(result.brief).not.toContain("undefined");
     });
   });
+
+  describe("company memory section (MUS-258)", () => {
+    it("renders company standards & lessons when memory is provided", () => {
+      const result = generateClaudeImplementationBrief({
+        ...MINIMAL_INPUT,
+        companyMemory: [
+          { category: "standards", content: "Always add ownership guards to new queries." },
+          { category: "review", content: "Validate JSON columns before persisting." },
+        ],
+      });
+
+      expect(result.brief).toContain("## Company Standards & Lessons");
+      expect(result.brief).toContain("**[standards]** Always add ownership guards to new queries.");
+      expect(result.brief).toContain("**[review]** Validate JSON columns before persisting.");
+    });
+
+    it("omits the section entirely without memory", () => {
+      expect(generateClaudeImplementationBrief(MINIMAL_INPUT).brief).not.toContain(
+        "Company Standards & Lessons"
+      );
+      expect(
+        generateClaudeImplementationBrief({ ...MINIMAL_INPUT, companyMemory: [] }).brief
+      ).not.toContain("Company Standards & Lessons");
+    });
+
+    it("caps the rendered items at eight (highest-confidence first)", () => {
+      const memory = Array.from({ length: 12 }, (_, i) => ({
+        category: "learnings",
+        content: `Lesson number ${i + 1}.`,
+      }));
+      const result = generateClaudeImplementationBrief({
+        ...MINIMAL_INPUT,
+        companyMemory: memory,
+      });
+
+      expect(result.brief).toContain("Lesson number 8.");
+      expect(result.brief).not.toContain("Lesson number 9.");
+    });
+  });
 });
