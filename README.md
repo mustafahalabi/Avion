@@ -86,18 +86,33 @@ in the sidebar (`/board`).
 | `pnpm worker` / `pnpm driver` | Autonomous execution worker / scheduler (in `@avion/web`) |
 | `pnpm db:up` / `pnpm db:down` | Start / stop local PostgreSQL |
 
-## Desktop app (Electron)
+## Desktop app (Electron) — shelved
 
-The full web app also runs as a native desktop app. From `apps/web`:
+> ⛔ **Formally SHELVED (MUS-267 decision).** Electron production packaging is
+> **parked, not scheduled** — the product ships as **web + hosted services**.
+> The desktop build was written for the pre-Postgres **SQLite** era; the Postgres
+> migration removed `better-sqlite3` and the bundled file DB, so the production
+> packaging **fails fast by design**.
+
+Production build (`dist` → `electron:build`) exits `1` on purpose:
 
 ```bash
-pnpm --filter @avion/web electron:dev    # next dev + Electron together
-pnpm --filter @avion/web dist            # build installers → apps/web/release/
+pnpm --filter @avion/web dist            # ⛔ exits 1: "[electron:build] SHELVED (MUS-267)"
+pnpm --filter @avion/web electron:build  # ⛔ same guard
 ```
 
-> ⚠️ **Desktop packaging needs a monorepo-layout follow-up.** The standalone
-> Electron build (`scripts/build-electron.mjs`) was written for the
-> single-package layout; after the monorepo move its file-tracing/standalone
-> paths need reworking. The web app (`pnpm dev:web`) is the supported path.
+To attempt it anyway, opt in with `EOS_ELECTRON_BUILD_UNSHELVE=1` — but packaging
+has **not** been reworked for hosted Postgres, so it won't produce a working
+installer without that rework.
 
-See [`docs/ELECTRON.md`](docs/ELECTRON.md) for the desktop architecture.
+`electron:dev` is a thin window over `next dev` (the DB comes from whatever
+Postgres `DATABASE_URL` you started `next dev` with). It is **expected to run but
+is unverified** against the current Postgres runtime (the `electron` binary may
+need its one-time download first):
+
+```bash
+pnpm --filter @avion/web electron:dev    # next dev + a localhost:3000 shell
+```
+
+The supported path is the web app (`pnpm dev` / `pnpm dev:web`). See
+[`docs/ELECTRON.md`](docs/ELECTRON.md) for the full status and how to un-shelve.
