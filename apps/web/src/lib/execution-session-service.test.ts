@@ -1026,6 +1026,34 @@ describe("execution-session-service", () => {
       expect(fresh?.status).toBe("running");
     });
 
+    it("does not reap a healthy long session within the full worker budget by default (MUS-285)", async () => {
+      const now = new Date("2026-07-02T12:00:00.000Z");
+      // 1h in: past the agent timeout (1800s) but well within the DEFAULT total
+      // grace (agent + install + validation + margin = 1800*2 + 600 + 300 = 4500s).
+      const longRunId = await createRunningSession({
+        companyId: "company-1",
+        taskId: "task-1",
+        startedAt: new Date(now.getTime() - 3600 * 1000),
+      });
+      // Far past the total budget → genuinely a crashed worker.
+      const abandonedId = await createRunningSession({
+        companyId: "company-1",
+        taskId: "task-1",
+        startedAt: new Date(now.getTime() - 5000 * 1000),
+      });
+
+      // No explicit timeoutSeconds → the default total-budget grace applies.
+      const reaped = await service.reapStaleRunningSessions({ now });
+      expect(reaped).toBe(1);
+
+      expect(
+        (await prisma.executionSession.findUnique({ where: { id: longRunId } }))?.status
+      ).toBe("running");
+      expect(
+        (await prisma.executionSession.findUnique({ where: { id: abandonedId } }))?.status
+      ).toBe("failed");
+    });
+
     it("scopes reaping to a single company when companyId is given", async () => {
       const now = new Date("2026-07-02T12:00:00.000Z");
       const oldStart = new Date(now.getTime() - 3600 * 1000);
