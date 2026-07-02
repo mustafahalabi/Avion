@@ -277,6 +277,16 @@
 @keyframes av-pulse { 0%,100% { opacity:1 } 50% { opacity:.25 } }
 .av-pulse { animation: av-pulse 1.6s ease-in-out infinite; }
 
+/* Buttery entrance for streamed chat activity + optimistic messages (MUS-305). */
+@keyframes av-fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.av-fade-in-up { animation: av-fade-in-up .22s cubic-bezier(.16,1,.3,1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .av-fade-in-up { animation: none; }
+}
+
 /* ---------- NAV / SHELL ---------- */
 .av-nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 11px;
   border: none; background: transparent; color: var(--av-muted);
