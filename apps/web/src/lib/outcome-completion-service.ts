@@ -99,11 +99,52 @@ export async function evaluateOutcomeCompletionForTask(
     return { outcomeId, completed: false, reason: "Outcome has no tasks yet." };
   }
 
+  // Best-effort: advance the parent feature when its own tasks have all settled
+  // (part (b)) — never let a feature-completion hiccup block outcome bookkeeping.
+  await evaluateFeatureCompletionForTask(companyId, taskId).catch(() => {});
+
   const allSettled = tasks.every(
     (t) => t.status === "done" || t.status === "cancelled"
   );
   const anyDone = tasks.some((t) => t.status === "done");
   if (!allSettled || !anyDone) {
+    // Not completable. If no task is still in flight but a permanently-blocked
+    // one prevents completion, escalate the outcome to `blocked` so it doesn't
+    // sit at `in_delivery` forever; `blocked` is non-terminal, so the CEO
+    // unblocking the task lets the outcome complete later (MUS-297).
+    const anyBlocked = tasks.some((t) => t.status === "blocked");
+    const allSettledOrBlocked = tasks.every(
+      (t) =>
+        t.status === "done" || t.status === "cancelled" || t.status === "blocked"
+    );
+    if (allSettledOrBlocked && anyBlocked && outcome.status !== "blocked") {
+      const blockedCount = tasks.filter((t) => t.status === "blocked").length;
+      await prisma.$transaction(async (tx) => {
+        await tx.outcome.updateMany({
+          where: { id: outcomeId, companyId },
+          data: {
+            status: "blocked",
+            failureReason: `${blockedCount} task(s) permanently blocked (retries exhausted); delivery can't complete without your input.`,
+            updatedAt: new Date(),
+          },
+        });
+        await tx.timelineEntry.create({
+          data: {
+            entityType: "outcome",
+            entityId: outcomeId,
+            eventType: "outcome_blocked",
+            summary: `Outcome "${outcome.title}" blocked — ${blockedCount} task(s) are permanently blocked.`,
+            metadata: JSON.stringify({ blockedCount, triggeredByTaskId: taskId }),
+          },
+        });
+      });
+      return {
+        outcomeId,
+        completed: false,
+        reason: `Outcome escalated to blocked: ${blockedCount} task(s) permanently blocked.`,
+      };
+    }
+
     const open = tasks.filter(
       (t) => t.status !== "done" && t.status !== "cancelled"
     ).length;
@@ -151,6 +192,94 @@ export async function evaluateOutcomeCompletionForTask(
   });
 
   return { outcomeId, completed: true, reason: "All outcome tasks are done." };
+}
+
+/** Feature statuses that are already terminal — never overwritten here. */
+const TERMINAL_FEATURE_STATUSES: ReadonlySet<string> = new Set([
+  "done",
+  "shipped",
+  "cancelled",
+]);
+
+/** Result of a feature-completion evaluation, for logging/tests. */
+export interface FeatureCompletionResult {
+  readonly featureId: string | null;
+  readonly advanced: boolean;
+  readonly reason: string;
+}
+
+/**
+ * Advances a task's parent feature to `done` when all of the feature's tasks are
+ * settled (every one `done`/`cancelled`, at least one `done`). Features were
+ * created `planned` and never advanced — every task under one could be `done`
+ * while the feature read `planned` forever (MUS-297). No-op when the task has no
+ * feature, the feature is already terminal, or work remains.
+ *
+ * @param companyId - Company that owns the task (ownership guard).
+ * @param taskId - Task whose completion may have finished its feature.
+ * @returns What happened, for logging.
+ */
+export async function evaluateFeatureCompletionForTask(
+  companyId: string,
+  taskId: string
+): Promise<FeatureCompletionResult> {
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, companyId },
+    select: { featureId: true },
+  });
+  const featureId = task?.featureId ?? null;
+  if (!featureId) {
+    return { featureId: null, advanced: false, reason: "Task has no feature." };
+  }
+
+  const feature = await prisma.feature.findFirst({
+    where: { id: featureId, companyId },
+    select: { status: true, title: true },
+  });
+  if (!feature) {
+    return { featureId, advanced: false, reason: "Feature not found." };
+  }
+  if (TERMINAL_FEATURE_STATUSES.has(feature.status)) {
+    return {
+      featureId,
+      advanced: false,
+      reason: `Feature is already terminal ("${feature.status}").`,
+    };
+  }
+
+  const tasks = await prisma.task.findMany({
+    where: { companyId, featureId },
+    select: { status: true },
+  });
+  if (tasks.length === 0) {
+    return { featureId, advanced: false, reason: "Feature has no tasks." };
+  }
+
+  const allSettled = tasks.every(
+    (t) => t.status === "done" || t.status === "cancelled"
+  );
+  const anyDone = tasks.some((t) => t.status === "done");
+  if (!allSettled || !anyDone) {
+    return { featureId, advanced: false, reason: "Feature still has open tasks." };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.feature.updateMany({
+      where: { id: featureId, companyId },
+      data: { status: "done", updatedAt: new Date() },
+    });
+    await tx.timelineEntry.create({
+      data: {
+        entityType: "feature",
+        entityId: featureId,
+        eventType: "feature_completed",
+        summary: `Feature "${feature.title}" completed — all its tasks are done.`,
+        metadata: JSON.stringify({ taskCount: tasks.length, triggeredByTaskId: taskId }),
+      },
+    });
+  });
+
+  return { featureId, advanced: true, reason: "All feature tasks are done." };
 }
 
 /**
