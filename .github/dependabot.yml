@@ -1,0 +1,29 @@
+# Dependabot for the Avion monorepo.
+#
+# The npm ecosystem entry at the repo root covers the whole pnpm workspace
+# (pnpm-lock.yaml + apps/* and packages/* manifests). Minor and patch bumps
+# are grouped into a single weekly PR to keep noise down; majors stay as
+# individual PRs so they get individual review.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
