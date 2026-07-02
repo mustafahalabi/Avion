@@ -16,11 +16,25 @@ beforeAll(async () => {
   await prisma.company.create({
     data: { id: "company-1", name: "Acme", slug: "acme", ownerId: "user-1" },
   });
+  // A workspace + project so feature-completion tests can seed features.
+  await prisma.workspace.create({
+    data: { id: "workspace-1", name: "Main", slug: "main", companyId: "company-1" },
+  });
+  await prisma.project.create({
+    data: {
+      id: "project-1",
+      name: "Platform",
+      slug: "platform",
+      companyId: "company-1",
+      workspaceId: "workspace-1",
+    },
+  });
 });
 
 afterEach(async () => {
   await prisma.$executeRawUnsafe(`DELETE FROM "TimelineEntry"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Task"`);
+  await prisma.$executeRawUnsafe(`DELETE FROM "Feature"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "RuntimeEvent"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Outcome"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "RuntimeRequest"`);
@@ -173,5 +187,112 @@ describe("markOutcomeReleased", () => {
 
     const outcome = await prisma.outcome.findUnique({ where: { id: outcomeId } });
     expect(outcome?.status).toBe("in_delivery");
+  });
+});
+
+describe("evaluateOutcomeCompletionForTask — blocked escalation (MUS-297)", () => {
+  it("escalates the outcome to blocked when a task is permanently blocked and the rest are settled", async () => {
+    const { outcomeId, taskIds } = await seedOutcomeWithTasks(["done", "blocked"]);
+
+    const result = await service.evaluateOutcomeCompletionForTask("company-1", taskIds[1]);
+
+    expect(result.completed).toBe(false);
+    expect(result.reason).toMatch(/escalated to blocked/i);
+    const outcome = await prisma.outcome.findUnique({ where: { id: outcomeId } });
+    expect(outcome?.status).toBe("blocked");
+    expect(outcome?.failureReason).toMatch(/permanently blocked/i);
+
+    const timeline = await prisma.timelineEntry.findFirst({
+      where: { entityId: outcomeId, eventType: "outcome_blocked" },
+    });
+    expect(timeline).not.toBeNull();
+  });
+
+  it("stays in_delivery (not blocked) while other tasks are still in flight", async () => {
+    const { outcomeId, taskIds } = await seedOutcomeWithTasks(["blocked", "in-progress"]);
+
+    const result = await service.evaluateOutcomeCompletionForTask("company-1", taskIds[0]);
+
+    expect(result.completed).toBe(false);
+    expect(result.reason).toMatch(/unfinished task/i);
+    const outcome = await prisma.outcome.findUnique({ where: { id: outcomeId } });
+    expect(outcome?.status).toBe("in_delivery");
+  });
+
+  it("recovers: a blocked outcome completes once the blocked task is unblocked and done", async () => {
+    const { outcomeId, taskIds } = await seedOutcomeWithTasks(["done", "blocked"]);
+    await service.evaluateOutcomeCompletionForTask("company-1", taskIds[1]);
+    expect(
+      (await prisma.outcome.findUnique({ where: { id: outcomeId } }))?.status
+    ).toBe("blocked");
+
+    // CEO unblocks → the task is reworked to done.
+    await prisma.task.update({ where: { id: taskIds[1] }, data: { status: "done" } });
+    const result = await service.evaluateOutcomeCompletionForTask("company-1", taskIds[1]);
+
+    expect(result.completed).toBe(true);
+    expect(
+      (await prisma.outcome.findUnique({ where: { id: outcomeId } }))?.status
+    ).toBe("completed");
+  });
+});
+
+describe("evaluateFeatureCompletionForTask (MUS-297)", () => {
+  async function seedFeatureWithTasks(
+    taskStatuses: readonly string[]
+  ): Promise<{ featureId: string; taskIds: string[] }> {
+    const feature = await prisma.feature.create({
+      data: {
+        title: "Login feature",
+        companyId: "company-1",
+        projectId: "project-1",
+        status: "planned",
+      },
+    });
+    const taskIds: string[] = [];
+    for (const [index, status] of taskStatuses.entries()) {
+      const task = await prisma.task.create({
+        data: {
+          title: `Feature task ${index + 1}`,
+          companyId: "company-1",
+          featureId: feature.id,
+          status,
+        },
+      });
+      taskIds.push(task.id);
+    }
+    return { featureId: feature.id, taskIds };
+  }
+
+  it("advances a feature to done when all its tasks are settled", async () => {
+    const { featureId, taskIds } = await seedFeatureWithTasks(["done", "done", "cancelled"]);
+
+    const result = await service.evaluateFeatureCompletionForTask("company-1", taskIds[0]);
+
+    expect(result.advanced).toBe(true);
+    const feature = await prisma.feature.findUnique({ where: { id: featureId } });
+    expect(feature?.status).toBe("done");
+    const timeline = await prisma.timelineEntry.findFirst({
+      where: { entityId: featureId, eventType: "feature_completed" },
+    });
+    expect(timeline).not.toBeNull();
+  });
+
+  it("leaves a feature planned while a task is still open", async () => {
+    const { featureId, taskIds } = await seedFeatureWithTasks(["done", "in-progress"]);
+
+    const result = await service.evaluateFeatureCompletionForTask("company-1", taskIds[0]);
+
+    expect(result.advanced).toBe(false);
+    expect(
+      (await prisma.feature.findUnique({ where: { id: featureId } }))?.status
+    ).toBe("planned");
+  });
+
+  it("no-ops for a task with no feature", async () => {
+    const { taskIds } = await seedOutcomeWithTasks(["done"]);
+    const result = await service.evaluateFeatureCompletionForTask("company-1", taskIds[0]);
+    expect(result.featureId).toBeNull();
+    expect(result.advanced).toBe(false);
   });
 });

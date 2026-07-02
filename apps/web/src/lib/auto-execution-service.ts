@@ -31,6 +31,7 @@ import {
 } from "@/lib/implementation-brief";
 import { getRelevantCompanyMemory } from "@/lib/memory/memory-retrieval-service";
 import { notify } from "@/lib/notify";
+import { evaluateOutcomeCompletionForTask } from "@/lib/outcome-completion-service";
 import { prisma } from "@/lib/prisma";
 import { selectNextExecutableTaskForCompany } from "@/lib/task-selection-service";
 import {
@@ -465,6 +466,11 @@ async function blockTaskAfterExhaustedRetries(
   } catch {
     // Notifications are best-effort.
   }
+
+  // A permanently-blocked task means the outcome can't complete — re-evaluate so
+  // it escalates to `blocked` rather than sitting at `in_delivery` forever
+  // (MUS-297). Best-effort: outcome bookkeeping must never break the block.
+  await evaluateOutcomeCompletionForTask(companyId, taskId).catch(() => {});
 }
 
 /**
