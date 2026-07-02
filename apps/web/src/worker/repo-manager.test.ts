@@ -149,6 +149,60 @@ describe("commitAndPushSessionBranch", () => {
   });
 });
 
+describe("hardened git invocation (MUS-293)", () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** The options object execSync was called with for the first matching command. */
+  function optionsFor(substr: string): Record<string, unknown> {
+    const call = mockExecSync.mock.calls.find((c) =>
+      String(c[0]).includes(substr)
+    );
+    return (call?.[1] ?? {}) as Record<string, unknown>;
+  }
+
+  it("bounds every git command with a timeout + SIGKILL and disables prompts", () => {
+    configureGit({ porcelain: " M src/index.ts\n", headSha: "newsha111" });
+    commitAndPushSessionBranch(BASE_INPUT);
+
+    const gitCalls = mockExecSync.mock.calls.filter((c) =>
+      String(c[0]).startsWith("git")
+    );
+    expect(gitCalls.length).toBeGreaterThan(0);
+    for (const [, opts] of gitCalls as [string, Record<string, unknown>][]) {
+      expect(typeof opts.timeout).toBe("number");
+      expect(opts.timeout as number).toBeGreaterThan(0);
+      expect(opts.killSignal).toBe("SIGKILL");
+      const env = opts.env as NodeJS.ProcessEnv;
+      expect(env.GIT_TERMINAL_PROMPT).toBe("0");
+      // stdin must never inherit a TTY — that's what lets git hang on a prompt.
+      expect((opts.stdio as unknown[])[0]).not.toBe("inherit");
+    }
+  });
+
+  it("gives network ops (push) a larger bound than local ops (status)", () => {
+    configureGit({ porcelain: " M src/index.ts\n", headSha: "newsha111" });
+    commitAndPushSessionBranch(BASE_INPUT);
+
+    const push = optionsFor("git push");
+    const status = optionsFor("git status");
+    expect(push.timeout as number).toBeGreaterThan(status.timeout as number);
+  });
+
+  it("writes the commit message via piped stdin, never an inherited TTY", () => {
+    configureGit({ porcelain: " M src/index.ts\n", headSha: "newsha111" });
+    commitAndPushSessionBranch(BASE_INPUT);
+
+    const commit = optionsFor("commit -F -");
+    expect(commit.input).toBe(BASE_INPUT.commitMessage);
+    expect((commit.stdio as unknown[])[0]).toBe("pipe");
+  });
+});
+
 /** Configures the porcelain output returned for `git status --porcelain`. */
 function configurePorcelain(porcelain: string): void {
   mockExecSync.mockImplementation((command: string) => {
