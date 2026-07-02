@@ -10,14 +10,14 @@ Items are grouped by theme and approximately ordered by dependency and strategic
 
 | ID | Item | Notes |
 |---|---|---|
-| V2-I-001 | Migrate database from SQLite to PostgreSQL | Required before multi-user or production deployment; use Prisma migrate |
+| V2-I-001 | ✅ **Done** — Migrate database from SQLite to PostgreSQL | Shipped 2026-06-30 (MUS-247): `provider = "postgresql"` via `@prisma/adapter-pg`, migrations re-baselined at `20260630052132_init`, better-sqlite3 removed |
 | V2-I-002 | Establish versioned migration history | Baseline V1 schema; switch to `prisma migrate deploy` |
 | V2-I-003 | Replace JSON TEXT columns with native jsonb | Enables relational queries into tech stack, checks, metadata fields |
 | V2-I-004 | Add `ReleaseTask` join table | Replace `Release.taskIds` JSON array with proper relational join |
 | V2-I-005 | Background job queue | Vercel Queues or equivalent; required for AI inference and live sync |
 | V2-I-006 | Connection pooling | PgBouncer or Vercel Postgres pooler for PostgreSQL |
 | V2-I-007 | Re-encrypt legacy plaintext credentials | One-time migration; remove legacy path in `decryptCredentials()` |
-| V2-I-008 | Rename `src/proxy.ts` → `src/middleware.ts` | Align with Next.js convention |
+| V2-I-008 | Rename `apps/web/src/proxy.ts` → `apps/web/src/middleware.ts` | Align with Next.js convention |
 
 ---
 
