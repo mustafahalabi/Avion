@@ -1,8 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
-/.pnp
+# Dependencies
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -10,45 +10,42 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
+# Build outputs
+.next/
+out/
+dist/
+build/
+.turbo/
 
-# next.js
-/.next/
-/out/
+# Electron — staging output and packaged installers
+release/
+.electron-build/
 
-# production
-/build
+# Testing
+coverage/
 
-# electron — staging output (scripts/build-electron.mjs) and packaged installers
-/build/
-/release/
-/.electron-build/
+# Env files — *.example are tracked; real env files are not
+.env
+.env.*
+!.env.example
 
-# misc
+# Prisma generated clients + local databases
+**/generated/prisma/
+*.db
+*.db-journal
+*.db.bak*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Misc
 .DS_Store
 *.pem
-
-# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files — .env.example is tracked; real env files are not
-.env*
-!.env.example
-
-# vercel
+# Vercel
 .vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-/src/generated/prisma
-
-# Database
-prisma/dev.db
-prisma/dev.db-journal
-prisma/*.db

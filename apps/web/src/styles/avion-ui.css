@@ -1,0 +1,299 @@
+/* ============================================================
+   avion UI — brutalist design system
+   Framework-agnostic CSS. Drop into any project.
+   Fonts: Space Grotesk (display/body), JetBrains Mono (labels/meta)
+   Add to <head>:
+   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+   ============================================================ */
+
+/* ---------- TOKENS ---------- */
+:root,
+.av-theme {
+  --av-bg:        #EBE7DC;   /* app background        */
+  --av-surface:   #F4F1E9;   /* cards, bars, inputs   */
+  --av-text:      #15140F;   /* primary ink           */
+  --av-muted:     #726D62;   /* secondary text        */
+  --av-bd:        #15140F;   /* hard borders (1.5px)  */
+  --av-hair:      rgba(21,20,15,.12);  /* dividers / fills */
+  --av-accent:    #FF4A1C;   /* vermilion — one use   */
+  --av-on-accent: #F3F0E8;   /* text on accent        */
+  --av-shadow:    rgba(21,20,15,.18);  /* offset block shadow */
+
+  /* Reuse the fonts already loaded via next/font (src/app/layout.tsx) so we
+     don't fetch Space Grotesk / JetBrains Mono twice. */
+  --av-font:      var(--font-geist-sans), 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --av-mono:      var(--font-geist-mono), 'JetBrains Mono', ui-monospace, monospace;
+  --av-border:    1.5px solid var(--av-bd);
+  --av-r:         0;         /* radius — brutalist = 0 */
+}
+
+/* Dark theme: add data-theme="dark" to a wrapper (or <html>) */
+[data-theme="dark"] {
+  --av-bg:        #100F0B;
+  --av-surface:   #1A1915;
+  --av-text:      #F3F0E8;
+  --av-muted:     #928C7E;
+  --av-bd:        #46443A;
+  --av-hair:      rgba(243,240,232,.10);
+  --av-accent:    #FF4A1C;
+  --av-on-accent: #F3F0E8;
+  --av-shadow:    rgba(0,0,0,.5);
+}
+
+/* ---------- BASE ---------- */
+.av-theme,
+.av-root {
+  background: var(--av-bg);
+  color: var(--av-text);
+  font-family: var(--av-font);
+  -webkit-font-smoothing: antialiased;
+}
+.av-theme *,
+.av-root * { box-sizing: border-box; }
+.av-theme ::selection { background: var(--av-accent); color: var(--av-on-accent); }
+
+/* ---------- TYPOGRAPHY ---------- */
+.av-display { font-weight: 700; font-size: 48px; letter-spacing: -.03em; line-height: .9; }
+.av-h1      { font-weight: 700; font-size: 30px; letter-spacing: -.02em; line-height: 1; }
+.av-h2      { font-weight: 700; font-size: 24px; letter-spacing: -.02em; line-height: 1.05; }
+.av-h3      { font-weight: 700; font-size: 19px; letter-spacing: -.015em; }
+.av-body    { font-size: 15px; line-height: 1.5; }
+.av-small   { font-size: 13px; line-height: 1.45; color: var(--av-muted); }
+.av-mono    { font-family: var(--av-mono); font-size: 12px; letter-spacing: .04em; }
+.av-label   { font-family: var(--av-mono); font-size: 10px; font-weight: 500;
+              letter-spacing: .12em; text-transform: uppercase; color: var(--av-muted); }
+.av-accent-text { color: var(--av-accent); }
+
+/* ---------- BUTTONS ---------- */
+.av-btn {
+  font-family: var(--av-font); font-weight: 500; font-size: 14px;
+  padding: 11px 20px; border: var(--av-border); border-radius: var(--av-r);
+  background: var(--av-text); color: var(--av-bg);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 9px;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+  text-decoration: none; line-height: 1.1; white-space: nowrap;
+}
+.av-btn:hover { background: var(--av-accent); color: var(--av-on-accent); }
+.av-btn--accent { background: var(--av-accent); color: var(--av-on-accent); }
+.av-btn--accent:hover { filter: brightness(.92); background: var(--av-accent); }
+.av-btn--ghost { background: transparent; color: var(--av-text); }
+.av-btn--ghost:hover { background: var(--av-text); color: var(--av-bg); }
+.av-btn--mono {
+  font-family: var(--av-mono); font-size: 12px; font-weight: 500;
+  letter-spacing: .05em; text-transform: uppercase;
+  background: transparent; color: var(--av-text); padding: 11px 16px;
+}
+.av-btn--mono:hover { background: var(--av-hair); color: var(--av-text); }
+.av-btn--sm { padding: 8px 13px; font-size: 12px; }
+.av-btn[disabled], .av-btn:disabled { opacity: .5; cursor: not-allowed; background: transparent; color: var(--av-muted); }
+
+/* ---------- TAGS / BADGES ---------- */
+.av-tag {
+  font-family: var(--av-mono); font-size: 10px; font-weight: 500; letter-spacing: .1em;
+  text-transform: uppercase; padding: 5px 9px; border: 1px solid var(--av-bd);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.av-tag--accent { background: var(--av-accent); color: var(--av-on-accent); border-color: var(--av-accent); }
+.av-tag--ink    { background: var(--av-text); color: var(--av-bg); border-color: var(--av-bd); }
+.av-tag__dot { width: 7px; height: 7px; background: var(--av-accent); display: inline-block; }
+.av-tag__dot--round { border-radius: 50%; }
+
+/* ---------- INPUTS / FORMS ---------- */
+.av-input {
+  font-family: var(--av-font); font-size: 14px; color: var(--av-text);
+  background: var(--av-surface); border: var(--av-border); border-radius: var(--av-r);
+  padding: 11px 13px; width: 100%; outline: none;
+}
+.av-input::placeholder { color: var(--av-muted); }
+.av-input:focus { border-color: var(--av-accent); }
+.av-input--mono { font-family: var(--av-mono); font-size: 12px; }
+
+.av-field { display: flex; flex-direction: column; gap: 7px; }
+.av-field__label { font-family: var(--av-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--av-muted); }
+
+/* search input: wrap an .av-input in .av-search and prepend an svg icon */
+.av-search { position: relative; display: flex; align-items: center; }
+.av-search svg { position: absolute; left: 11px; pointer-events: none; }
+.av-search .av-input { padding-left: 32px; }
+
+/* ---------- CUSTOM SELECT (replaces native <select>) ----------
+   Markup:
+   <div class="av-select" data-open>
+     <button class="av-select__btn">Value <svg>…chevron…</svg></button>
+     <div class="av-select__pop">
+       <button class="av-select__opt">Option A</button> …
+     </div>
+   </div>
+   Toggle the [data-open] attribute in JS to show .av-select__pop.        */
+.av-select { position: relative; }
+.av-select__btn {
+  font-family: var(--av-font); font-size: 14px; color: var(--av-text);
+  background: var(--av-surface); border: var(--av-border); border-radius: var(--av-r);
+  padding: 11px 13px; width: 100%; cursor: pointer; text-align: left;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.av-select__btn:focus { outline: none; border-color: var(--av-accent); }
+.av-select__btn > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-select__pop {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  background: var(--av-surface); border: var(--av-border);
+  box-shadow: 6px 6px 0 var(--av-shadow);
+}
+.av-select[data-open] .av-select__pop { display: block; }
+.av-select__opt {
+  width: 100%; text-align: left; background: transparent; border: none;
+  border-bottom: 1px solid var(--av-hair); padding: 10px 12px;
+  font-family: var(--av-font); font-size: 14px; color: var(--av-text); cursor: pointer;
+}
+.av-select__opt:last-child { border-bottom: none; }
+.av-select__opt:hover { background: var(--av-hair); }
+.av-select__opt[aria-selected="true"] { font-weight: 700; }
+
+/* ---------- SWITCH / TOGGLE ----------
+   <button class="av-switch is-on"><span class="av-switch__knob"></span></button> */
+.av-switch {
+  width: 44px; height: 24px; background: var(--av-hair); position: relative;
+  border: none; cursor: pointer; padding: 0; flex-shrink: 0; transition: background .2s;
+}
+.av-switch__knob {
+  position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+  background: var(--av-on-accent); transition: transform .2s;
+}
+.av-switch.is-on { background: var(--av-accent); }
+.av-switch.is-on .av-switch__knob { transform: translateX(20px); }
+[data-theme] .av-switch:not(.is-on) .av-switch__knob { background: var(--av-muted); }
+
+/* checkbox */
+.av-check {
+  width: 20px; height: 20px; border: var(--av-border); background: transparent;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--av-on-accent); font-size: 13px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+}
+.av-check.is-on { background: var(--av-accent); border-color: var(--av-accent); }
+
+/* segmented control */
+.av-seg { display: inline-flex; border: var(--av-border); }
+.av-seg__item {
+  font-family: var(--av-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  padding: 9px 15px; border: none; background: transparent; color: var(--av-text); cursor: pointer;
+}
+.av-seg__item + .av-seg__item { border-left: var(--av-border); }
+.av-seg__item.is-active { background: var(--av-text); color: var(--av-bg); }
+
+/* ---------- CARDS ---------- */
+.av-card { border: var(--av-border); background: var(--av-surface); }
+.av-card--raised { box-shadow: 6px 6px 0 var(--av-shadow); }
+.av-card__head {
+  padding: 16px 18px; border-bottom: var(--av-border);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-weight: 700; font-size: 16px;
+}
+.av-card__body { padding: 18px; }
+
+/* stat tile */
+.av-stat { border: var(--av-border); background: var(--av-surface); padding: 20px;
+  display: flex; flex-direction: column; gap: 10px; }
+.av-stat__label { font-family: var(--av-mono); font-size: 10.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--av-muted); }
+.av-stat__val { font-weight: 700; font-size: 38px; letter-spacing: -.03em; line-height: 1; }
+.av-stat__delta { font-family: var(--av-mono); font-size: 11px; color: var(--av-accent); }
+/* grid of tiles */
+.av-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px,1fr)); gap: 14px; }
+
+/* ---------- TABLE (CSS grid rows) ----------
+   Set --cols on .av-table to your column template.                       */
+.av-table { border: var(--av-border); background: var(--av-surface); --cols: 2fr 1fr 1fr; }
+.av-table__head, .av-table__row {
+  display: grid; grid-template-columns: var(--cols); gap: 16px; align-items: center;
+  padding: 13px 18px;
+}
+.av-table__head {
+  border-bottom: var(--av-border);
+  font-family: var(--av-mono); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--av-muted);
+}
+.av-table__row { border-bottom: 1px solid var(--av-hair); }
+.av-table__row:last-child { border-bottom: none; }
+.av-table__row:hover { background: var(--av-hair); }
+
+/* progress bar */
+.av-progress { height: 8px; background: var(--av-hair); position: relative; display: block; width: 100%; }
+.av-progress__fill { position: absolute; inset: 0 auto 0 0; background: var(--av-accent); height: 100%; }
+
+/* ---------- KANBAN ---------- */
+.av-kboard { display: flex; gap: 14px; align-items: flex-start; overflow-x: auto; padding-bottom: 6px; }
+.av-kcol { width: 230px; flex-shrink: 0; border: var(--av-border); background: var(--av-surface); }
+.av-kcol__head { padding: 11px 14px; border-bottom: var(--av-border);
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--av-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 500; }
+.av-kcol__body { padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+.av-kcard { border: var(--av-border); background: var(--av-bg); padding: 12px; cursor: grab;
+  transition: box-shadow .15s ease; }
+.av-kcard:hover { box-shadow: 4px 4px 0 var(--av-shadow); }
+
+/* ---------- OVERLAYS ---------- */
+.av-overlay { position: fixed; inset: 0; background: rgba(21,20,15,.45); z-index: 140;
+  display: flex; align-items: center; justify-content: center; padding: 24px; }
+.av-modal { width: 460px; max-width: 100%; background: var(--av-surface);
+  border: var(--av-border); box-shadow: 10px 10px 0 var(--av-shadow); }
+.av-modal__head { padding: 16px 20px; border-bottom: var(--av-border);
+  display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 17px; }
+.av-modal__body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.av-modal__foot { padding: 16px 20px; border-top: var(--av-border);
+  display: flex; justify-content: flex-end; gap: 10px; }
+
+.av-drawer { position: fixed; top: 0; right: 0; height: 100vh; width: 380px; max-width: 90vw;
+  background: var(--av-surface); border-left: var(--av-border); z-index: 141;
+  transform: translateX(100%); transition: transform .3s cubic-bezier(.16,1,.3,1);
+  display: flex; flex-direction: column; }
+.av-drawer.is-open { transform: translateX(0); }
+
+.av-iconbtn { border: var(--av-border); background: var(--av-surface); width: 40px; height: 40px;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: var(--av-text); padding: 0; }
+.av-iconbtn:hover { background: var(--av-text); color: var(--av-bg); }
+.av-iconbtn--sm { width: 30px; height: 30px; font-size: 15px; line-height: 1; }
+
+/* toast */
+.av-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  z-index: 120; background: var(--av-text); color: var(--av-bg); border: var(--av-border);
+  padding: 13px 18px; display: flex; align-items: center; gap: 12px;
+  box-shadow: 6px 6px 0 var(--av-shadow); font-weight: 500; font-size: 14px; }
+.av-toast__dot { width: 9px; height: 9px; background: var(--av-accent); flex-shrink: 0; }
+
+/* ---------- STATES ---------- */
+.av-spinner { width: 40px; height: 40px; border: 3px solid var(--av-hair);
+  border-top-color: var(--av-accent); border-radius: 50%; animation: av-spin .8s linear infinite; }
+@keyframes av-spin { to { transform: rotate(360deg); } }
+
+.av-skel { height: 12px; background: var(--av-hair); animation: av-skel 1.4s ease-in-out infinite; }
+@keyframes av-skel { 0%,100% { opacity:.5 } 50% { opacity:.9 } }
+
+.av-empty { border: 1.5px dashed var(--av-bd); background: var(--av-surface); padding: 28px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.av-empty__icon { width: 30px; height: 30px; border: var(--av-border);
+  display: inline-flex; align-items: center; justify-content: center; color: var(--av-muted); }
+
+@keyframes av-pulse { 0%,100% { opacity:1 } 50% { opacity:.25 } }
+.av-pulse { animation: av-pulse 1.6s ease-in-out infinite; }
+
+/* ---------- NAV / SHELL ---------- */
+.av-nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 11px;
+  border: none; background: transparent; color: var(--av-muted);
+  font-family: var(--av-font); font-size: 14px; font-weight: 500; cursor: pointer;
+  text-align: left; width: 100%; transition: background .12s, color .12s; }
+.av-nav-item:hover { background: var(--av-hair); color: var(--av-text); }
+.av-nav-item.is-active { background: var(--av-text); color: var(--av-bg); font-weight: 700; }
+.av-nav-item__count { margin-left: auto; font-family: var(--av-mono); font-size: 10px;
+  background: var(--av-accent); color: var(--av-on-accent); padding: 1px 6px; }
+
+.av-nav-group { font-family: var(--av-mono); font-size: 10px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--av-muted); padding: 16px 10px 6px; }
+
+/* logo mark */
+.av-logo { display: inline-flex; align-items: center; gap: 11px; font-weight: 700;
+  letter-spacing: -.02em; font-size: 18px; color: var(--av-text); text-decoration: none; }
+.av-logo__mark { width: 26px; height: 26px; background: var(--av-text);
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.av-logo__mark span { width: 10px; height: 10px; background: var(--av-accent); }
+.av-logo .v { color: var(--av-accent); }

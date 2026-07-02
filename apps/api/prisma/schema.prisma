@@ -1,0 +1,68 @@
+// @avion/api Prisma schema — a READ-ONLY projection of the shared Avion database.
+//
+// @avion/web owns the canonical 37-model schema *and* all migrations. This api
+// only models the few tables the realtime board reads. Model + field names are
+// copied verbatim from the canonical schema so Prisma maps them to the exact
+// same PostgreSQL tables/columns. Never run `migrate`/`db push` from here.
+
+generator client {
+  // ESM is Prisma 7's default; NestJS compiles to CommonJS, so emit CJS.
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  // Prisma 7: the connection URL lives in prisma.config.ts (for the CLI) and is
+  // supplied at runtime via the @prisma/adapter-pg adapter (see prisma.service.ts).
+  provider = "postgresql"
+}
+
+model Company {
+  id   String @id
+  name String
+  slug String @unique
+
+  @@map("Company")
+}
+
+model ExecutionSession {
+  id          String    @id
+  companyId   String
+  taskId      String?
+  status      String    @default("queued")
+  agentType   String    @default("claude_code")
+  prUrl       String?
+  prNumber    Int?
+  prStatus    String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@map("ExecutionSession")
+}
+
+model Task {
+  id        String   @id
+  companyId String
+  title     String
+  status    String   @default("todo")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("Task")
+}
+
+model Notification {
+  id        String   @id
+  companyId String?
+  type      String   @default("info")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("Notification")
+}
