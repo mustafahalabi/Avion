@@ -13,6 +13,22 @@ import { checkPlanGrounding } from "./plan-grounding";
 /** Wall-clock budget (seconds) granted to the LLM for a planning completion. */
 const AI_PLANNING_TIMEOUT_SECONDS = 180;
 
+/** Max stored length of a fallback reason (persisted to a text column). */
+const MAX_FALLBACK_REASON_LENGTH = 500;
+
+/**
+ * Truncates a fallback reason for storage.
+ *
+ * @param reason - Raw reason text.
+ * @returns The reason, capped at {@link MAX_FALLBACK_REASON_LENGTH} with an ellipsis.
+ */
+function truncateReason(reason: string): string {
+  const trimmed = reason.trim();
+  return trimmed.length > MAX_FALLBACK_REASON_LENGTH
+    ? `${trimmed.slice(0, MAX_FALLBACK_REASON_LENGTH - 1)}…`
+    : trimmed;
+}
+
 /** Dependencies injected into {@link AiPlanningAdapter}. */
 export interface AiPlanningAdapterDeps {
   /** Provider-independent LLM used to generate the raw draft text. */
@@ -59,24 +75,66 @@ export class AiPlanningAdapter implements PlanningAdapter {
       });
 
       if (!completion.ok) {
-        return this.deps.fallback.generate(input);
+        return this.fallbackWith(input, `LLM completion failed: ${completion.error}`);
       }
 
       const parsed = parseAiPlanningDraft(completion.text);
       if (!parsed.ok) {
-        return this.deps.fallback.generate(input);
+        return this.fallbackWith(
+          input,
+          `AI output did not parse into a valid plan: ${parsed.error}`
+        );
       }
 
       const qualityIssues = validatePlanningDraftQuality(parsed.draft);
       const grounding = checkPlanGrounding(parsed.draft, input);
 
       if (qualityIssues.length > 0 || grounding.hardIssues.length > 0) {
-        return this.deps.fallback.generate(input);
+        const reasons = [
+          ...qualityIssues.map((issue) => issue.message),
+          ...grounding.hardIssues,
+        ];
+        return this.fallbackWith(
+          input,
+          `AI plan failed validation: ${reasons.slice(0, 3).join("; ")}`
+        );
       }
 
-      return { status: "success", draft: parsed.draft };
-    } catch {
-      return this.deps.fallback.generate(input);
+      return {
+        status: "success",
+        draft: parsed.draft,
+        provenance: { provider: "ai", providerAttempted: "ai", fallbackReason: null },
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.fallbackWith(input, `AI planning threw: ${message}`);
     }
+  }
+
+  /**
+   * Runs the deterministic fallback and stamps provenance recording that the AI
+   * path was attempted and why it fell back (MUS-271). A failed fallback is
+   * returned as-is (nothing to attribute).
+   *
+   * @param input - Company-scoped outcome context.
+   * @param reason - Why the AI path could not be trusted.
+   * @returns The fallback's result, provenance-stamped on success.
+   */
+  private async fallbackWith(
+    input: OutcomePlanningInput,
+    reason: string
+  ): Promise<PlanningGenerationResult> {
+    const result = await this.deps.fallback.generate(input);
+    if (result.status !== "success") {
+      return result;
+    }
+    return {
+      ...result,
+      provenance: {
+        provider: "deterministic",
+        providerAttempted: "ai",
+        fallbackReason: truncateReason(reason),
+      },
+    };
   }
 }

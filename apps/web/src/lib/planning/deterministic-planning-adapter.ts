@@ -24,6 +24,19 @@ export class DeterministicPlanningAdapter implements PlanningAdapter {
   async generate(
     input: OutcomePlanningInput
   ): Promise<PlanningGenerationResult> {
-    return generateDeterministicPlanningDraft(input);
+    const result = generateDeterministicPlanningDraft(input);
+    if (result.status !== "success") {
+      return result;
+    }
+    // Stamp provenance so downstream persistence can distinguish a plain
+    // deterministic plan from an AI plan or an AI→deterministic fallback (MUS-271).
+    return {
+      ...result,
+      provenance: {
+        provider: "deterministic",
+        providerAttempted: null,
+        fallbackReason: null,
+      },
+    };
   }
 }

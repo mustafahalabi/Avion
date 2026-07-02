@@ -5,9 +5,11 @@ import {
   type DeterministicPlanningDraft,
   type PlanningGenerationFailure,
   type PlanningGenerationResult,
+  type PlanningProvenance,
   type PlanningRepositoryContext,
 } from "@/lib/planning-generator";
 import { resolvePlanningAdapter } from "@/lib/planning/planning-provider";
+import { describePlanProvenance } from "@/lib/planning/plan-provenance";
 import { getRelevantCompanyMemory } from "@/lib/memory/memory-retrieval-service";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 import {
@@ -274,6 +276,7 @@ async function persistPlanningGeneration(input: {
     return persistSuccessfulGeneration(
       input.outcome,
       input.generation.draft,
+      input.generation.provenance ?? null,
       input.actorId,
       input.version
     );
@@ -298,9 +301,21 @@ async function persistPlanningGeneration(input: {
 async function persistSuccessfulGeneration(
   outcome: OutcomeForPlanning,
   draft: DeterministicPlanningDraft,
+  provenance: PlanningProvenance | null,
   actorId: string | null,
   version: number
 ): Promise<PlanningDraftGenerationResponse> {
+  // Provenance suffix (MUS-271) so the timeline distinguishes an AI plan from an
+  // AI→deterministic fallback instead of presenting both identically.
+  const provenanceBadge = describePlanProvenance({
+    provider: provenance?.provider ?? null,
+    providerAttempted: provenance?.providerAttempted ?? null,
+    fallbackReason: provenance?.fallbackReason ?? null,
+  });
+  const provenanceSuffix = ` [${provenanceBadge.label}${
+    provenanceBadge.detail ? `: ${provenanceBadge.detail}` : ""
+  }]`;
+
   const planningDraft = await prisma.$transaction(async (tx) => {
     const persistedDraft = await tx.planningDraft.upsert({
       where: {
@@ -317,6 +332,9 @@ async function persistSuccessfulGeneration(
         summary: draft.summary,
         status: draft.status,
         version,
+        provider: provenance?.provider ?? null,
+        providerAttempted: provenance?.providerAttempted ?? null,
+        fallbackReason: provenance?.fallbackReason ?? null,
         scope: JSON.stringify(draft.scope),
         nonScope: JSON.stringify(draft.nonScope),
         assumptions: JSON.stringify(draft.assumptions),
@@ -346,6 +364,9 @@ async function persistSuccessfulGeneration(
         reviewPlan: JSON.stringify(draft.reviewPlan),
         qaPlan: JSON.stringify(draft.qaPlan),
         releasePlan: JSON.stringify(draft.releasePlan),
+        provider: provenance?.provider ?? null,
+        providerAttempted: provenance?.providerAttempted ?? null,
+        fallbackReason: provenance?.fallbackReason ?? null,
         generationError: null,
       },
       select: { id: true, status: true },
@@ -375,7 +396,7 @@ async function persistSuccessfulGeneration(
         data: {
           requestId: outcome.runtimeRequestId,
           type: OUTCOME_PLANNING_EVENT_TYPES.planGenerated,
-          description: `Planning draft generated for outcome "${outcome.title}". No work records were created.`,
+          description: `Planning draft generated for outcome "${outcome.title}".${provenanceSuffix} No work records were created.`,
           actor: "System",
         },
       });
@@ -386,12 +407,14 @@ async function persistSuccessfulGeneration(
         entityType: "outcome",
         entityId: outcome.id,
         eventType: OUTCOME_PLANNING_EVENT_TYPES.planGenerated,
-        summary: `Planning draft generated for "${outcome.title}". No work records were created.`,
+        summary: `Planning draft generated for "${outcome.title}".${provenanceSuffix} No work records were created.`,
         actorId,
         metadata: JSON.stringify({
           planningDraftId: persistedDraft.id,
           generatorVersion: draft.generatorVersion,
           createdWorkRecords: false,
+          provider: provenanceBadge.tone,
+          fallbackReason: provenanceBadge.detail,
         }),
       },
     });

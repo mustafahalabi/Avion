@@ -108,6 +108,9 @@ const BASE_DRAFT: PlanningReviewDraftInput = {
   rejectionReason: null,
   generationError: null,
   applicationError: null,
+  provider: "deterministic",
+  providerAttempted: null,
+  fallbackReason: null,
   approvedAt: null,
   rejectedAt: null,
   appliedAt: null,
@@ -159,5 +162,30 @@ describe("buildPlanningReviewView", () => {
     expect(view.generationError).toBe("Outcome too vague");
     expect(view.rejectionReason).toBe("Needs clarification");
     expect(view.canApprove).toBe(false);
+  });
+
+  it("surfaces planner provenance, including an AI→deterministic fallback (MUS-271)", () => {
+    expect(buildPlanningReviewView(BASE_DRAFT).provenance).toEqual({
+      label: "Deterministic",
+      tone: "deterministic",
+      detail: null,
+    });
+
+    const fallbackView = buildPlanningReviewView({
+      ...BASE_DRAFT,
+      provider: "deterministic",
+      providerAttempted: "ai",
+      fallbackReason: "AI plan failed validation: task too short",
+    });
+    expect(fallbackView.provenance.tone).toBe("fallback");
+    expect(fallbackView.provenance.label).toBe("Deterministic (AI fallback)");
+    expect(fallbackView.provenance.detail).toContain("failed validation");
+
+    const aiView = buildPlanningReviewView({
+      ...BASE_DRAFT,
+      provider: "ai",
+      providerAttempted: "ai",
+    });
+    expect(aiView.provenance.tone).toBe("ai");
   });
 });
