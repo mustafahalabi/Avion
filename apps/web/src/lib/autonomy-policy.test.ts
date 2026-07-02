@@ -35,6 +35,7 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         auto_merge: "deny",
         auto_review: "requires_approval",
         auto_qa: "requires_approval",
+        apply_plan: "requires_approval",
       },
       suggest: {
         create_session: "allow",
@@ -44,6 +45,7 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         auto_merge: "deny",
         auto_review: "requires_approval",
         auto_qa: "requires_approval",
+        apply_plan: "requires_approval",
       },
       assist: {
         create_session: "allow",
@@ -53,6 +55,7 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         auto_merge: "requires_approval",
         auto_review: "requires_approval",
         auto_qa: "requires_approval",
+        apply_plan: "requires_approval",
       },
       delegate: {
         create_session: "allow",
@@ -62,6 +65,7 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         auto_merge: "requires_approval",
         auto_review: "allow",
         auto_qa: "allow",
+        apply_plan: "allow",
       },
       autonomous: {
         create_session: "allow",
@@ -71,10 +75,19 @@ describe("AUTONOMY_POLICY_MATRIX", () => {
         auto_merge: "allow",
         auto_review: "allow",
         auto_qa: "allow",
+        apply_plan: "allow",
       },
     };
 
     expect(AUTONOMY_POLICY_MATRIX).toEqual(expected);
+  });
+
+  it("allows apply_plan only at delegate and autonomous (MUS-301)", () => {
+    expect(authorizeAutonomyAction("autonomous", "apply_plan").allowed).toBe(true);
+    expect(authorizeAutonomyAction("delegate", "apply_plan").allowed).toBe(true);
+    expect(authorizeAutonomyAction("assist", "apply_plan").requiresApproval).toBe(true);
+    expect(authorizeAutonomyAction("suggest", "apply_plan").requiresApproval).toBe(true);
+    expect(authorizeAutonomyAction("manual", "apply_plan").requiresApproval).toBe(true);
   });
 
   it("escalates permissiveness monotonically (manual is the strictest)", () => {

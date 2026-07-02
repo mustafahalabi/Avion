@@ -18,11 +18,13 @@
  * Either can be replaced independently.
  */
 
+import { authorizeAutonomyAction } from "@/lib/autonomy-policy";
 import {
   autoPrepareNextExecutionSession,
   type AutoPrepareResult,
 } from "@/lib/auto-execution-service";
 import { captureCompanyHealthSnapshot } from "@/lib/company-health-snapshot-service";
+import { autoApplyPendingPlansForCompany } from "@/lib/plan-application-service";
 import {
   LIVE_EXECUTION_SESSION_STATUSES,
   reapStaleRunningSessions,
@@ -47,6 +49,15 @@ export interface DriverTickResult {
   readonly liveSessionsBefore: number;
   /** Per-company concurrency limit derived from the run mode. */
   readonly concurrencyLimit: number;
+  /**
+   * Plans auto-approved + applied this tick (MUS-301): at delegate/autonomous a
+   * generated draft is applied with no human click. Best-effort — null when the
+   * step errored or the autonomy level does not permit `apply_plan`.
+   */
+  readonly plansApplied?: {
+    readonly approved: number;
+    readonly applied: number;
+  } | null;
   /** Results of each auto-prepare attempt this tick. */
   readonly enqueued: readonly AutoPrepareResult[];
   /** Results of each gate advancement this tick. */
@@ -126,6 +137,20 @@ export async function runDriverTickForCompany(
     prFeedback = null;
   }
 
+  // ── Auto-apply pending plans when autonomy permits (MUS-301) ─────────────
+  // At delegate/autonomous, a generated plan is approved + applied without a
+  // human clicking Approve/Apply, so a single chat message reaches shipped work
+  // hands-off. Newly-created tasks become selectable in the enqueue step below.
+  // Best-effort: never breaks the tick.
+  let plansApplied: DriverTickResult["plansApplied"] = null;
+  if (authorizeAutonomyAction(autonomyLevel, "apply_plan").allowed) {
+    try {
+      plansApplied = await autoApplyPendingPlansForCompany(companyId);
+    } catch {
+      plansApplied = null;
+    }
+  }
+
   // ── Enqueue up to the concurrency limit ──────────────────────────────────
   const enqueued: AutoPrepareResult[] = [];
   let live = liveSessionsBefore;
@@ -181,6 +206,7 @@ export async function runDriverTickForCompany(
     companyId,
     liveSessionsBefore,
     concurrencyLimit,
+    plansApplied,
     enqueued,
     advanced,
     memory,
