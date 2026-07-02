@@ -1,0 +1,83 @@
+# syntax=docker/dockerfile:1
+# Avion execution worker + continuous driver (one image, two commands).
+#
+# Build from the REPO ROOT (the pnpm workspace needs the root manifests):
+#   docker build -f apps/web/Dockerfile.worker -t avion-worker .
+#
+# The worker checks out repositories, runs `claude -p`, applies guardrails,
+# commits/pushes and opens PRs; the driver schedules work + advances gates.
+# Both are long-running tsx processes under apps/web — they need the FULL
+# @avion/web dependency tree (tsx, prisma CLI and the app's lib code are all
+# imported at runtime), so this image keeps the whole workspace install
+# rather than a pruned production tree. Electron's binary download is not in
+# pnpm-workspace.yaml's allowBuilds, so its postinstall is skipped — the dev
+# dependency costs megabytes, not a bundled Chromium.
+#
+#   worker (default CMD):  tsx src/worker/index.ts
+#   driver (override CMD): tsx src/worker/driver.ts
+#
+# ── Runtime requirements the image can NOT bake in ─────────────────────────
+# 1. `claude` CLI AUTH. The CLI itself is installed here
+#    (@anthropic-ai/claude-code), but credentials are a runtime concern:
+#    mount an authenticated config dir to /home/node/.claude (or provide the
+#    appropriate API-key env for your Anthropic plan). See docs/DEPLOYMENT.md.
+# 2. A writable volume at /data/worker (WORKER_REPO_BASE_DIR) for checkouts
+#    and the heartbeat files.
+# 3. DATABASE_URL + CREDENTIALS_ENCRYPTION_KEY at runtime (never baked in).
+
+ARG NODE_VERSION=24
+
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+ENV CI=true \
+    PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH
+
+# git is required (checkout/commit/push); the worker supplies its own commit
+# identity via `git -c user.name/user.email`, so no global git config is set.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git openssh-client ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    npm install -g pnpm@11.9.0 @anthropic-ai/claude-code
+
+WORKDIR /repo
+
+# pnpm needs every workspace project's package.json to validate the lockfile.
+COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc package.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm install --frozen-lockfile --filter @avion/web...
+
+COPY packages/shared packages/shared
+COPY apps/web apps/web
+
+# shared dist (worker lib code imports @avion/shared) + the web Prisma client.
+# /repo stays root-owned (read-only for the runtime user is fine — the worker
+# only writes under WORKER_REPO_BASE_DIR); chown-ing the whole tree would
+# duplicate a multi-GB layer.
+RUN pnpm --filter @avion/shared build && \
+    pnpm --filter @avion/web exec prisma generate && \
+    mkdir -p /data/worker && chown node:node /data/worker
+
+ENV NODE_ENV=production \
+    WORKER_REPO_BASE_DIR=/data/worker \
+    HEARTBEAT_FILE=/data/worker/worker.heartbeat \
+    HEARTBEAT_MAX_AGE_SECONDS=3600
+
+USER node
+VOLUME /data/worker
+
+# Liveness: the loop touches a heartbeat file every iteration
+# (src/worker/heartbeat.ts). ONE worker iteration can legitimately last a whole
+# agent session (WORKER_SESSION_TIMEOUT_SECONDS, default 1800s, plus
+# install/validation time), hence the generous 3600s default window. The driver
+# ticks every 15s — docker-compose.prod.yml overrides its window to 300s and
+# points HEARTBEAT_FILE at driver.heartbeat.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+  CMD node scripts/heartbeat-check.mjs
+
+WORKDIR /repo/apps/web
+# Driver override: ["node_modules/.bin/tsx", "src/worker/driver.ts"]
+CMD ["node_modules/.bin/tsx", "src/worker/index.ts"]
