@@ -974,6 +974,26 @@ function buildFeatureBlueprints(
           qaImpact: "UI QA can validate state transitions without requiring live execution records.",
           estimatePoints: 3,
         },
+        {
+          // The delivery task (MUS-274): the design tasks above only describe the
+          // change; without this task a deterministic plan ships documentation and
+          // the outcome still reports `completed`. The outcome goal is carried in
+          // the acceptanceCriteria (not just the description) because the execution
+          // brief renders title + acceptanceCriteria, not the task description (MUS-277).
+          id: "implement-outcome",
+          title: `Implement the requested change: ${outcome}`,
+          description:
+            `Make the actual code change the CEO requested — implement "${outcome}" in real product code, guided by the touchpoint map, the data/API contracts, and the user-workflow design from the preceding tasks. This is the delivery task: when it is done, the visible result described in the outcome brief must exist in the repository and be exercised by the repo's real build/test commands. A documentation-only change does not satisfy this task. ${repositoryContext}`,
+          role: "Backend Engineer",
+          dependencies: ["task:design-user-workflow"],
+          acceptanceCriteria: [
+            `The change described by the outcome — "${outcome}" — is implemented in real product code (not documentation), and the visible result the outcome brief describes exists in the repository.`,
+            "The repository's real validation commands (build and tests) pass against the change; existing tests are updated to reflect the intended behavior rather than skipped or deleted.",
+          ],
+          qaImpact:
+            "QA validates the implemented change against the acceptance criteria and the repository's real build/test results — the primary evidence the outcome was actually delivered.",
+          estimatePoints: 5,
+        },
       ],
     },
     {
@@ -990,7 +1010,7 @@ function buildFeatureBlueprints(
           description:
             "Define reviewer checks for correctness, company ownership, idempotency, observability, security, and user-facing behavior.",
           role: "Reviewer",
-          dependencies: ["task:design-user-workflow"],
+          dependencies: ["task:implement-outcome"],
           acceptanceCriteria: [
             "Checklist includes required evidence and change-request triggers.",
             "Review scope is independent from implementation ownership.",

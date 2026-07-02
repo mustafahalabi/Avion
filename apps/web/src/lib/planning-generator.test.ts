@@ -259,6 +259,39 @@ describe("generateDeterministicPlanningDraft", () => {
     }
   });
 
+  it("ships a real implementation task carrying the outcome goal for a general-engineering outcome (MUS-274)", () => {
+    const outcome = "Add a public health check endpoint that returns service status as JSON";
+    const result = generateDeterministicPlanningDraft(
+      buildInput({ title: outcome, rawRequest: outcome })
+    );
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+
+    // The default (general-engineering) template must ship a task that builds the
+    // change, not only documentation tasks — otherwise an outcome can reach
+    // `completed` without the requested change ever existing (MUS-274).
+    const implementTask = result.draft.generatedTasks.find(
+      (task) => task.planItemId === "task:implement-outcome"
+    );
+    expect(implementTask).toBeDefined();
+
+    // The goal must live in the acceptanceCriteria, not only the description,
+    // because the execution brief renders title + acceptanceCriteria (MUS-277).
+    expect(implementTask?.title).toContain(outcome);
+    expect(implementTask?.acceptanceCriteria.some((c) => c.includes(outcome))).toBe(true);
+    expect(implementTask?.acceptanceCriteria.some((c) => /real product code/i.test(c))).toBe(true);
+
+    // Review must gate on the implementation, not on the design task.
+    const reviewTask = result.draft.generatedTasks.find(
+      (task) => task.planItemId === "task:create-review-checklist"
+    );
+    expect(reviewTask?.dependencies).toContain("task:implement-outcome");
+
+    // The added task must keep the plan execution-ready.
+    expect(validatePlanningDraftQuality(result.draft)).toEqual([]);
+  });
+
   it("enriches repository intelligence tasks with repository-specific context", () => {
     const result = generateDeterministicPlanningDraft(buildInput());
 
