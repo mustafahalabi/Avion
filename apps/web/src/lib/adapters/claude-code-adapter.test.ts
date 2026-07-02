@@ -244,6 +244,24 @@ describe("ClaudeCodeAdapter", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("fails the session without crashing the worker when the binary cannot be spawned (MUS-283)", async () => {
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+
+    const adapter = new ClaudeCodeAdapter();
+    const runPromise = adapter.run("brief", BASE_CONTEXT);
+
+    // A missing binary emits 'error' (ENOENT) instead of 'close'. Without an
+    // 'error' listener this line would raise an uncaught exception that kills the
+    // worker; with the fix it settles the run as a clean failure.
+    child.emit("error", new Error("spawn claude ENOENT"));
+
+    const result = await runPromise;
+
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toContain("ENOENT");
+  });
+
   it("always captures stdout and stderr", async () => {
     const child = createMockChild();
     mockSpawn.mockReturnValue(child);
