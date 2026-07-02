@@ -17,6 +17,7 @@ import {
 } from "@/lib/execution-driver-service";
 import { prisma } from "@/lib/prisma";
 
+import { createHeartbeat } from "./heartbeat";
 import { validateConfig, WORKER_CONFIG } from "./worker-config";
 import { workerLogger } from "./worker-logger";
 
@@ -66,7 +67,12 @@ async function tickAllCompanies(): Promise<void> {
  * Polls and drives all companies until shutdown.
  */
 async function driverLoop(): Promise<void> {
+  // Liveness signal (MUS-269): touch the heartbeat file once per tick so
+  // container HEALTHCHECKs can assert freshness (see docs/DEPLOYMENT.md).
+  const heartbeat = createHeartbeat("driver", process.env.DRIVER_HEARTBEAT_FILE);
+
   while (!isShuttingDown) {
+    heartbeat.beat();
     await tickAllCompanies();
     if (isShuttingDown) {
       break;

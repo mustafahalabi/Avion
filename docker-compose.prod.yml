@@ -1,0 +1,110 @@
+# Production-shaped composition for the four Avion runtime processes (MUS-269).
+#
+#   docker compose -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# PostgreSQL is EXTERNAL by design — point DATABASE_URL at a hosted Postgres
+# (Neon / Supabase / RDS) or any reachable instance. This file never starts a
+# database. The full env/secret matrix and the recommended hosting topology
+# live in docs/DEPLOYMENT.md — read that before running this anywhere real.
+#
+# Secrets come from the shell environment or an --env-file; none are baked
+# into images. NEXT_PUBLIC_* values for web are BUILD args (inlined by
+# `next build`) — set them before `compose build`, not just `up`.
+
+name: avion
+
+services:
+  # One-off: apply the committed Prisma migrations (@avion/web owns them).
+  # The worker image carries the full toolchain, so reuse it.
+  #   docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
+  migrate:
+    profiles: ["migrate"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.worker
+    image: avion-worker:local
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your hosted Postgres}
+    entrypoint: ["node_modules/.bin/prisma"]
+    command: ["migrate", "deploy"]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+    image: avion-web:local
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your hosted Postgres}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:?64-char hex key}
+      EOS_PLANNING_PROVIDER: ${EOS_PLANNING_PROVIDER:-}
+      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-}
+      OAUTH_STATE_SECRET: ${OAUTH_STATE_SECRET:-}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      LINEAR_OAUTH_CLIENT_ID: ${LINEAR_OAUTH_CLIENT_ID:-}
+      LINEAR_OAUTH_CLIENT_SECRET: ${LINEAR_OAUTH_CLIENT_SECRET:-}
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: avion-api:local
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your hosted Postgres}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      # Comma-separated list of allowed browser origins (REST CORS + Socket.IO).
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      BOARD_POLL_MS: ${BOARD_POLL_MS:-2000}
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.worker
+    image: avion-worker:local
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your hosted Postgres}
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:?64-char hex key}
+      WORKER_PERMISSION_MODE: ${WORKER_PERMISSION_MODE:-}
+      WORKER_SESSION_TIMEOUT_SECONDS: ${WORKER_SESSION_TIMEOUT_SECONDS:-1800}
+      WORKER_MAX_RETRIES: ${WORKER_MAX_RETRIES:-1}
+    volumes:
+      # Checkouts + heartbeat files (WORKER_REPO_BASE_DIR).
+      - worker-data:/data/worker
+      # `claude` CLI credentials — an AUTHENTICATED config dir from the host.
+      # Auth is a runtime concern; the image only ships the CLI binary.
+      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/home/node/.claude
+
+  driver:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.worker
+    image: avion-worker:local
+    restart: unless-stopped
+    command: ["node_modules/.bin/tsx", "src/worker/driver.ts"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your hosted Postgres}
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:?64-char hex key}
+      DRIVER_TICK_INTERVAL_MS: ${DRIVER_TICK_INTERVAL_MS:-15000}
+      # The driver beats every tick, so its freshness window is much tighter
+      # than the worker's session-length-bound default.
+      HEARTBEAT_FILE: /data/worker/driver.heartbeat
+      HEARTBEAT_MAX_AGE_SECONDS: "300"
+      DRIVER_HEARTBEAT_FILE: /data/worker/driver.heartbeat
+    volumes:
+      - worker-data:/data/worker
+
+volumes:
+  worker-data:

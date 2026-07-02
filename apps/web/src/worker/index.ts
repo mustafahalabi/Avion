@@ -26,6 +26,7 @@ import {
   ensureDependenciesInstalled,
   summarizeDependencyInstall,
 } from "./dependency-installer";
+import { createHeartbeat } from "./heartbeat";
 import {
   buildAgentCommitMessage,
   checkoutRepository,
@@ -394,7 +395,14 @@ async function processSession(sessionId: string): Promise<void> {
  * Polls for prepared sessions and executes them until shutdown.
  */
 async function startPollingLoop(): Promise<void> {
+  // Liveness signal (MUS-269): touch the heartbeat file once per iteration so
+  // container HEALTHCHECKs can assert freshness. Note a running session can
+  // legitimately hold one iteration for up to WORKER_SESSION_TIMEOUT_SECONDS —
+  // liveness checks must allow for that (see docs/DEPLOYMENT.md).
+  const heartbeat = createHeartbeat("worker", process.env.WORKER_HEARTBEAT_FILE);
+
   while (!isShuttingDown) {
+    heartbeat.beat();
     const session = await claimNextSession();
 
     if (!session) {

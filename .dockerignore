@@ -1,0 +1,49 @@
+# Shared build-context excludes for every image (MUS-269).
+# All three Dockerfiles build with the REPO ROOT as context:
+#   docker build -f apps/api/Dockerfile .
+#   docker build -f apps/web/Dockerfile .
+#   docker build -f apps/web/Dockerfile.worker .
+
+# VCS / tooling
+.git
+.github
+.claude
+.turbo
+
+# Dependencies — always installed inside the image from the lockfile
+**/node_modules
+
+# Build outputs — always produced inside the image
+**/.next
+**/dist
+**/build
+**/out
+**/coverage
+**/.turbo
+**/*.tsbuildinfo
+
+# Generated Prisma clients — regenerated inside the image
+**/src/generated
+
+# Electron packaging output + desktop-only sources (not part of any server image)
+**/release
+**/.electron-build
+apps/web/electron
+apps/web/assets
+
+# Secrets and local state — NEVER in an image layer
+**/.env
+**/.env.*
+!**/.env.example
+**/.clerk
+**/*.db
+**/*.db-journal
+**/*.db.bak*
+
+# Repo documentation / product spec — not needed to build or run
+docs
+specification
+linear-notebooklm-context
+README.md
+AGENTS.md
+CLAUDE.md
