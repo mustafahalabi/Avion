@@ -91,7 +91,6 @@ export default async function WorkspaceProjectDetailPage({ params }: Props) {
           tasks: {
             include: {
               assignee: { select: { id: true, name: true } },
-              subtasks: { select: { id: true, completed: true } },
             },
             orderBy: { createdAt: "asc" },
           },
@@ -102,7 +101,6 @@ export default async function WorkspaceProjectDetailPage({ params }: Props) {
         where: { featureId: null },
         include: {
           assignee: { select: { id: true, name: true } },
-          subtasks: { select: { id: true, completed: true } },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -241,12 +239,10 @@ function TaskRow({
     status: string;
     priority: string;
     assignee: { id: string; name: string } | null;
-    subtasks: { id: string; completed: boolean }[];
   };
 }) {
   const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG["todo"];
   const Icon = cfg.icon;
-  const subtasksDone = task.subtasks.filter((s) => s.completed).length;
 
   return (
     <Link
@@ -258,11 +254,6 @@ function TaskRow({
         {task.title}
       </span>
       <div className="flex items-center gap-3 shrink-0">
-        {task.subtasks.length > 0 && (
-          <span className="text-[11px] text-neutral-600">
-            {subtasksDone}/{task.subtasks.length}
-          </span>
-        )}
         <span
           className={cn(
             "text-[11px] font-medium",
