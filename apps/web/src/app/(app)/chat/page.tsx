@@ -38,17 +38,18 @@ export default async function ChatPage() {
 
       <div className="flex flex-col gap-1 p-4">
         {conversations.length === 0 ? (
-          <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-neutral-800 py-14 text-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900 border border-neutral-800">
-              <MessageSquare className="h-5 w-5 text-neutral-500" />
+          <div className="av-fade-in-up flex flex-col items-center gap-4 rounded-lg border border-dashed border-neutral-800 py-16 text-center">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-neutral-900 border border-neutral-800">
+              <MessageSquare className="h-5 w-5 text-neutral-400" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-neutral-300">
-                No conversations yet
+              <p className="text-base font-semibold text-neutral-200">
+                Tell your company what to build
               </p>
-              <p className="mt-1 text-xs text-neutral-600 max-w-xs">
-                Start a conversation to communicate goals, ask questions, or
-                direct your company.
+              <p className="mt-1.5 text-xs text-neutral-500 max-w-sm">
+                State an outcome in plain language. Your company plans it, builds
+                it, reviews, QAs, and ships it to your repo — you just watch it
+                happen here.
               </p>
             </div>
             <NewConversationButton variant="primary" />

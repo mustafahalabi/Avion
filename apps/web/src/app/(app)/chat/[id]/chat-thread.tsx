@@ -42,6 +42,8 @@ export interface ChatThreadMessage {
     readonly requestType: string;
     readonly clarification: string | null;
   } | null;
+  /** Optimistically-rendered send, not yet confirmed by the server. */
+  readonly pending?: boolean;
 }
 
 const STREAM_HREF = "/api/work/live/stream";
@@ -202,7 +204,13 @@ function pickLiveStatus(
 function MessageBubble({ message }: { message: ChatThreadMessage }) {
   const isUser = message.role === "user";
   return (
-    <div className={cn("flex gap-3", isUser ? "flex-row-reverse" : "flex-row")}>
+    <div
+      className={cn(
+        "av-fade-in-up flex gap-3",
+        isUser ? "flex-row-reverse" : "flex-row",
+        message.pending && "opacity-60"
+      )}
+    >
       <div
         className={cn(
           "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
@@ -255,7 +263,7 @@ function activityIcon(type: string): { icon: LucideIcon; color: string } {
 function ActivityBubble({ item }: { item: TimelineItem }) {
   const { icon: Icon, color } = activityIcon(item.type);
   return (
-    <div className="flex justify-center">
+    <div className="av-fade-in-up flex justify-center">
       <Link
         href={item.contextHref}
         className="group inline-flex max-w-lg items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950/60 px-3 py-1.5 text-xs text-neutral-400 transition-colors hover:border-neutral-700 hover:text-neutral-300"
@@ -289,7 +297,7 @@ function DecisionBubble({ decision }: { decision: DecisionData }) {
     </div>
   );
   return (
-    <div className="flex flex-row gap-3">
+    <div className="av-fade-in-up flex flex-row gap-3">
       <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-700/50 bg-amber-900/30 text-[10px] font-bold text-amber-300">
         E
       </div>
@@ -317,7 +325,7 @@ function LiveStatusBubble({ status }: { status: WorkItemView }) {
       : "border-emerald-500/30 bg-emerald-950/15 text-emerald-200";
   const Spinner = status.isBlocked || status.awaitingApproval ? AlertCircle : Loader2;
   return (
-    <div className="flex flex-row gap-3">
+    <div className="av-fade-in-up flex flex-row gap-3">
       <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-neutral-700 bg-neutral-800 text-[10px] font-bold text-neutral-400">
         E
       </div>

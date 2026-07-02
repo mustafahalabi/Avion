@@ -8,8 +8,8 @@ import {
   loadConversationActivity,
   resolveConversationScope,
 } from "@/lib/chat-activity-server";
-import { ChatInput } from "./chat-input";
-import { ChatThread, type ChatThreadMessage } from "./chat-thread";
+import { ChatSurface } from "./chat-surface";
+import type { ChatThreadMessage } from "./chat-thread";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -83,22 +83,14 @@ export default async function ChatThreadPage({ params }: Props) {
         </h1>
       </header>
 
-      {/* Live thread */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <ChatThread
-          messages={messages}
-          seedActivity={seedActivity}
-          initialPipeline={initialPipeline}
-          scope={scope}
-        />
-      </div>
-
-      {/* Input */}
-      <div className="shrink-0 border-t border-neutral-800 px-6 py-4">
-        <div className="mx-auto w-full max-w-2xl">
-          <ChatInput conversationId={id} />
-        </div>
-      </div>
+      {/* Live thread + composer (optimistic send) */}
+      <ChatSurface
+        conversationId={id}
+        messages={messages}
+        seedActivity={seedActivity}
+        initialPipeline={initialPipeline}
+        scope={scope}
+      />
     </div>
   );
 }

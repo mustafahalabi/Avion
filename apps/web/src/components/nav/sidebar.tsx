@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -19,21 +20,34 @@ import {
   ShieldCheck,
   PackageCheck,
   Link2,
+  ChevronDown,
 } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
 import { useLiveNotifications } from "@/components/notifications/live-notifications-provider";
+import { isNavItemActive } from "@/lib/nav-active";
 import type { SwitcherWorkspace } from "@/lib/active-workspace";
+
+type NavItemDef = {
+  label: string;
+  href: string;
+  icon: React.ElementType;
+};
 
 type NavSection = {
   label?: string;
-  items: readonly {
-    label: string;
-    href: string;
-    icon: React.ElementType;
-  }[];
+  items: readonly NavItemDef[];
 };
 
-const navSections: NavSection[] = [
+// Chat is the CEO's home surface (MUS-305). Everything else is a drill-down for
+// power users, tucked behind a collapsed disclosure so the default path is
+// near-zero navigation.
+const PRIMARY_ITEM: NavItemDef = {
+  label: "Chat",
+  href: "/chat",
+  icon: MessageSquare,
+};
+
+const DRILL_DOWN_SECTIONS: NavSection[] = [
   {
     label: "Company",
     items: [
@@ -64,12 +78,11 @@ const navSections: NavSection[] = [
     items: [
       { label: "Timeline", href: "/timeline", icon: TrendingUp },
       { label: "Memory", href: "/memory", icon: BookOpen },
-      { label: "Chat", href: "/chat", icon: MessageSquare },
     ],
   },
 ];
 
-const bottomNavItems = [
+const bottomNavItems: readonly NavItemDef[] = [
   { label: "Connections", href: "/connections", icon: Link2 },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings },
@@ -119,21 +132,19 @@ export function Sidebar({
     ? { ...badges, "/notifications": liveNotifications.unreadCount }
     : badges;
 
-  function isActive(href: string) {
-    if (href === "/work") {
-      return (
-        pathname === "/work" ||
-        (pathname.startsWith("/work/") &&
-          !pathname.startsWith("/work/live") &&
-          !pathname.startsWith("/work/outcomes") &&
-          !pathname.startsWith("/work/quality") &&
-          !pathname.startsWith("/work/releases") &&
-          !pathname.startsWith("/work/workspaces") &&
-          !pathname.startsWith("/work/repositories"))
-      );
-    }
-    return pathname === href || pathname.startsWith(href + "/");
-  }
+  // Sum of pending badges hidden inside the collapsed drill-down, so the CEO
+  // still sees "something needs me" without expanding.
+  const drillItems = DRILL_DOWN_SECTIONS.flatMap((s) => s.items);
+  const drillBadgeTotal = drillItems.reduce(
+    (sum, item) => sum + (effectiveBadges[item.href] ?? 0),
+    0
+  );
+  const anyDrillActive = drillItems.some((item) => isNavItemActive(pathname, item.href));
+
+  // Auto-expand when the CEO has navigated into a drill-down view; otherwise
+  // start collapsed for the chat-first default.
+  const [expanded, setExpanded] = useState(anyDrillActive);
+  const isOpen = expanded || anyDrillActive;
 
   return (
     <aside
@@ -176,23 +187,63 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Navigation sections */}
+      {/* Navigation */}
       <nav className="flex flex-1 flex-col gap-0.5 p-3 pt-2">
-        {navSections.map((section, sIdx) => (
-          <div key={sIdx} className="flex flex-col gap-0.5">
-            {section.label && <div className="av-nav-group">{section.label}</div>}
-            {section.items.map(({ label, href, icon }) => (
-              <NavItem
-                key={href}
-                label={label}
-                href={href}
-                icon={icon}
-                isActive={isActive(href)}
-                badge={effectiveBadges[href]}
-              />
+        {/* Chat — the home surface */}
+        <NavItem
+          label={PRIMARY_ITEM.label}
+          href={PRIMARY_ITEM.href}
+          icon={PRIMARY_ITEM.icon}
+          isActive={isNavItemActive(pathname, PRIMARY_ITEM.href)}
+        />
+
+        {/* Collapsible drill-down to the deeper company views */}
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={isOpen}
+          className="av-nav-item mt-1 w-full justify-between text-left"
+          style={{ opacity: 0.85 }}
+        >
+          <span className="flex items-center gap-2">
+            <Layers className="h-[17px] w-[17px] shrink-0" aria-hidden="true" />
+            Company views
+          </span>
+          <span className="flex items-center gap-1.5">
+            {!isOpen && drillBadgeTotal > 0 && (
+              <span className="av-nav-item__count" aria-label={`${drillBadgeTotal} pending`}>
+                {drillBadgeTotal > 99 ? "99+" : drillBadgeTotal}
+              </span>
+            )}
+            <ChevronDown
+              className="h-3.5 w-3.5 shrink-0 transition-transform"
+              style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
+              aria-hidden="true"
+            />
+          </span>
+        </button>
+
+        {isOpen && (
+          <div className="mt-0.5 flex flex-col gap-0.5">
+            {DRILL_DOWN_SECTIONS.map((section, sIdx) => (
+              <div key={sIdx} className="flex flex-col gap-0.5">
+                {section.label && (
+                  <div className="av-nav-group">{section.label}</div>
+                )}
+                {section.items.map(({ label, href, icon }) => (
+                  <NavItem
+                    key={href}
+                    label={label}
+                    href={href}
+                    icon={icon}
+                    isActive={isNavItemActive(pathname, href)}
+                    badge={effectiveBadges[href]}
+                  />
+                ))}
+              </div>
             ))}
           </div>
-        ))}
+        )}
       </nav>
 
       {/* Bottom nav */}
@@ -206,8 +257,8 @@ export function Sidebar({
             label={label}
             href={href}
             icon={icon}
-            isActive={isActive(href)}
-            badge={badges[href]}
+            isActive={isNavItemActive(pathname, href)}
+            badge={effectiveBadges[href]}
           />
         ))}
       </nav>
