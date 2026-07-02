@@ -7,6 +7,8 @@ const mockTaskFindFirst = vi.fn();
 const mockTaskUpdateMany = vi.fn();
 const mockSessionFindFirst = vi.fn();
 const mockSessionCount = vi.fn();
+const mockQaCount = vi.fn();
+const mockQaFindFirst = vi.fn();
 const mockChangeRequestFindMany = vi.fn();
 const mockCompanyFindFirst = vi.fn();
 const mockTimelineCreate = vi.fn();
@@ -22,6 +24,10 @@ vi.mock("@/lib/prisma", () => ({
     executionSession: {
       findFirst: (...args: unknown[]) => mockSessionFindFirst(...args),
       count: (...args: unknown[]) => mockSessionCount(...args),
+    },
+    qAResult: {
+      findFirst: (...args: unknown[]) => mockQaFindFirst(...args),
+      count: (...args: unknown[]) => mockQaCount(...args),
     },
     changeRequest: {
       findMany: (...args: unknown[]) => mockChangeRequestFindMany(...args),
@@ -121,9 +127,11 @@ beforeEach(() => {
   });
   mockCreateSession.mockResolvedValue({ id: "ses-new" });
   mockPrepareSession.mockResolvedValue({ id: "ses-new", status: "prepared" });
-  // Retry/rework defaults: no prior sessions, no open change requests.
+  // Retry/rework defaults: no prior sessions, no failed QA gates, no open CRs.
   mockSessionFindFirst.mockResolvedValue(null);
   mockSessionCount.mockResolvedValue(0);
+  mockQaFindFirst.mockResolvedValue(null);
+  mockQaCount.mockResolvedValue(0);
   mockChangeRequestFindMany.mockResolvedValue([]);
   mockTaskUpdateMany.mockResolvedValue({ count: 1 });
   mockCompanyFindFirst.mockResolvedValue({ ownerId: "user-1" });
@@ -225,6 +233,38 @@ describe("autoPrepareNextExecutionSession", () => {
       expect.objectContaining({ type: "blocker", entityId: "task-1" })
     );
     // No session was prepared for the exhausted task.
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("counts failed QA gates toward the budget so committing reworks are bounded (MUS-279)", async () => {
+    // No failed *sessions* (the reworks all committed), but two reworks failed QA.
+    mockSessionCount.mockResolvedValue(0);
+    mockQaCount.mockResolvedValue(2);
+
+    const result = await autoPrepareNextExecutionSession("company-1");
+
+    expect(result.status).toBe("retries_exhausted");
+    expect(mockTaskUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "blocked" }),
+      })
+    );
+    // The reset anchor is the last *passed* QA, not any completed session.
+    expect(mockQaFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ entityId: "task-1", status: "passed" }),
+      })
+    );
+  });
+
+  it("sums failed sessions and failed QA gates (MUS-279)", async () => {
+    // One no-op session + one committed-but-QA-failed rework = 2 > WORKER_MAX_RETRIES.
+    mockSessionCount.mockResolvedValue(1);
+    mockQaCount.mockResolvedValue(1);
+
+    const result = await autoPrepareNextExecutionSession("company-1");
+
+    expect(result.status).toBe("retries_exhausted");
     expect(mockCreateSession).not.toHaveBeenCalled();
   });
 
