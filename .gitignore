@@ -55,3 +55,6 @@ yarn-error.log*
 
 # Vercel
 .vercel
+
+# Local Claude Code config/commands (per-developer, not shared)
+.claude/
