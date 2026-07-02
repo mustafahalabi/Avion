@@ -130,6 +130,13 @@ export interface OutcomePlanningInput {
    * the deterministic generator renders the top items as explicit plan assumptions.
    */
   readonly companyMemory?: readonly CompanyMemoryItem[];
+  /**
+   * The company's culture (`CompanySettings.cultureProfile`). When it maps to
+   * known guidance, the AI planner prompt gains a culture directive so the work
+   * breakdown reflects it (e.g. Enterprise → more review/security work; Design
+   * First → UX/a11y emphasis). Unset/unknown adds nothing (MUS-288).
+   */
+  readonly cultureProfile?: string | null;
 }
 
 export interface PlanningMilestone {

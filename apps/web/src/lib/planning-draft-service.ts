@@ -159,7 +159,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
     }),
     prisma.companySettings.findUnique({
       where: { companyId: input.companyId },
-      select: { planningProvider: true },
+      select: { planningProvider: true, cultureProfile: true },
     }),
   ]);
 
@@ -196,6 +196,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
     })),
     repositories: planningRepositories,
     companyMemory,
+    cultureProfile: companySettings?.cultureProfile ?? null,
   });
 
   return persistPlanningGeneration({

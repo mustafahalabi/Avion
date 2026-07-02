@@ -1,3 +1,4 @@
+import { getCultureGuidance } from "@/lib/company-culture";
 import type { GeneratedPlanningTask } from "@/lib/planning-generator";
 import {
   formatRepositoryTaskContext,
@@ -114,6 +115,13 @@ export interface ImplementationBriefInput {
    * Lessons" section so past review/QA findings stop recurring.
    */
   readonly companyMemory?: readonly BriefMemoryItem[] | null;
+  /**
+   * The company's culture (`CompanySettings.cultureProfile`). When it maps to
+   * known guidance, the brief gains a "Company Culture" section that biases the
+   * implementation (e.g. Security/Enterprise → validation + authz; Design First
+   * → UX/a11y). Unknown/empty adds no section (MUS-288).
+   */
+  readonly cultureProfile?: string | null;
 }
 
 /**
@@ -432,6 +440,7 @@ export function generateClaudeImplementationBrief(
   const reviewRequirements = taskPayload?.reviewRequirements ?? [];
   const reworkSection = buildReworkSection(input.reworkContext ?? null, branchName);
   const objectiveSection = buildTaskObjectiveSection(input.taskDescription);
+  const cultureSection = buildCompanyCultureSection(input.cultureProfile ?? null);
   const memorySection = buildCompanyMemorySection(input.companyMemory ?? null);
 
   const sections: string[] = [
@@ -440,6 +449,7 @@ export function generateClaudeImplementationBrief(
     ...(objectiveSection ? [objectiveSection] : []),
     buildRepositoryContextSection(input, branchName, baseBranch),
     buildConstraintsSection(),
+    ...(cultureSection ? [cultureSection] : []),
     ...(memorySection ? [memorySection] : []),
     buildFilesToInspectSection(taskPayload, input.repository),
     buildAcceptanceCriteriaSection(taskPayload, input.taskDescription),
@@ -450,6 +460,26 @@ export function generateClaudeImplementationBrief(
   const brief = sections.join("\n\n---\n\n");
 
   return { brief, branchName };
+}
+
+/**
+ * Builds the "Company Culture" section from the company's culture profile, so
+ * the coding agent biases its implementation the way the CEO configured (MUS-288).
+ *
+ * @param culture - `CompanySettings.cultureProfile`, or null.
+ * @returns Markdown section, or null when the culture is unset/unrecognized.
+ */
+function buildCompanyCultureSection(culture: string | null): string | null {
+  const guidance = getCultureGuidance(culture);
+  if (!guidance) return null;
+
+  return [
+    "## Company Culture",
+    "",
+    `This company operates a **${guidance.label}** engineering culture — ${guidance.summary} Apply it to this implementation:`,
+    "",
+    ...guidance.directives.map((directive) => `- ${directive}`),
+  ].join("\n");
 }
 
 /**
