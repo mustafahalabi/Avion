@@ -23,8 +23,15 @@
 
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
-import { loadLivePipeline } from "@/lib/live-pipeline-data";
-import { serializeLivePipeline } from "@/lib/live-pipeline-serialization";
+import {
+  DEFAULT_NOTIFICATION_LIMIT,
+  loadLiveNotifications,
+  loadLivePipeline,
+} from "@/lib/live-pipeline-data";
+import {
+  serializeLiveNotifications,
+  serializeLivePipeline,
+} from "@/lib/live-pipeline-serialization";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -55,22 +62,35 @@ export async function GET(request: Request): Promise<Response> {
   if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
+  const userId = user.id;
+
+  const params = new URL(request.url).searchParams;
+  // The app-wide "needs-you" channel wants only the caller's notifications, not
+  // the whole board — so it never drags every task through the DB every tick.
+  const notificationsOnly = params.get("only") === "notifications";
 
   const company = await prisma.company.findFirst({
-    where: { ownerId: user.id },
+    where: { ownerId: userId },
     select: { id: true },
   });
-  if (!company) {
+  // The board needs a company; the notifications channel is user-scoped and
+  // works even before onboarding creates one.
+  if (!company && !notificationsOnly) {
     return new Response("No company", { status: 404 });
   }
-  const companyId = company.id;
+  const companyId = company?.id ?? null;
 
   // Let callers (e.g. the compact Control Center widget) request a smaller slice
   // so the SSR seed and the streamed payload stay in lock-step. Clamped so a
   // crafted URL can't ask for an unbounded board.
-  const params = new URL(request.url).searchParams;
   const streamLimit = clampInt(params.get("streamLimit"), 24, 0, 100);
   const doneLimit = clampInt(params.get("doneLimit"), 8, 0, 50);
+  const notifLimit = clampInt(
+    params.get("notifLimit"),
+    DEFAULT_NOTIFICATION_LIMIT,
+    0,
+    100
+  );
 
   const encoder = new TextEncoder();
 
@@ -113,11 +133,19 @@ export async function GET(request: Request): Promise<Response> {
       const tick = async (): Promise<void> => {
         if (closed) return;
         try {
-          const pipeline = await loadLivePipeline(companyId, {
-            streamLimit,
-            doneLimit,
-          });
-          const json = serializeLivePipeline(pipeline);
+          const json =
+            notificationsOnly || !companyId
+              ? serializeLiveNotifications(
+                  await loadLiveNotifications(userId, notifLimit)
+                )
+              : serializeLivePipeline(
+                  await loadLivePipeline(companyId, {
+                    streamLimit,
+                    doneLimit,
+                    userId,
+                    notificationLimit: notifLimit,
+                  })
+                );
           const now = Date.now();
           if (json !== lastSent) {
             lastSent = json;

@@ -21,6 +21,7 @@ import {
   Link2,
 } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
+import { useLiveNotifications } from "@/components/notifications/live-notifications-provider";
 import type { SwitcherWorkspace } from "@/lib/active-workspace";
 
 type NavSection = {
@@ -110,6 +111,13 @@ export function Sidebar({
   activeWorkspaceId: string | null;
 }) {
   const pathname = usePathname();
+  const liveNotifications = useLiveNotifications();
+
+  // Prefer the live unread count so the bell badge updates without a page load;
+  // fall back to the SSR-seeded badge before the stream connects.
+  const effectiveBadges: Record<string, number> = liveNotifications
+    ? { ...badges, "/notifications": liveNotifications.unreadCount }
+    : badges;
 
   function isActive(href: string) {
     if (href === "/work") {
@@ -180,7 +188,7 @@ export function Sidebar({
                 href={href}
                 icon={icon}
                 isActive={isActive(href)}
-                badge={badges[href]}
+                badge={effectiveBadges[href]}
               />
             ))}
           </div>

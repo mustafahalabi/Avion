@@ -8,11 +8,39 @@ import { buildLifecycleBoard, type LifecycleBoard, type WorkItemInput } from "@/
 import type { TimelineItem } from "@/components/timeline-entry";
 
 /**
- * The full payload behind the Live view: the lifecycle board (work grouped by
- * stage) plus the recent activity stream. Both the dedicated `/work/live` page
- * and the Control Center widget render from this, so the two never drift.
+ * A single unread notification, folded into the live payload so a "needs-you"
+ * event (decision / blocker / alert) can surface to the CEO the moment it's
+ * written — without a page load. Mirrors the `Notification` row's public fields;
+ * `createdAt` is a real `Date` (revived across the wire like the board's dates).
  */
-export interface LivePipeline {
+export interface LiveNotification {
+  readonly id: string;
+  readonly title: string;
+  readonly body: string | null;
+  readonly type: string;
+  readonly priority: string;
+  readonly entityType: string | null;
+  readonly entityId: string | null;
+  readonly actionUrl: string | null;
+  readonly createdAt: Date;
+}
+
+/** The user-scoped notification slice of the live payload. */
+export interface LiveNotificationsPayload {
+  /** Recent unread notifications, newest first (capped). */
+  readonly notifications: readonly LiveNotification[];
+  /** True count of all unread notifications (may exceed the capped list). */
+  readonly unreadNotificationCount: number;
+}
+
+/**
+ * The full payload behind the Live view: the lifecycle board (work grouped by
+ * stage), the recent activity stream, and — when loaded for a specific user —
+ * that user's unread notifications. Both the dedicated `/work/live` page and the
+ * Control Center widget render the board/stream from this, so the two never
+ * drift; the notification fields power the app-wide live toast + unread badge.
+ */
+export interface LivePipeline extends LiveNotificationsPayload {
   readonly board: LifecycleBoard;
   readonly stream: readonly TimelineItem[];
 }
@@ -22,6 +50,54 @@ export interface LoadLivePipelineOptions {
   readonly streamLimit?: number;
   /** Items listed in the terminal "done" column. Default 8. */
   readonly doneLimit?: number;
+  /**
+   * When provided, the caller's unread notifications are folded into the
+   * payload (and into the change-detection hash). Omitted for board-only seeds
+   * — those get an empty notification slice.
+   */
+  readonly userId?: string;
+  /** Max unread notifications to include. Default {@link DEFAULT_NOTIFICATION_LIMIT}. */
+  readonly notificationLimit?: number;
+}
+
+/** Default cap on unread notifications folded into the live payload. */
+export const DEFAULT_NOTIFICATION_LIMIT = 20;
+
+const EMPTY_NOTIFICATIONS: LiveNotificationsPayload = {
+  notifications: [],
+  unreadNotificationCount: 0,
+};
+
+/**
+ * Loads a user's unread notifications and true unread count for the live
+ * payload. Pure DB read, ordered newest-first and capped. Used both on its own
+ * (the app-wide notifications-only SSE channel) and folded into
+ * {@link loadLivePipeline}.
+ */
+export async function loadLiveNotifications(
+  userId: string,
+  limit: number = DEFAULT_NOTIFICATION_LIMIT
+): Promise<LiveNotificationsPayload> {
+  const [notifications, unreadNotificationCount] = await Promise.all([
+    prisma.notification.findMany({
+      where: { userId, read: false },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        type: true,
+        priority: true,
+        entityType: true,
+        entityId: true,
+        actionUrl: true,
+        createdAt: true,
+      },
+    }),
+    prisma.notification.count({ where: { userId, read: false } }),
+  ]);
+  return { notifications, unreadNotificationCount };
 }
 
 /** Tasks in these states never appear on the board. */
@@ -57,9 +133,12 @@ function latestByKey<T>(rows: readonly T[], keyOf: (row: T) => string | null): M
  * the lifecycle board. Pending plan drafts are surfaced as upstream "planning"
  * items so the CEO sees a request the moment it lands — before any task exists.
  *
+ * When `options.userId` is set, that user's unread notifications are folded in
+ * so a single stream carries both the board and the "needs-you" events.
+ *
  * @param companyId - The company to load.
- * @param options - Stream / done-column caps.
- * @returns The board and the recent activity stream.
+ * @param options - Stream / done-column caps and optional notification scope.
+ * @returns The board, the recent activity stream, and unread notifications.
  */
 export async function loadLivePipeline(
   companyId: string,
@@ -67,6 +146,7 @@ export async function loadLivePipeline(
 ): Promise<LivePipeline> {
   const streamLimit = options.streamLimit ?? 24;
   const doneLimit = options.doneLimit ?? 8;
+  const notificationLimit = options.notificationLimit ?? DEFAULT_NOTIFICATION_LIMIT;
 
   const tasks = await prisma.task.findMany({
     where: { companyId, status: { notIn: [...HIDDEN_TASK_STATUSES] } },
@@ -89,8 +169,15 @@ export async function loadLivePipeline(
   });
   const taskIds = tasks.map((t) => t.id);
 
-  const [sessions, reviews, qaResults, pendingPlans, runtimeEvents, planningTimeline] =
-    await Promise.all([
+  const [
+    sessions,
+    reviews,
+    qaResults,
+    pendingPlans,
+    runtimeEvents,
+    planningTimeline,
+    notificationsPayload,
+  ] = await Promise.all([
       taskIds.length
         ? prisma.executionSession.findMany({
             where: { companyId, taskId: { in: taskIds } },
@@ -134,6 +221,9 @@ export async function loadLivePipeline(
         include: { request: { select: { id: true, title: true } } },
       }),
       getPlanningLifecycleTimeline(companyId, streamLimit),
+      options.userId
+        ? loadLiveNotifications(options.userId, notificationLimit)
+        : Promise.resolve(EMPTY_NOTIFICATIONS),
     ]);
 
   const sessionByTask = latestByKey(sessions, (s) => s.taskId);
@@ -208,5 +298,10 @@ export async function loadLivePipeline(
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     .slice(0, streamLimit);
 
-  return { board, stream };
+  return {
+    board,
+    stream,
+    notifications: notificationsPayload.notifications,
+    unreadNotificationCount: notificationsPayload.unreadNotificationCount,
+  };
 }
