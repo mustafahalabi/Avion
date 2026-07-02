@@ -190,4 +190,21 @@ describe("buildFollowUpReply", () => {
     expect(reply).toContain("**Plan:** v2 applied to delivery work");
     expect(reply).toContain("1 todo · 0 in progress · 0 in review · 0 done · 2 other (3 total)");
   });
+
+  it("acknowledges pending rework inline when there are open change requests", () => {
+    const reply = buildFollowUpReply(
+      contextWith({ requestStatus: "in_review", openChangeRequests: 2 })
+    );
+    expect(reply).toContain(
+      "**Your input is routed:** 2 open change requests will absorb this note"
+    );
+  });
+
+  it("uses the singular and omits the routing line when there are none", () => {
+    const one = buildFollowUpReply(contextWith({ openChangeRequests: 1 }));
+    expect(one).toContain("1 open change request will absorb this note");
+
+    const none = buildFollowUpReply(contextWith({ openChangeRequests: 0 }));
+    expect(none).not.toContain("Your input is routed");
+  });
 });
