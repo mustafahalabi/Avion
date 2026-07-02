@@ -23,6 +23,16 @@ const CULTURE_OPTIONS = [
   { value: "performance-first", label: "Performance First" },
 ] as const;
 
+// Three-state planning provider select: "default" stands in for null (follow the
+// EOS_PLANNING_PROVIDER environment default) since it is not a stored provider id.
+const PLANNING_PROVIDER_DEFAULT = "default";
+
+const PLANNING_PROVIDER_OPTIONS = [
+  { value: PLANNING_PROVIDER_DEFAULT, label: "Default (environment)" },
+  { value: "deterministic", label: "Deterministic" },
+  { value: "ai", label: "AI" },
+] as const;
+
 const AGENT_TYPE_OPTIONS = [
   { value: "claude_code", label: "Claude Code" },
   { value: "codex", label: "Codex" },
@@ -33,12 +43,23 @@ interface Props {
   companyName: string;
   autonomyLevel: string;
   cultureProfile: string;
+  planningProvider: string | null;
   defaultAgentType: string;
 }
 
-export function SettingsForm({ companyId, companyName, autonomyLevel: initialAutonomy, cultureProfile: initialCulture, defaultAgentType: initialAgentType }: Props) {
+export function SettingsForm({
+  companyId,
+  companyName,
+  autonomyLevel: initialAutonomy,
+  cultureProfile: initialCulture,
+  planningProvider: initialPlanningProvider,
+  defaultAgentType: initialAgentType,
+}: Props) {
   const [autonomy, setAutonomy] = useState(initialAutonomy);
   const [culture, setCulture] = useState(initialCulture);
+  const [planningProvider, setPlanningProvider] = useState(
+    initialPlanningProvider ?? PLANNING_PROVIDER_DEFAULT
+  );
   const [agentType, setAgentType] = useState(initialAgentType);
   const [saved, setSaved] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -46,7 +67,14 @@ export function SettingsForm({ companyId, companyName, autonomyLevel: initialAut
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      await saveCompanySettings({ companyId, autonomyLevel: autonomy, cultureProfile: culture, defaultAgentType: agentType });
+      await saveCompanySettings({
+        companyId,
+        autonomyLevel: autonomy,
+        cultureProfile: culture,
+        planningProvider:
+          planningProvider === PLANNING_PROVIDER_DEFAULT ? null : planningProvider,
+        defaultAgentType: agentType,
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     });
@@ -99,6 +127,32 @@ export function SettingsForm({ companyId, companyName, autonomyLevel: initialAut
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="px-5 py-4 border-b border-neutral-800">
+        <p className="text-xs font-medium text-neutral-400 mb-3">Planning provider</p>
+        <div className="flex gap-2 flex-wrap">
+          {PLANNING_PROVIDER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setPlanningProvider(opt.value)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                planningProvider === opt.value
+                  ? "border-neutral-500 bg-neutral-700 text-neutral-100"
+                  : "border-neutral-700 text-neutral-500 hover:border-neutral-600 hover:text-neutral-300"
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-neutral-600">
+          How plans are generated for this company. Default follows the server
+          environment configuration; AI planning stays validated and grounded with a
+          deterministic fallback.
+        </p>
       </div>
 
       <div className="px-5 py-4 border-b border-neutral-800">

@@ -10,7 +10,10 @@ import {
 import { resolvePlanningAdapter } from "@/lib/planning/planning-provider";
 import { getRelevantCompanyMemory } from "@/lib/memory/memory-retrieval-service";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
-import { OUTCOME_PLANNING_EVENT_TYPES } from "@/lib/outcome-planning-lifecycle";
+import {
+  OUTCOME_PLANNING_EVENT_TYPES,
+  PENDING_PLAN_REVIEW_STATUSES,
+} from "@/lib/outcome-planning-lifecycle";
 
 const INITIAL_DRAFT_VERSION = 1;
 
@@ -18,6 +21,13 @@ export interface PlanningDraftGenerationInput {
   readonly companyId: string;
   readonly outcomeId: string;
   readonly actorId: string | null;
+  /**
+   * Regenerate the latest draft in place when it is still pending CEO review
+   * ("draft"/"reviewing"), so new outcome constraints — e.g. CEO chat
+   * follow-ups (MUS-261) — reach the plan before approval. Approved and
+   * applied drafts are never regenerated, even with this flag.
+   */
+  readonly regeneratePendingDraft?: boolean;
 }
 
 export interface PlanningDraftGenerationResponse {
@@ -60,7 +70,9 @@ export async function createOrUpdatePlanningDraftForOutcome(
   // Draft versioning: the latest non-rejected, non-failed draft is reused as-is.
   // A REJECTED latest draft no longer strands the outcome — generation proceeds
   // at the next version so the CEO can re-plan. A FAILED latest draft is
-  // regenerated in place at the same version.
+  // regenerated in place at the same version. A PENDING draft ("draft" /
+  // "reviewing") is also regenerated in place — same version, upsert replaces
+  // it — when the caller opts in via `regeneratePendingDraft` (MUS-261).
   const latestDraft = await prisma.planningDraft.findFirst({
     where: {
       companyId: input.companyId,
@@ -70,10 +82,16 @@ export async function createOrUpdatePlanningDraftForOutcome(
     select: { id: true, outcomeId: true, status: true, version: true },
   });
 
+  const regeneratePending =
+    input.regeneratePendingDraft === true &&
+    latestDraft !== null &&
+    PENDING_PLAN_REVIEW_STATUSES.includes(latestDraft.status as PlanningDraftStatus);
+
   if (
     latestDraft &&
     latestDraft.status !== "failed" &&
-    latestDraft.status !== "rejected"
+    latestDraft.status !== "rejected" &&
+    !regeneratePending
   ) {
     return {
       outcomeId: latestDraft.outcomeId,
@@ -109,7 +127,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
     throw new Error("Outcome not found for this company.");
   }
 
-  const [employees, repositories] = await Promise.all([
+  const [employees, repositories, companySettings] = await Promise.all([
     prisma.employee.findMany({
       where: { companyId: input.companyId, status: "active" },
       select: {
@@ -137,6 +155,10 @@ export async function createOrUpdatePlanningDraftForOutcome(
       },
       orderBy: [{ name: "asc" }],
     }),
+    prisma.companySettings.findUnique({
+      where: { companyId: input.companyId },
+      select: { planningProvider: true },
+    }),
   ]);
 
   const planningRepositories = await Promise.all(
@@ -148,7 +170,13 @@ export async function createOrUpdatePlanningDraftForOutcome(
   // deterministic generator renders the top items as explicit plan assumptions.
   const companyMemory = await getRelevantCompanyMemory({ companyId: input.companyId });
 
-  const generation = await resolvePlanningAdapter().generate({
+  // Per-company provider override (MUS-262): a stored CompanySettings.planningProvider
+  // wins; null falls through to the EOS_PLANNING_PROVIDER environment default. Only the
+  // adapter *selection* changes — validation, grounding, and the deterministic fallback
+  // inside the AI adapter are untouched.
+  const generation = await resolvePlanningAdapter({
+    provider: companySettings?.planningProvider ?? null,
+  }).generate({
     companyId: outcome.companyId,
     outcomeId: outcome.id,
     title: outcome.title,

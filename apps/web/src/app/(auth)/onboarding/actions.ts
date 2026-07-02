@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
+import { isPlanningProviderId } from "@/lib/planning/planning-provider";
 
 interface OnboardingSettings {
   companyId: string;
@@ -39,6 +40,11 @@ interface CompanySettings {
   autonomyLevel: string;
   cultureProfile: string;
   /**
+   * Planning provider override ("deterministic" | "ai"). Null clears the override so
+   * the company follows the environment default; omit to leave the stored value unchanged.
+   */
+  planningProvider?: string | null;
+  /**
    * Default agent type for new execution sessions ("claude_code" | "codex").
    * Omitted → left unchanged; null → cleared (falls back to "claude_code").
    */
@@ -49,10 +55,17 @@ export async function saveCompanySettings({
   companyId,
   autonomyLevel,
   cultureProfile,
+  planningProvider,
   defaultAgentType,
 }: CompanySettings) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthenticated");
+
+  if (planningProvider != null && !isPlanningProviderId(planningProvider)) {
+    throw new Error(
+      `"${planningProvider}" is not a valid planning provider. Use "deterministic", "ai", or the environment default.`
+    );
+  }
 
   const company = await prisma.company.findFirst({
     where: { id: companyId, ownerId: user.id },
@@ -64,7 +77,7 @@ export async function saveCompanySettings({
 
   await prisma.companySettings.upsert({
     where: { companyId },
-    update: { autonomyLevel, cultureProfile, ...agentTypeUpdate },
-    create: { companyId, autonomyLevel, cultureProfile, ...agentTypeUpdate },
+    update: { autonomyLevel, cultureProfile, planningProvider, ...agentTypeUpdate },
+    create: { companyId, autonomyLevel, cultureProfile, planningProvider, ...agentTypeUpdate },
   });
 }
