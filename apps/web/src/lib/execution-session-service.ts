@@ -67,7 +67,11 @@ export interface CreateExecutionSessionInput {
   branchName?: string | null;
   /** Task title used to auto-derive branchName when branchName is not supplied. */
   taskTitle?: string | null;
-  /** Base branch to check out from (defaults to "master"). */
+  /**
+   * Base branch for the PR. When omitted/null, the worker lets GitHub resolve
+   * the repo's real default branch (main vs master) — do NOT default it to a
+   * literal here (MUS-282).
+   */
   baseBranch?: string | null;
   /**
    * When true, the branch protection guard is bypassed. Use only for
@@ -182,7 +186,10 @@ export async function createExecutionSession(
       ? deriveBranchName(input.taskId, input.taskTitle)
       : null);
 
-  const baseBranch = input.baseBranch ?? "master";
+  // Null when unknown: the worker then OMITS the PR base so GitHub's real
+  // default branch is resolved (main vs master). Defaulting to "master" here
+  // opened PRs against a non-existent branch on any main-default repo (MUS-282).
+  const baseBranch = input.baseBranch ?? null;
 
   if (branchName && isProtectedBranch(branchName) && !input.isHotfix) {
     throw new Error(
@@ -615,10 +622,14 @@ export interface AgentRunClassification {
  * Classifies an agent run for ingestion. An agent that reports success but
  * produced **no commit** (zero changes) is a failed attempt, not a completion —
  * otherwise the task would advance to review/done with no code and no PR
- * ("shipped work that doesn't exist").
+ * ("shipped work that doesn't exist"). Likewise, a run that committed but whose
+ * **pull request could not be opened** is a failed attempt: without a PR the
+ * work can't be reviewed or merged, so the task must not advance to review/done
+ * with an orphaned branch (MUS-282).
  *
  * @param input.agentSuccess - Whether the agent itself reported success.
  * @param input.commitSha - HEAD commit after commit/push, or null when no changes existed.
+ * @param input.prOpenFailed - True when a commit was pushed but opening the PR failed.
  * @returns The truthful ingestion status plus no-op metadata.
  *
  * @example
@@ -630,6 +641,7 @@ export interface AgentRunClassification {
 export function classifyAgentRunForIngestion(input: {
   agentSuccess: boolean;
   commitSha: string | null;
+  prOpenFailed?: boolean;
 }): AgentRunClassification {
   if (!input.agentSuccess) {
     return { status: "failed", noOp: false, noOpReason: null };
@@ -641,6 +653,11 @@ export function classifyAgentRunForIngestion(input: {
       noOpReason:
         "Agent reported success but produced no changes (no commit, no PR). Treated as a failed attempt so the task does not advance without real work.",
     };
+  }
+  if (input.prOpenFailed) {
+    // Committed but no PR — the branch is orphaned. Fail so the task returns to
+    // the queue (bounded retries own it) instead of reaching done with no PR.
+    return { status: "failed", noOp: false, noOpReason: null };
   }
   return { status: "completed", noOp: false, noOpReason: null };
 }

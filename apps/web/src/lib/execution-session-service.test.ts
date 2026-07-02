@@ -607,9 +607,9 @@ describe("execution-session-service", () => {
       expect(session.branchName).toBe("feature/task-1-implement-feature");
     });
 
-    it("defaults baseBranch to master", async () => {
+    it("leaves baseBranch null when not provided so the worker resolves the real default branch (MUS-282)", async () => {
       const session = await service.createExecutionSession({ companyId: "company-1" });
-      expect(session.baseBranch).toBe("master");
+      expect(session.baseBranch).toBeNull();
     });
 
     it("rejects a protected branchName unless isHotfix is true", async () => {
@@ -963,6 +963,25 @@ describe("execution-session-service", () => {
         noOp: false,
         noOpReason: null,
       });
+    });
+
+    it("fails a committed run whose PR could not be opened so the task cannot reach done with no PR (MUS-282)", () => {
+      const classification = service.classifyAgentRunForIngestion({
+        agentSuccess: true,
+        commitSha: "abc123",
+        prOpenFailed: true,
+      });
+      expect(classification.status).toBe("failed");
+      expect(classification.noOp).toBe(false);
+    });
+
+    it("still completes a committed run when the PR opened fine", () => {
+      const classification = service.classifyAgentRunForIngestion({
+        agentSuccess: true,
+        commitSha: "abc123",
+        prOpenFailed: false,
+      });
+      expect(classification.status).toBe("completed");
     });
   });
 
