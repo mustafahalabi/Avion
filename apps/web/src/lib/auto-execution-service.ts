@@ -467,6 +467,64 @@ async function blockTaskAfterExhaustedRetries(
   }
 }
 
+/**
+ * Fires a **deduplicated** CEO notification when a repository isn't ready and
+ * blocks all of a company's execution. The driver re-hits this every tick, so we
+ * notify only on the FIRST blocked tick — while an unread repository-blocker
+ * notification already exists we stay silent. That same unread notification also
+ * feeds stuck-work detection, so a repo-blocked halt is no longer invisible
+ * (MUS-295). Best-effort: a notification failure never blocks the driver.
+ *
+ * @param companyId - Company whose execution is halted.
+ * @param repositoryId - The blocked repository, or null when none was resolved.
+ * @param reason - Human-readable readiness reason(s).
+ */
+export async function notifyRepositoryBlockedOnce(
+  companyId: string,
+  repositoryId: string | null,
+  reason: string
+): Promise<void> {
+  try {
+    const company = await prisma.company.findFirst({
+      where: { id: companyId },
+      select: { ownerId: true },
+    });
+    if (!company) return;
+    const entityId = repositoryId ?? companyId;
+    const existing = await prisma.notification.findFirst({
+      where: {
+        companyId,
+        userId: company.ownerId,
+        type: "blocker",
+        entityType: "repository",
+        entityId,
+        read: false,
+      },
+      select: { id: true },
+    });
+    // Already surfaced this block and the CEO hasn't cleared it — don't re-alert.
+    if (existing) return;
+    await notify({
+      userId: company.ownerId,
+      companyId,
+      title: "Execution blocked: repository not ready",
+      body: `Autonomous work can't run until the repository is ready. ${reason}`.slice(
+        0,
+        500
+      ),
+      type: "blocker",
+      priority: "urgent",
+      entityType: "repository",
+      entityId,
+      actionUrl: repositoryId
+        ? `/work/repositories/${repositoryId}`
+        : "/connections",
+    });
+  } catch {
+    // Notifications are best-effort.
+  }
+}
+
 /** Result of an `autoPrepareNextExecutionSession` run, suitable for logging. */
 export interface AutoPrepareResult {
   readonly status: AutoPrepareStatus;
@@ -596,6 +654,14 @@ export async function autoPrepareNextExecutionSession(
     null;
   const readiness = await assessExecutionReadiness({ companyId, repositoryId });
   if (!readiness.ready) {
+    // Surface the halt to the CEO once (not every tick) and to stuck-work
+    // detection — previously this returned silently and only appeared in the
+    // driver's tick log (MUS-295).
+    await notifyRepositoryBlockedOnce(
+      companyId,
+      repositoryId,
+      `${readiness.readiness}: ${readiness.reasons.join("; ") || "blocked"}`
+    );
     return {
       status: "blocked_repository",
       reason: `Repository not ready for execution (${readiness.readiness}): ${
