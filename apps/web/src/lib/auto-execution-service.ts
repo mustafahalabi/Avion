@@ -58,7 +58,7 @@ export interface BuildTaskBriefInput {
   readonly generatedTasksJson: string | null;
   readonly repository: BriefRepositoryContext | null;
   readonly branchName: string | null;
-  readonly baseBranch: string;
+  readonly baseBranch: string | null;
   readonly linearTicketUrl: string | null;
   readonly reworkContext?: ReworkContext | null;
 }
@@ -203,7 +203,9 @@ export async function prepareExecutionSessionForTask(
     generatedTasksJson: task.planningDraft?.generatedTasks ?? null,
     repository: repo,
     branchName: priorSession?.branchName ?? null,
-    baseBranch: priorSession?.baseBranch ?? "master",
+    // Null on a first run → the worker resolves the repo's real default branch
+    // (main vs master); a rework reuses the prior session's base (MUS-282).
+    baseBranch: priorSession?.baseBranch ?? null,
     linearTicketUrl: null,
     reworkContext,
   });
@@ -218,7 +220,7 @@ export async function prepareExecutionSessionForTask(
     // agentType intentionally omitted: the company's configured default
     // (CompanySettings.defaultAgentType, null → "claude_code") applies.
     branchName,
-    baseBranch: priorSession?.baseBranch ?? "master",
+    baseBranch: priorSession?.baseBranch ?? null,
   });
 
   const prepared = await prepareExecutionSession(companyId, session.id, brief);

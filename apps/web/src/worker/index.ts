@@ -368,6 +368,9 @@ async function processSession(sessionId: string): Promise<void> {
     const classification = classifyAgentRunForIngestion({
       agentSuccess: result.success,
       commitSha,
+      // A commit with no PR (open failed / 422 against a wrong base / missing
+      // token) must not advance the task to review/done (MUS-282).
+      prOpenFailed: commitSha !== null && prError !== null,
     });
     if (classification.noOp) {
       workerLogger.error(classification.noOpReason ?? "No-op agent run.");
