@@ -30,48 +30,104 @@ export function parseResultSummary(stdout: string): string | null {
 /**
  * Parses file change lines from agent stdout.
  *
- * Supports `Created:`, `Modified:`, `Deleted:` prefixes and bullet lists
- * under a `Files changed:` heading.
+ * Supports `Created:` / `Modified:` / `Deleted:` prefixes, an inline
+ * `Files changed: a, b` value, and plain bullets under a `Files changed:` label.
+ *
+ * Capture under a `Files changed:` label STOPS at the next labeled field
+ * (e.g. `- Tests added: none`, `- Ready for review: Yes`), heading, or blank line,
+ * and every candidate is filtered by {@link looksLikeFilePath}. This prevents the
+ * agent's Implementation-Summary fields — which follow a `- Files changed:` bullet —
+ * from being recorded as fake file paths (MUS-278). This is only a fallback; the
+ * adapters prefer {@link parseFilesChangedFromGit} (the on-disk truth) when available.
  *
  * @param stdout - Combined agent stdout.
  * @returns Relative file paths detected in output.
  */
 export function parseFilesChanged(stdout: string): string[] {
   const files = new Set<string>();
+  const lines = stdout.split("\n");
 
-  for (const line of stdout.split("\n")) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
     const prefixMatch = line.match(/^(?:Created|Modified|Deleted):\s*(.+)$/i);
     if (prefixMatch?.[1]) {
-      files.add(prefixMatch[1].trim());
+      addFileCandidate(files, prefixMatch[1]);
       continue;
     }
 
-    const bulletMatch = line.match(/^\s*-\s+(.+)$/);
-    if (bulletMatch?.[1] && isUnderFilesChangedSection(stdout, line)) {
-      files.add(bulletMatch[1].trim());
+    const filesChanged = line.match(/^\s*[-*]?\s*Files changed:\s*(.*)$/i);
+    if (filesChanged) {
+      // Inline value on the same line (e.g. "- Files changed: a.ts, b.ts").
+      for (const part of filesChanged[1].split(/[,;]/)) {
+        addFileCandidate(files, part);
+      }
+      // Following plain bullets, until a labeled field / heading / blank line.
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j];
+        if (next.trim().length === 0) break;
+        if (/^\s*#{1,6}\s/.test(next)) break;
+        const bullet = next.match(/^\s*[-*]\s+(.+)$/);
+        if (!bullet || isLabeledField(bullet[1])) break;
+        addFileCandidate(files, bullet[1]);
+      }
     }
   }
 
   return [...files];
 }
 
+/** True when text reads like a labeled summary field ("Tests added: none"), not a path. */
+function isLabeledField(text: string): boolean {
+  return /^[A-Za-z][A-Za-z ]*:\s/.test(text.trim());
+}
+
+/** Adds a trimmed, de-quoted candidate to the set when it plausibly names a file. */
+function addFileCandidate(files: Set<string>, raw: string): void {
+  const value = raw.trim().replace(/^[`'"]+|[`'"]+$/g, "").trim();
+  if (looksLikeFilePath(value)) files.add(value);
+}
+
+/** Conservative filter: reject placeholders, labeled fields, and prose sentences. */
+function looksLikeFilePath(value: string): boolean {
+  if (value.length === 0 || value.length > 255) return false;
+  if (["none", "n/a", "(none)", "<list>", "-"].includes(value.toLowerCase())) {
+    return false;
+  }
+  if (isLabeledField(value)) return false;
+  // Reject prose: whitespace AND sentence punctuation before a space or end.
+  if (/\s/.test(value) && /[.!?](\s|$)/.test(value)) return false;
+  return true;
+}
+
 /**
- * Falls back to `git diff --name-only HEAD~1` when stdout parsing finds nothing.
+ * Returns the repository's working-tree changes vs HEAD — the on-disk truth for
+ * what the agent changed. Uses `git status --porcelain` (including untracked new
+ * files) rather than `git diff HEAD~1`: the adapter parses output BEFORE the worker
+ * commits, so the agent's edits are uncommitted and diffing the previous commit
+ * would report the wrong set (MUS-278).
  *
  * @param repositoryPath - Checked-out repository path.
- * @returns Changed file paths from git, or empty array on failure.
+ * @returns Changed file paths from git, or an empty array on failure (e.g. not a repo).
  */
 export function parseFilesChangedFromGit(repositoryPath: string): string[] {
   try {
-    const output = execSync("git diff --name-only HEAD~1", {
+    const output = execSync("git status --porcelain", {
       cwd: repositoryPath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     });
-    return output
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    const files = new Set<string>();
+    for (const line of output.split("\n")) {
+      if (line.trim().length === 0) continue;
+      // Porcelain v1: "XY <path>" (2 status chars + space); renames as "old -> new".
+      let path = line.slice(3).trim();
+      const arrow = path.indexOf(" -> ");
+      if (arrow >= 0) path = path.slice(arrow + 4).trim();
+      if (path.startsWith('"') && path.endsWith('"')) path = path.slice(1, -1);
+      if (path.length > 0) files.add(path);
+    }
+    return [...files];
   } catch {
     return [];
   }
@@ -92,23 +148,3 @@ export function parseValidationOutput(stdout: string): string | null {
   return block.length > 0 ? block : null;
 }
 
-/**
- * Returns true when a bullet line appears after a `Files changed:` heading.
- *
- * @param stdout - Full stdout text.
- * @param line - The bullet line being evaluated.
- * @returns Whether the line is within a files-changed section.
- */
-function isUnderFilesChangedSection(stdout: string, line: string): boolean {
-  const lineIndex = stdout.indexOf(line);
-  if (lineIndex < 0) {
-    return false;
-  }
-  const preceding = stdout.slice(0, lineIndex);
-  const filesChangedIndex = preceding.lastIndexOf("Files changed:");
-  if (filesChangedIndex < 0) {
-    return false;
-  }
-  const sectionBetween = preceding.slice(filesChangedIndex);
-  return !sectionBetween.includes("\n## ");
-}

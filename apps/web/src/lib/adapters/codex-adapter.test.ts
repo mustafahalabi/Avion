@@ -228,22 +228,23 @@ describe("CodexAdapter", () => {
     expect(result.stderr).toBe("stderr line");
   });
 
-  it("falls back to git diff for filesChanged when output is malformed", async () => {
+  it("records the on-disk git changes as authoritative for filesChanged (MUS-278)", async () => {
     const child = createMockChild();
     mockSpawn.mockReturnValue(child);
-    mockExecSync.mockReturnValue("src/real-a.ts\nsrc/real-b.ts\n");
+    // Porcelain v1: modified + untracked. Git is the source of truth.
+    mockExecSync.mockReturnValue(" M src/real-a.ts\n?? src/real-b.ts\n");
 
     const adapter = new CodexAdapter();
     const runPromise = adapter.run("brief", BASE_CONTEXT);
 
-    // No parseable Created/Modified/Deleted lines or files-changed bullets.
-    child.stdout.write("I did some work but forgot the structured sections.");
+    // Even a plausible-looking stdout claim must not override the real git diff.
+    child.stdout.write("Modified: src/CLAIMED-but-not-real.ts");
     child.emit("close", 0);
 
     const result = await runPromise;
 
     expect(mockExecSync).toHaveBeenCalledWith(
-      "git diff --name-only HEAD~1",
+      "git status --porcelain",
       expect.objectContaining({ cwd: "/tmp/repo" })
     );
     expect(result.filesChanged).toEqual(["src/real-a.ts", "src/real-b.ts"]);
