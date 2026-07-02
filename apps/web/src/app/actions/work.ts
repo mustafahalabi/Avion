@@ -83,15 +83,25 @@ export async function createProject(
   redirect(`/work/projects/${project.id}`);
 }
 
+// Statuses a task may be *created* with. `done` and `in-review` are excluded on
+// purpose: a brand-new task has no Review or QAResult, so creating it there
+// would bypass the acceptance gate ("no task is done without an approved review
+// AND a passing QA"). They're rejected in `createTask` with the gate's reason
+// (MUS-296).
+const CREATION_TASK_STATUSES = [
+  "todo",
+  "in-progress",
+  "blocked",
+  "cancelled",
+] as const;
+
 const createTaskSchema = z.object({
   title: z.string().min(1).max(500).trim(),
   description: z.string().max(5000).trim().optional(),
   assigneeId: z.string().optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
   featureId: z.string().optional(),
-  status: z
-    .enum(["todo", "in-progress", "in-review", "done", "blocked", "cancelled"])
-    .default("todo"),
+  status: z.enum(CREATION_TASK_STATUSES).default("todo"),
 });
 
 export type CreateTaskState =
@@ -112,6 +122,23 @@ export async function createTask(
 ): Promise<CreateTaskState> {
   const user = await getCurrentUser();
   if (!user) return { message: "Not authenticated." };
+
+  // A task created directly at `done`/`in-review` would skip the acceptance
+  // gate — no review or QA can exist for a task that doesn't exist yet. Reject
+  // both with the same voice `updateTaskStatus` uses, before validation (MUS-296).
+  const requestedStatus = String(formData.get("status") ?? "todo");
+  if (requestedStatus === "done") {
+    return {
+      message:
+        "A task cannot be created as done without an approved review and a passing QA result. Run the review and QA gates first.",
+    };
+  }
+  if (requestedStatus === "in-review") {
+    return {
+      message:
+        "A task cannot be created directly in review — it must be implemented before it can be reviewed.",
+    };
+  }
 
   const parsed = createTaskSchema.safeParse({
     title: formData.get("title"),
