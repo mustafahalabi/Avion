@@ -15,6 +15,7 @@
  */
 
 import { authorizeAutonomyAction } from "@/lib/autonomy-policy";
+import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import {
   mergePullRequest,
@@ -129,6 +130,12 @@ export async function ingestPullRequestFeedbackForCompany(
     settings?.autonomyLevel,
     "auto_merge"
   ).allowed;
+
+  // CEO to escalate to when CI persistently disagrees with completed work (MUS-287).
+  const company = await prisma.company.findFirst({
+    where: { id: companyId },
+    select: { ownerId: true },
+  });
 
   const sessions = await prisma.executionSession.findMany({
     where: {
@@ -276,6 +283,46 @@ export async function ingestPullRequestFeedbackForCompany(
       });
 
       changeRequestsOpened += result.changeRequestIds.length;
+
+      // The task already passed internal QA (reached `done`), but GitHub CI or a
+      // reviewer disagrees. The reopen guard (review-service, MUS-287) keeps a
+      // done task from being resurrected, so the rework loop can't act on it —
+      // escalate to the CEO instead of silently sitting on a red-CI PR. The
+      // unresolved change request created above dedups subsequent ticks, so this
+      // fires once per conflict episode rather than every tick.
+      if (session.task?.status === "done" && company?.ownerId) {
+        try {
+          await prisma.timelineEntry.create({
+            data: {
+              entityType: "task",
+              entityId: taskId,
+              eventType: "pr_ci_conflict",
+              summary: `PR #${session.prNumber} CI/review disagrees with completed work.`,
+              metadata: JSON.stringify({
+                sessionId: session.id,
+                prNumber: session.prNumber,
+              }),
+            },
+          });
+        } catch {
+          // Timeline writes are best-effort.
+        }
+        try {
+          await notify({
+            userId: company.ownerId,
+            companyId,
+            title: "CI conflicts with completed work",
+            body: `"${taskTitle}" is done, but PR #${session.prNumber}'s CI or review is failing — it won't auto-merge and needs your decision.`,
+            type: "decision",
+            priority: "high",
+            entityType: "task",
+            entityId: taskId,
+            actionUrl: `/work/tasks/${taskId}`,
+          });
+        } catch {
+          // Notifications are best-effort.
+        }
+      }
     } catch {
       // Best-effort per session: a failure on one PR must not abort the rest.
     }
