@@ -499,3 +499,49 @@ describe("analyzeRepositoryPath — file tree ingestion", () => {
     expect(first.fileFingerprints).toEqual(second.fileFingerprints);
   });
 });
+
+// ─── Environment variable inventory (MUS-225) ────────────────────────────────
+
+describe("env inventory", () => {
+  it("captures process.env and import.meta.env references, sorted and de-duplicated", () => {
+    const root = createFixtureRoot("env");
+    writeFixtureFile(root, "package.json", '{"name":"env-repo","private":true}');
+    writeFixtureFile(
+      root,
+      "src/lib/config.ts",
+      [
+        'const url = process.env.DATABASE_URL ?? "";',
+        'const key = process.env["CLERK_SECRET_KEY"];',
+        "const again = process.env.DATABASE_URL;",
+        "export const cfg = { url, key, again };",
+      ].join("\n")
+    );
+    writeFixtureFile(
+      root,
+      "src/lib/client.ts",
+      "export const api = import.meta.env.VITE_API_URL;\n"
+    );
+
+    const outcome = analyzeRepositoryPath(root);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(outcome.envInventory).toEqual([
+      "CLERK_SECRET_KEY",
+      "DATABASE_URL",
+      "VITE_API_URL",
+    ]);
+  });
+
+  it("records only names — never values — and is empty for repos without env references", () => {
+    const root = createFixtureRoot("env-none");
+    writeFixtureFile(root, "package.json", '{"name":"plain","private":true}');
+    writeFixtureFile(root, "src/lib/pure.ts", "export const answer = 42;\n");
+
+    const outcome = analyzeRepositoryPath(root);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("Expected analysis success");
+
+    expect(outcome.envInventory).toEqual([]);
+  });
+});

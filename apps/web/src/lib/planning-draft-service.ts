@@ -57,24 +57,38 @@ interface OutcomeForPlanning {
 export async function createOrUpdatePlanningDraftForOutcome(
   input: PlanningDraftGenerationInput
 ): Promise<PlanningDraftGenerationResponse> {
-  const existingDraft = await prisma.planningDraft.findFirst({
+  // Draft versioning: the latest non-rejected, non-failed draft is reused as-is.
+  // A REJECTED latest draft no longer strands the outcome — generation proceeds
+  // at the next version so the CEO can re-plan. A FAILED latest draft is
+  // regenerated in place at the same version.
+  const latestDraft = await prisma.planningDraft.findFirst({
     where: {
       companyId: input.companyId,
       outcomeId: input.outcomeId,
-      version: INITIAL_DRAFT_VERSION,
-      status: { not: "failed" },
     },
-    select: { id: true, outcomeId: true, status: true },
+    orderBy: { version: "desc" },
+    select: { id: true, outcomeId: true, status: true, version: true },
   });
 
-  if (existingDraft) {
+  if (
+    latestDraft &&
+    latestDraft.status !== "failed" &&
+    latestDraft.status !== "rejected"
+  ) {
     return {
-      outcomeId: existingDraft.outcomeId,
-      planningDraftId: existingDraft.id,
-      status: existingDraft.status as PlanningDraftStatus,
+      outcomeId: latestDraft.outcomeId,
+      planningDraftId: latestDraft.id,
+      status: latestDraft.status as PlanningDraftStatus,
       message: "Planning draft already exists for this outcome.",
     };
   }
+
+  const draftVersion =
+    latestDraft === null
+      ? INITIAL_DRAFT_VERSION
+      : latestDraft.status === "rejected"
+        ? latestDraft.version + 1
+        : latestDraft.version;
 
   const outcome = await prisma.outcome.findFirst({
     where: { id: input.outcomeId, companyId: input.companyId },
@@ -158,6 +172,7 @@ export async function createOrUpdatePlanningDraftForOutcome(
     actorId: input.actorId,
     generation,
     outcome,
+    version: draftVersion,
   });
 }
 
@@ -225,12 +240,23 @@ async function persistPlanningGeneration(input: {
   readonly outcome: OutcomeForPlanning;
   readonly generation: PlanningGenerationResult;
   readonly actorId: string | null;
+  readonly version: number;
 }): Promise<PlanningDraftGenerationResponse> {
   if (input.generation.status === "success") {
-    return persistSuccessfulGeneration(input.outcome, input.generation.draft, input.actorId);
+    return persistSuccessfulGeneration(
+      input.outcome,
+      input.generation.draft,
+      input.actorId,
+      input.version
+    );
   }
 
-  return persistFailedGeneration(input.outcome, input.generation, input.actorId);
+  return persistFailedGeneration(
+    input.outcome,
+    input.generation,
+    input.actorId,
+    input.version
+  );
 }
 
 /**
@@ -244,7 +270,8 @@ async function persistPlanningGeneration(input: {
 async function persistSuccessfulGeneration(
   outcome: OutcomeForPlanning,
   draft: DeterministicPlanningDraft,
-  actorId: string | null
+  actorId: string | null,
+  version: number
 ): Promise<PlanningDraftGenerationResponse> {
   const planningDraft = await prisma.$transaction(async (tx) => {
     const persistedDraft = await tx.planningDraft.upsert({
@@ -252,7 +279,7 @@ async function persistSuccessfulGeneration(
         companyId_outcomeId_version: {
           companyId: outcome.companyId,
           outcomeId: outcome.id,
-          version: INITIAL_DRAFT_VERSION,
+          version,
         },
       },
       create: {
@@ -261,7 +288,7 @@ async function persistSuccessfulGeneration(
         title: draft.title,
         summary: draft.summary,
         status: draft.status,
-        version: INITIAL_DRAFT_VERSION,
+        version,
         scope: JSON.stringify(draft.scope),
         nonScope: JSON.stringify(draft.nonScope),
         assumptions: JSON.stringify(draft.assumptions),
@@ -378,7 +405,8 @@ async function persistSuccessfulGeneration(
 async function persistFailedGeneration(
   outcome: OutcomeForPlanning,
   failure: PlanningGenerationFailure,
-  actorId: string | null
+  actorId: string | null,
+  version: number
 ): Promise<PlanningDraftGenerationResponse> {
   const planningDraft = await prisma.$transaction(async (tx) => {
     const persistedDraft = await tx.planningDraft.upsert({
@@ -386,7 +414,7 @@ async function persistFailedGeneration(
         companyId_outcomeId_version: {
           companyId: outcome.companyId,
           outcomeId: outcome.id,
-          version: INITIAL_DRAFT_VERSION,
+          version,
         },
       },
       create: {
@@ -395,7 +423,7 @@ async function persistFailedGeneration(
         title: `${outcome.title} Planning Draft`,
         summary: failure.reason,
         status: "failed",
-        version: INITIAL_DRAFT_VERSION,
+        version,
         scope: "[]",
         nonScope: JSON.stringify(COMMON_FAILED_NON_SCOPE),
         assumptions: "[]",

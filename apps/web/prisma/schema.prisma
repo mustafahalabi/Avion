@@ -198,6 +198,9 @@ model RepositoryAnalysisSnapshot {
   fileFingerprints String   @default("[]")
   risks            String   @default("[]")
   ignoredPaths     String   @default("[]")
+  // JSON string[] of env-var names the source references (process.env.X /
+  // import.meta.env.X). Nullable: snapshots from before MUS-225 have no inventory.
+  envInventory     String?
   analysisSummary  String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

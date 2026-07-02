@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod/v4";
+import { resolveDefaultRepositoryId } from "@/lib/active-workspace";
 import { REQUEST_ROUTING } from "@/lib/request-routing";
 import { buildOutcomeCreateData } from "@/lib/outcome-planning";
 import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
@@ -73,6 +74,12 @@ export async function sendMessage(
 
   const isFirstMessage = conv._count.messages === 0;
 
+  // Chat-born outcomes get scoped to the active workspace's repository so plan
+  // application inherits a real repo instead of the default workspace (MUS-259).
+  const repositoryId = isFirstMessage
+    ? await resolveDefaultRepositoryId(company.id)
+    : null;
+
   const planningTarget = await prisma.$transaction(async (tx) => {
     // User message
     await tx.message.create({
@@ -114,6 +121,7 @@ export async function sendMessage(
           runtimeRequestId: request.id,
           title: request.title,
           rawRequest: request.goal,
+          repositoryId,
         }),
         update: {
           title: request.title,

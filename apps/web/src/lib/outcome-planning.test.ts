@@ -100,6 +100,14 @@ describe("buildOutcomeCreateData", () => {
     expect(buildOutcomeCreateData({ ...base, priority: "high" }).priority).toBe("high");
   });
 
+  it("scopes the outcome to a repository when one is supplied (MUS-259)", () => {
+    expect(buildOutcomeCreateData({ ...base, repositoryId: "repo-1" }).repositoryId).toBe(
+      "repo-1"
+    );
+    expect(buildOutcomeCreateData(base).repositoryId).toBeNull();
+    expect(buildOutcomeCreateData({ ...base, repositoryId: null }).repositoryId).toBeNull();
+  });
+
   it("produces a status that is a member of OUTCOME_STATUSES", () => {
     expect(OUTCOME_STATUSES).toContain(buildOutcomeCreateData(base).status);
   });

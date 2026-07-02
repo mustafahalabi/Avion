@@ -191,6 +191,12 @@ export interface RepositoryAnalysisResult {
   readonly testFiles: readonly string[];
   readonly fileFingerprints: readonly FileFingerprint[];
   readonly risks: readonly RiskFinding[];
+  /**
+   * Environment variable names the source actually references
+   * (`process.env.X` / `import.meta.env.X`), sorted and de-duplicated (MUS-225).
+   * Values are never read — only the referenced names.
+   */
+  readonly envInventory: readonly string[];
   readonly intelligenceSummary: string;
 }
 
@@ -239,6 +245,7 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
   const databaseLayer = detectDatabaseLayer(localPath, dependencies, devDependencies, prismaModels);
   const testFiles = detectTestFiles(entries);
   const fileFingerprints = buildFileFingerprints(entries);
+  const envInventory = detectEnvInventory(localPath, entries);
   const importantFiles = buildImportantFiles(localPath, entries, prismaModels);
   const fileTree: FileTreeSummary = {
     ...fileTreeBase,
@@ -291,8 +298,62 @@ export function analyzeRepositoryPath(localPath: string): RepositoryAnalysisOutc
     testFiles,
     fileFingerprints,
     risks,
+    envInventory,
     intelligenceSummary,
   };
+}
+
+// ─── Environment Variable Inventory (MUS-225) ────────────────────────────────
+
+/** Maximum files scanned for env-var references (bounded like the walk itself). */
+const MAX_ENV_SCAN_FILES = 800;
+
+/** Patterns matching env-var *references* in source. Values are never captured. */
+const ENV_REFERENCE_PATTERNS: readonly RegExp[] = [
+  /process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g,
+  /process\.env\[["']([A-Za-z_][A-Za-z0-9_]*)["']\]/g,
+  /import\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)/g,
+];
+
+/**
+ * Scans source/config/test files for referenced environment variable names
+ * (`process.env.X`, `process.env["X"]`, `import.meta.env.X`).
+ *
+ * Reads file *contents* but records only variable names — never values, and
+ * `.env` files themselves are already excluded from the walk. Bounded by file
+ * size ({@link MAX_FILE_READ_BYTES}) and file count ({@link MAX_ENV_SCAN_FILES}).
+ *
+ * @param root - Repository root path.
+ * @param entries - Walked file entries.
+ * @returns Sorted, de-duplicated env-var names referenced by the repository.
+ */
+export function detectEnvInventory(
+  root: string,
+  entries: readonly FileEntry[]
+): readonly string[] {
+  const names = new Set<string>();
+  let scanned = 0;
+
+  for (const entry of entries) {
+    if (scanned >= MAX_ENV_SCAN_FILES) break;
+    if (entry.type !== "file") continue;
+    if (!["source", "config", "test"].includes(entry.category)) continue;
+    if (entry.size > MAX_FILE_READ_BYTES) continue;
+
+    const content = readFileSafe(join(root, entry.path));
+    if (content === null) continue;
+    scanned++;
+
+    for (const pattern of ENV_REFERENCE_PATTERNS) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(content)) !== null) {
+        names.add(match[1]);
+      }
+    }
+  }
+
+  return [...names].sort();
 }
 
 // ─── File Tree Walk ───────────────────────────────────────────────────────────

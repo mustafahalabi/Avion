@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { resolveDefaultRepositoryId } from "@/lib/active-workspace";
 import { notify } from "@/lib/notify";
 import { REQUEST_ROUTING } from "@/lib/request-routing";
 import { buildOutcomeCreateData } from "@/lib/outcome-planning";
@@ -54,6 +55,10 @@ export async function submitRequest(
   });
   if (!company) return { message: "No company found." };
 
+  // Inbox-born outcomes get scoped to the active workspace's repository so plan
+  // application inherits a real repo instead of the default workspace (MUS-259).
+  const repositoryId = await resolveDefaultRepositoryId(company.id);
+
   const { request, outcome } = await prisma.$transaction(async (tx) => {
     const runtimeRequest = await tx.runtimeRequest.create({
       data: {
@@ -78,6 +83,7 @@ export async function submitRequest(
         runtimeRequestId: runtimeRequest.id,
         title: runtimeRequest.title,
         rawRequest: runtimeRequest.goal,
+        repositoryId,
       }),
       update: {
         title: runtimeRequest.title,

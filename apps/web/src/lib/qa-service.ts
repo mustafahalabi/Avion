@@ -1,3 +1,4 @@
+import { evaluateOutcomeCompletionForTask } from "@/lib/outcome-completion-service";
 import { prisma } from "@/lib/prisma";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -217,6 +218,15 @@ export async function recordQaResult(
           updatedAt: new Date(),
         },
       });
+
+      // Outcome lifecycle (MUS-259): the task that just reached `done` may have
+      // been the outcome's last open work. Best-effort — completion bookkeeping
+      // never breaks the QA gate itself.
+      try {
+        await evaluateOutcomeCompletionForTask(companyId, taskId);
+      } catch {
+        // Outcome completion is best-effort.
+      }
     }
 
     const entry = await prisma.timelineEntry.create({
