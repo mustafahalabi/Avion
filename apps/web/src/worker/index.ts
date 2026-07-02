@@ -1,5 +1,8 @@
-import { ClaudeCodeAdapter } from "@/lib/adapters/claude-code-adapter";
-import type { PermissionLevel } from "@/lib/adapters/execution-adapter";
+import { resolveExecutionAdapter } from "@/lib/adapters/adapter-registry";
+import type {
+  ExecutionAdapter,
+  PermissionLevel,
+} from "@/lib/adapters/execution-adapter";
 import { getCommandsForRepo } from "@/lib/check-command-profile";
 import {
   runValidationCommands,
@@ -151,6 +154,19 @@ async function processSession(sessionId: string): Promise<void> {
     return;
   }
 
+  // Adapter selection (MUS-264): the session's agentType picks the provider.
+  // An unknown type is an explicit pre-flight failure — the session is
+  // ingested as failed, the worker keeps polling.
+  let adapter: ExecutionAdapter;
+  try {
+    adapter = resolveExecutionAdapter(fullSession.agentType);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    workerLogger.error(message);
+    await releaseSession(fullSession.id, "failed", message);
+    return;
+  }
+
   let cleanup: (() => Promise<void>) | null = null;
   const startTime = Date.now();
 
@@ -170,9 +186,8 @@ async function processSession(sessionId: string): Promise<void> {
     cleanup = checkout.cleanup;
     activeCleanup = cleanup;
 
-    const adapter = new ClaudeCodeAdapter();
     workerLogger.info(
-      `Running claude -p (permission: ${permissionLevel}, timeout: ${WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS}s)`
+      `Running ${adapter.agentType} agent (permission: ${permissionLevel}, timeout: ${WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS}s)`
     );
 
     const result = await adapter.run(fullSession.taskBrief, {

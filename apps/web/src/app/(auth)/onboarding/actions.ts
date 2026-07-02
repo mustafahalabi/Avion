@@ -44,6 +44,11 @@ interface CompanySettings {
    * the company follows the environment default; omit to leave the stored value unchanged.
    */
   planningProvider?: string | null;
+  /**
+   * Default agent type for new execution sessions ("claude_code" | "codex").
+   * Omitted → left unchanged; null → cleared (falls back to "claude_code").
+   */
+  defaultAgentType?: string | null;
 }
 
 export async function saveCompanySettings({
@@ -51,6 +56,7 @@ export async function saveCompanySettings({
   autonomyLevel,
   cultureProfile,
   planningProvider,
+  defaultAgentType,
 }: CompanySettings) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthenticated");
@@ -66,9 +72,12 @@ export async function saveCompanySettings({
   });
   if (!company) throw new Error("Company not found");
 
+  const agentTypeUpdate =
+    defaultAgentType !== undefined ? { defaultAgentType } : {};
+
   await prisma.companySettings.upsert({
     where: { companyId },
-    update: { autonomyLevel, cultureProfile, planningProvider },
-    create: { companyId, autonomyLevel, cultureProfile, planningProvider },
+    update: { autonomyLevel, cultureProfile, planningProvider, ...agentTypeUpdate },
+    create: { companyId, autonomyLevel, cultureProfile, planningProvider, ...agentTypeUpdate },
   });
 }

@@ -58,6 +58,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check api schema projection (drift vs canonical schema)
+        # apps/api/prisma/schema.prisma is a hand-maintained read-only subset
+        # of apps/web/prisma/schema.prisma (MUS-265). Fail fast — before any
+        # prisma generate/build — if the projection has drifted.
+        run: pnpm --filter @avion/api schema:check
+
       - name: Generate Prisma clients (web + api)
         run: pnpm db:generate
 

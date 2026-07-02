@@ -19,7 +19,7 @@
 import { prisma } from "@/lib/prisma";
 
 /** Outcome statuses that are already terminal — never overwritten here. */
-const TERMINAL_OUTCOME_STATUSES = new Set([
+export const TERMINAL_OUTCOME_STATUSES: ReadonlySet<string> = new Set([
   "released",
   "completed",
   "archived",

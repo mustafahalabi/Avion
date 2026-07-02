@@ -8,6 +8,8 @@ import { defineConfig } from "prisma/config";
 export default defineConfig({
   schema: "prisma/schema.prisma",
   datasource: {
-    url: process.env.DATABASE_URL,
+    // Same precedence as the runtime (src/prisma/database-url.ts): prefer the
+    // read-only API_DATABASE_URL, fall back to the shared DATABASE_URL.
+    url: process.env.API_DATABASE_URL ?? process.env.DATABASE_URL,
   },
 });
