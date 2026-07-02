@@ -15,6 +15,9 @@ interface CannedResponses {
   reviewsStatus?: number;
   checkRuns?: unknown;
   checkRunsStatus?: number;
+  /** Combined commit-status payload (`/commits/{sha}/status`). */
+  commitStatus?: unknown;
+  commitStatusStatus?: number;
 }
 
 /**
@@ -31,6 +34,14 @@ function buildFetch(canned: CannedResponses): FetchLike {
     const url = String(input);
     if (url.includes("/check-runs")) {
       return json(canned.checkRuns ?? { check_runs: [] }, canned.checkRunsStatus ?? 200);
+    }
+    if (url.endsWith("/status")) {
+      // Default: no commit statuses (GitHub returns state "pending" with a zero
+      // total_count when the Status API is unused — which reads as absent).
+      return json(
+        canned.commitStatus ?? { state: "pending", total_count: 0, statuses: [] },
+        canned.commitStatusStatus ?? 200
+      );
     }
     if (url.includes("/reviews")) {
       return json(canned.reviews ?? [], canned.reviewsStatus ?? 200);
@@ -145,6 +156,71 @@ describe("fetchPullRequestFeedback", () => {
 
     expect(feedback.checksConclusion).toBe("none");
     expect(feedback.checks).toEqual([]);
+  });
+
+  it("reports failure from the combined commit status when there are no check-runs (MUS-286)", async () => {
+    const fetchImpl = buildFetch({
+      pull: { state: "open", merged_at: null, head: { sha: "abc" } },
+      checkRuns: { check_runs: [] },
+      commitStatus: {
+        state: "failure",
+        total_count: 1,
+        statuses: [{ context: "ci/external", state: "failure" }],
+      },
+    });
+
+    const feedback = await fetchPullRequestFeedback({ ...baseInput, fetchImpl });
+
+    // A failing commit-status CI must NOT collapse to "none" (which would
+    // auto-merge a red PR).
+    expect(feedback.checksConclusion).toBe("failure");
+    expect(feedback.checks).toContainEqual({ name: "ci/external", conclusion: "failure" });
+  });
+
+  it("reads 'none' only when BOTH check-runs and commit statuses are empty (MUS-286)", async () => {
+    const fetchImpl = buildFetch({
+      pull: { state: "open", merged_at: null, head: { sha: "abc" } },
+      checkRuns: { check_runs: [] },
+      // GitHub returns state "pending" even with zero statuses — total_count is
+      // the authority, so this is absent, not pending.
+      commitStatus: { state: "pending", total_count: 0, statuses: [] },
+    });
+
+    const feedback = await fetchPullRequestFeedback({ ...baseInput, fetchImpl });
+
+    expect(feedback.checksConclusion).toBe("none");
+  });
+
+  it("treats an action_required check-run as a failure (MUS-286)", async () => {
+    const fetchImpl = buildFetch({
+      pull: { state: "open", merged_at: null, head: { sha: "abc" } },
+      checkRuns: {
+        check_runs: [{ name: "codeql", status: "completed", conclusion: "action_required" }],
+      },
+    });
+
+    const feedback = await fetchPullRequestFeedback({ ...baseInput, fetchImpl });
+
+    expect(feedback.checksConclusion).toBe("failure");
+  });
+
+  it("folds a check-runs success and a commit-status success into success (MUS-286)", async () => {
+    const fetchImpl = buildFetch({
+      pull: { state: "open", merged_at: null, head: { sha: "abc" } },
+      checkRuns: {
+        check_runs: [{ name: "ci", status: "completed", conclusion: "success" }],
+      },
+      commitStatus: {
+        state: "success",
+        total_count: 1,
+        statuses: [{ context: "vercel", state: "success" }],
+      },
+    });
+
+    const feedback = await fetchPullRequestFeedback({ ...baseInput, fetchImpl });
+
+    expect(feedback.checksConclusion).toBe("success");
+    expect(feedback.checks).toContainEqual({ name: "vercel", conclusion: "success" });
   });
 
   it("reports merged when merged_at is set", async () => {
