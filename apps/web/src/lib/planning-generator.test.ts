@@ -120,6 +120,43 @@ describe("generateDeterministicPlanningDraft", () => {
     expect(result.draft.generatedTasks.length).toBeGreaterThan(0);
   });
 
+  it("renders company memory into plan assumptions (MUS-258)", () => {
+    const result = generateDeterministicPlanningDraft(
+      buildInput({
+        companyMemory: [
+          {
+            id: "rec-1",
+            category: "standards",
+            bankTitle: "Standards",
+            content: "All new queries must be company-scoped.",
+            source: "learning:abc",
+            confidence: 0.9,
+            createdAt: new Date("2026-06-30T00:00:00Z"),
+          },
+        ],
+      })
+    );
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+
+    expect(
+      result.draft.assumptions.some((line) =>
+        line.includes("Company memory (standards): All new queries must be company-scoped.")
+      )
+    ).toBe(true);
+  });
+
+  it("keeps assumptions memory-free when no memory exists", () => {
+    const result = generateDeterministicPlanningDraft(buildInput());
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+    expect(result.draft.assumptions.every((line) => !line.startsWith("Company memory"))).toBe(
+      true
+    );
+  });
+
   it("creates a useful Repository Intelligence V2 plan", () => {
     const result = generateDeterministicPlanningDraft(buildInput());
 

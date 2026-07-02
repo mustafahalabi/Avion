@@ -20,12 +20,14 @@
 
 import { authorizeAutonomyAction } from "@/lib/autonomy-policy";
 import { getCommandsForRepo } from "@/lib/check-command-profile";
+import { getRelevantCompanyMemory } from "@/lib/memory/memory-retrieval-service";
 import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import { generateQaChecklist, serializeChecklist } from "@/lib/qa-checklist";
 import { recordQaResult } from "@/lib/qa-service";
 import {
   generateReviewBrief,
+  type ReviewBriefMemoryItem,
   type ReviewBriefSession,
   type ReviewBriefTask,
 } from "@/lib/review-brief";
@@ -151,6 +153,7 @@ export async function advanceTaskGates(
     const brief = generateReviewBrief({
       task: toBriefTask(task),
       session: toBriefSession(session, filesChanged),
+      memory: await fetchReviewMemory(companyId),
     });
     review = await prisma.review.create({
       data: {
@@ -347,6 +350,27 @@ export async function advanceTaskGates(
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Fetches durable company memory for the review brief. Best-effort — a memory
+ * failure never blocks gate advancement.
+ *
+ * @param companyId - Company whose standards/lessons to surface.
+ * @returns Memory items for the brief, or [] on any failure.
+ */
+async function fetchReviewMemory(
+  companyId: string
+): Promise<ReviewBriefMemoryItem[]> {
+  try {
+    const memory = await getRelevantCompanyMemory({ companyId, limit: 8 });
+    return memory.map((item) => ({
+      category: item.category,
+      content: item.content,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 /** Parses an ExecutionSession.filesChanged JSON string into an array. */
 function parseFilesChanged(raw: string | null | undefined): string[] {

@@ -24,8 +24,10 @@ import {
 import { assessExecutionReadiness } from "@/lib/repository-readiness-gate";
 import {
   generateClaudeImplementationBrief,
+  type BriefMemoryItem,
   type ReworkContext,
 } from "@/lib/implementation-brief";
+import { getRelevantCompanyMemory } from "@/lib/memory/memory-retrieval-service";
 import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import { selectNextExecutableTaskForCompany } from "@/lib/task-selection-service";
@@ -119,6 +121,20 @@ export async function prepareExecutionSessionForTask(
         }
       : null;
 
+  // Durable company memory (promoted standards + lessons) flows into the
+  // implementation brief so the coding agent applies what the company already
+  // learned. Best-effort: a memory failure never blocks execution.
+  let companyMemory: BriefMemoryItem[] = [];
+  try {
+    const memory = await getRelevantCompanyMemory({ companyId, limit: 8 });
+    companyMemory = memory.map((item) => ({
+      category: item.category,
+      content: item.content,
+    }));
+  } catch {
+    companyMemory = [];
+  }
+
   const { brief, branchName } = generateClaudeImplementationBrief({
     taskId: task.id,
     taskTitle: task.title,
@@ -132,6 +148,7 @@ export async function prepareExecutionSessionForTask(
     baseBranch: priorSession?.baseBranch ?? "master",
     linearTicketUrl: null,
     reworkContext,
+    companyMemory,
   });
 
   const session = await createExecutionSession({

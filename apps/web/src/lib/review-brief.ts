@@ -27,11 +27,31 @@ export interface ReviewBriefSession {
 }
 
 /**
+ * A durable company lesson or promoted standard the reviewer must check the
+ * implementation against.
+ */
+export interface ReviewBriefMemoryItem {
+  /** Memory bank category (e.g. "standards", "learnings", "review"). */
+  readonly category: string;
+  /** The lesson/standard text. */
+  readonly content: string;
+}
+
+/** Maximum memory items rendered into a review brief. */
+const MAX_REVIEW_MEMORY_ITEMS = 8;
+
+/**
  * All input needed to generate a Codex review brief.
  */
 export interface ReviewBriefInput {
   readonly task: ReviewBriefTask;
   readonly session: ReviewBriefSession;
+  /**
+   * Durable company memory (promoted standards + lessons). When present, the
+   * brief gains a "Company Standards & Lessons" section the reviewer verifies
+   * the implementation against.
+   */
+  readonly memory?: readonly ReviewBriefMemoryItem[] | null;
 }
 
 // ─── Generator ────────────────────────────────────────────────────────────────
@@ -62,6 +82,7 @@ export interface ReviewBriefInput {
  */
 export function generateReviewBrief(input: ReviewBriefInput): string {
   const { task, session } = input;
+  const memorySection = buildCompanyMemorySection(input.memory ?? null);
 
   const sections: string[] = [
     buildHeader(task),
@@ -71,12 +92,34 @@ export function generateReviewBrief(input: ReviewBriefInput): string {
     buildBranchPrSection(session),
     buildFilesChangedSection(session),
     buildValidationSection(session),
+    ...(memorySection ? [memorySection] : []),
     buildReviewChecklistSection(task),
     buildReviewDecisionSection(),
     buildReviewerInstructionsSection(),
   ];
 
   return sections.join("\n\n");
+}
+
+/**
+ * Builds the "Company Standards & Lessons" section from durable company memory.
+ *
+ * @param memory - Relevant standards/lessons, highest-confidence first.
+ * @returns Markdown section, or null when there is no memory to check against.
+ */
+function buildCompanyMemorySection(
+  memory: readonly ReviewBriefMemoryItem[] | null
+): string | null {
+  if (!memory || memory.length === 0) return null;
+
+  const items = memory.slice(0, MAX_REVIEW_MEMORY_ITEMS);
+  return [
+    "## Company Standards & Lessons",
+    "",
+    "The company has recorded these standards and lessons from past reviews, QA runs, and releases. Verify the implementation honors each one — a violation is a **blocker** finding:",
+    "",
+    ...items.map((item) => `- **[${item.category}]** ${item.content}`),
+  ].join("\n");
 }
 
 // ─── Section Builders ─────────────────────────────────────────────────────────

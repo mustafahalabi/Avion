@@ -129,8 +129,9 @@ export async function createOrUpdatePlanningDraftForOutcome(
     repositories.map((repository) => toPlanningRepositoryContext(repository, input.companyId))
   );
 
-  // Surface durable company memory (promoted standards + lessons) so the AI planner
-  // compounds prior experience. The deterministic generator ignores it.
+  // Surface durable company memory (promoted standards + lessons) so the planner
+  // compounds prior experience: the AI planner renders it into its prompt, and the
+  // deterministic generator renders the top items as explicit plan assumptions.
   const companyMemory = await getRelevantCompanyMemory({ companyId: input.companyId });
 
   const generation = await resolvePlanningAdapter().generate({

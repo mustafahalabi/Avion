@@ -42,6 +42,20 @@ export interface BriefRepositoryContext {
 }
 
 /**
+ * A durable company lesson or promoted standard surfaced into the brief so the
+ * implementation agent applies what the company already learned.
+ */
+export interface BriefMemoryItem {
+  /** Memory bank category (e.g. "standards", "learnings", "review"). */
+  readonly category: string;
+  /** The lesson/standard text. */
+  readonly content: string;
+}
+
+/** Maximum memory items rendered into a brief (highest-confidence first). */
+const MAX_BRIEF_MEMORY_ITEMS = 8;
+
+/**
  * Context for a rework attempt: the unresolved change requests (from review,
  * QA, or PR feedback) the agent must address on the existing branch/PR.
  */
@@ -94,6 +108,12 @@ export interface ImplementationBriefInput {
    * section listing the unresolved change requests to address.
    */
   readonly reworkContext?: ReworkContext | null;
+  /**
+   * Durable company memory (promoted standards + lessons) relevant to
+   * implementation work. When present, the brief gains a "Company Standards &
+   * Lessons" section so past review/QA findings stop recurring.
+   */
+  readonly companyMemory?: readonly BriefMemoryItem[] | null;
 }
 
 /**
@@ -387,12 +407,14 @@ export function generateClaudeImplementationBrief(
 
   const reviewRequirements = taskPayload?.reviewRequirements ?? [];
   const reworkSection = buildReworkSection(input.reworkContext ?? null, branchName);
+  const memorySection = buildCompanyMemorySection(input.companyMemory ?? null);
 
   const sections: string[] = [
     buildHeader(input, branchName, baseBranch),
     ...(reworkSection ? [reworkSection] : []),
     buildRepositoryContextSection(input, branchName, baseBranch),
     buildConstraintsSection(),
+    ...(memorySection ? [memorySection] : []),
     buildFilesToInspectSection(taskPayload, input.repository),
     buildAcceptanceCriteriaSection(taskPayload, input.taskDescription),
     buildLinearUpdateSection(input.taskId, input.linearTicketUrl, branchName),
@@ -402,6 +424,29 @@ export function generateClaudeImplementationBrief(
   const brief = sections.join("\n\n---\n\n");
 
   return { brief, branchName };
+}
+
+/**
+ * Builds the "Company Standards & Lessons" section from durable company memory.
+ *
+ * @param memory - Relevant standards/lessons, highest-confidence first.
+ * @returns Markdown section, or null when there is no memory to apply.
+ */
+function buildCompanyMemorySection(
+  memory: readonly BriefMemoryItem[] | null
+): string | null {
+  if (!memory || memory.length === 0) return null;
+
+  const items = memory.slice(0, MAX_BRIEF_MEMORY_ITEMS);
+  const lines: string[] = [
+    "## Company Standards & Lessons",
+    "",
+    "The company has learned the following from past reviews, QA runs, and releases. Apply them to this implementation — repeating a known finding will fail review:",
+    "",
+    ...items.map((item) => `- **[${item.category}]** ${item.content}`),
+  ];
+
+  return lines.join("\n");
 }
 
 /**

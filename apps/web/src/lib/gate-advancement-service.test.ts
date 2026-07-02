@@ -188,6 +188,36 @@ describe("advanceTaskGates", () => {
     expect(events.length).toBe(1);
   });
 
+  it("surfaces company standards & lessons in the review brief (MUS-258)", async () => {
+    const bank = await prisma.memory.create({
+      data: {
+        companyId: "company-1",
+        title: "Standards",
+        category: "standards",
+      },
+    });
+    await prisma.memoryRecord.create({
+      data: {
+        memoryId: bank.id,
+        content: "Never expose decrypted tokens to the client.",
+        confidence: 0.9,
+      },
+    });
+
+    // assist → the review is created with the brief and pauses for the CEO.
+    const result = await service.advanceTaskGates("company-1", "task-1");
+    expect(result.status).toBe("awaiting_review");
+
+    const review = await prisma.review.findFirst({
+      where: { companyId: "company-1", entityId: "task-1" },
+    });
+    expect(review?.notes).toContain("Company Standards & Lessons");
+    expect(review?.notes).toContain("Never expose decrypted tokens to the client.");
+
+    await prisma.memoryRecord.deleteMany({ where: { memoryId: bank.id } });
+    await prisma.memory.delete({ where: { id: bank.id } });
+  });
+
   // ── Truthful automated QA (MUS-251) ──────────────────────────────────────
 
   it("derives the automated QA verdict from real validation results (all passing → done)", async () => {

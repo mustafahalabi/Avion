@@ -59,6 +59,11 @@ vi.mock("@/lib/implementation-brief", () => ({
   generateClaudeImplementationBrief: (...args: unknown[]) => mockGenerateBrief(...args),
 }));
 
+const mockGetMemory = vi.fn();
+vi.mock("@/lib/memory/memory-retrieval-service", () => ({
+  getRelevantCompanyMemory: (...args: unknown[]) => mockGetMemory(...args),
+}));
+
 // Use the real (pure) repository-resolution helpers — `pickTaskRepository` and
 // `resolveTaskRepository` are deterministic logic over the task row, so the
 // tests exercise the genuine precedence (explicit link → workspace fallback).
@@ -124,6 +129,7 @@ beforeEach(() => {
   mockCompanyFindFirst.mockResolvedValue({ ownerId: "user-1" });
   mockTimelineCreate.mockResolvedValue({ id: "tl-1" });
   mockNotify.mockResolvedValue(undefined);
+  mockGetMemory.mockResolvedValue([]);
 });
 
 describe("autoPrepareNextExecutionSession", () => {
@@ -356,6 +362,48 @@ describe("prepareExecutionSessionForTask", () => {
     expect("error" in result).toBe(false);
     expect(mockGenerateBrief).toHaveBeenCalledWith(
       expect.objectContaining({ reworkContext: null, branchName: null })
+    );
+  });
+
+  it("injects relevant company memory into the brief (MUS-258)", async () => {
+    mockGetMemory.mockResolvedValue([
+      {
+        id: "rec-1",
+        category: "standards",
+        bankTitle: "Standards",
+        content: "Always add ownership guards to new queries.",
+        source: null,
+        confidence: 0.9,
+        createdAt: new Date(),
+      },
+    ]);
+
+    const result = await prepareExecutionSessionForTask("company-1", "task-1");
+
+    expect("error" in result).toBe(false);
+    expect(mockGetMemory).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: "company-1" })
+    );
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyMemory: [
+          {
+            category: "standards",
+            content: "Always add ownership guards to new queries.",
+          },
+        ],
+      })
+    );
+  });
+
+  it("prepares the session with empty memory when retrieval fails (best-effort)", async () => {
+    mockGetMemory.mockRejectedValue(new Error("memory backend down"));
+
+    const result = await prepareExecutionSessionForTask("company-1", "task-1");
+
+    expect("error" in result).toBe(false);
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({ companyMemory: [] })
     );
   });
 
