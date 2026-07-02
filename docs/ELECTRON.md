@@ -6,12 +6,16 @@
 > migration (MUS-247) removed `better-sqlite3` and the bundled file DB, so `build-db-template.mjs` and
 > `build-electron.mjs` **fail fast** by design. There is no recorded demand for a desktop offering.
 >
-> **What still works:** `pnpm --filter @avion/web electron:dev` (local experimentation).
-> **To un-shelve:** reopen **MUS-267**, rework packaging for a hosted-Postgres `DATABASE_URL`
+> **Dev mode (`electron:dev`) is *expected* to run, but is unverified.** In dev the shell is a thin window
+> over `next dev`: `electron/lib/server.js` skips the broken production DB packaging and just waits for
+> `localhost:3000`, so the database comes from whatever Postgres `DATABASE_URL` you started `next dev` with —
+> the SQLite `dev.db` path it computes is effectively unused. It should therefore launch given the Electron
+> binary installed + Postgres up + `DATABASE_URL` set, but it has **not** been verified end-to-end against the
+> current Postgres runtime (the `electron` binary may also need its one-time download to complete first).
+>
+> **To un-shelve:** reopen **MUS-267**, rework production packaging for a hosted-Postgres `DATABASE_URL`
 > (connection-string config, no offline file DB), and remove the guard in `build-electron.mjs`
 > (or run with `EOS_ELECTRON_BUILD_UNSHELVE=1`). Nothing has been deleted — the code below is preserved.
-> The design notes below describe the pre-Postgres packaging and are kept for reference.
-> **Dev mode still works:** `pnpm --filter @avion/web electron:dev`.
 > Everything below documents the **pre-Postgres design** and is kept for that rework; its SQLite/`npm run`
 > references are historical.
 
