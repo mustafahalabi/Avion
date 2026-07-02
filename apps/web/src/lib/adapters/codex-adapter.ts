@@ -72,6 +72,7 @@ export class CodexAdapter implements ExecutionAdapter {
     let stderr = "";
     let exitCode = 1;
     let timedOut = false;
+    let spawnError: Error | null = null;
     let errorMessage: string | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let child: ChildProcessWithoutNullStreams | undefined;
@@ -91,18 +92,40 @@ export class CodexAdapter implements ExecutionAdapter {
         stderr += chunk.toString();
       });
 
-      child.stdin.write(brief);
-      child.stdin.end();
-
       exitCode = await new Promise<number>((resolve) => {
+        let settled = false;
+        const settle = (code: number): void => {
+          if (settled) return;
+          settled = true;
+          resolve(code);
+        };
+
         timeoutId = setTimeout(() => {
           timedOut = true;
           child?.kill("SIGTERM");
         }, context.timeoutSeconds * 1000);
 
-        child!.on("close", (code) => {
-          resolve(code ?? 1);
+        // A missing/unspawnable binary (ENOENT) or runtime spawn failure emits
+        // 'error'; without this listener it becomes an UNCAUGHT exception that
+        // crashes the whole worker instead of failing just this session (MUS-283).
+        // This is especially relevant for codex, whose CLI may be absent on the
+        // worker host (see MUS-276).
+        child!.on("error", (err: Error) => {
+          spawnError = err;
+          settle(1);
         });
+        child!.on("close", (code) => settle(code ?? 1));
+
+        // If the process never starts (or exits before reading stdin), writing
+        // the brief emits EPIPE — swallow it so it can't surface as an unhandled
+        // stream error; the 'error'/'close' handlers own the outcome.
+        child!.stdin.on("error", () => {});
+        try {
+          child!.stdin.write(brief);
+          child!.stdin.end();
+        } catch {
+          // Ignored — the 'error' event settles the promise.
+        }
       });
     } finally {
       if (timeoutId !== undefined) {
@@ -112,7 +135,9 @@ export class CodexAdapter implements ExecutionAdapter {
 
     const durationMs = Date.now() - startTime;
 
-    if (timedOut) {
+    if (spawnError) {
+      errorMessage = `Agent process error: ${(spawnError as Error).message}`;
+    } else if (timedOut) {
       errorMessage = `Agent timed out after ${context.timeoutSeconds}s`;
     } else if (exitCode !== 0) {
       errorMessage = stderr.trim() || `Process exited with code ${exitCode}`;
@@ -124,7 +149,7 @@ export class CodexAdapter implements ExecutionAdapter {
     const fromGit = parseFilesChangedFromGit(context.repositoryPath);
     const filesChanged = fromGit.length > 0 ? fromGit : parseFilesChanged(stdout);
     const validationOutput = parseValidationOutput(stdout);
-    const success = exitCode === 0 && !timedOut;
+    const success = exitCode === 0 && !timedOut && !spawnError;
 
     return {
       exitCode,
