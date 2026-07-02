@@ -136,12 +136,16 @@ export async function advanceTaskGates(
   });
   let createdReview = review === null;
 
-  // Rework landed: when the latest review requested changes but a newer
-  // implementation completed after that verdict, the verdict is superseded —
-  // open a fresh review for the new implementation instead of dead-ending.
+  // Rework landed: when the latest review requested changes (or asked for
+  // clarification) but a newer implementation completed after that verdict, the
+  // verdict is superseded — open a fresh review for the new implementation
+  // instead of dead-ending. Including `needs_clarification` here means a
+  // follow-up implementation reopens the review rather than stranding the task
+  // at `in-review` forever (MUS-295).
   if (
     review &&
-    review.status === "changes_requested" &&
+    (review.status === "changes_requested" ||
+      review.status === "needs_clarification") &&
     session?.completedAt &&
     session.completedAt > review.updatedAt
   ) {

@@ -369,6 +369,35 @@ describe("advanceTaskGates", () => {
     expect(reviews[1].status).toBe("pending");
   });
 
+  it("reopens the review when rework lands after a needs_clarification verdict (MUS-295)", async () => {
+    // A needs_clarification review used to strand the task at in-review forever
+    // (never reopened); a newer completed implementation must supersede it.
+    const stale = await prisma.review.create({
+      data: {
+        companyId: "company-1",
+        entityType: "task",
+        entityId: "task-1",
+        title: "Review: Add /health endpoint",
+        status: "needs_clarification",
+        verdict: "needs_clarification",
+      },
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Review" SET "updatedAt" = NOW() - INTERVAL '1 hour' WHERE "id" = '${stale.id}'`
+    );
+
+    const result = await service.advanceTaskGates("company-1", "task-1");
+
+    // A fresh review opens for the new implementation instead of dead-ending.
+    expect(result.status).toBe("awaiting_review");
+    const reviews = await prisma.review.findMany({
+      where: { companyId: "company-1", entityId: "task-1" },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(reviews).toHaveLength(2);
+    expect(reviews[1].status).toBe("pending");
+  });
+
   it("still reports no_action when changes were requested and no rework has landed", async () => {
     // changes_requested review NEWER than the completed session → wait for rework.
     await prisma.review.create({

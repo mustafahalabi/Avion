@@ -8,7 +8,8 @@ export type StuckWorkCategory =
   | "task_stuck_in_execution"
   | "plan_awaiting_approval"
   | "failed_execution_loop"
-  | "failed_validation_loop";
+  | "failed_validation_loop"
+  | "repository_blocked";
 
 export type StuckWorkSeverity = "high" | "medium" | "low";
 
@@ -20,7 +21,11 @@ export interface StuckWorkItem {
   readonly recommendation: string;
   readonly linkPath: string;
   readonly entityId: string;
-  readonly entityType: "task" | "planning_draft" | "execution_session";
+  readonly entityType:
+    | "task"
+    | "planning_draft"
+    | "execution_session"
+    | "repository";
   readonly stuckSinceMs: number;
 }
 
@@ -64,6 +69,7 @@ export async function detectStuckWork(
     inProgressTasks,
     pendingDrafts,
     failedSessions,
+    repositoryBlocks,
   ] = await Promise.all([
     // Tasks stuck in review
     prisma.task.findMany({
@@ -125,6 +131,21 @@ export async function detectStuckWork(
       },
       orderBy: { completedAt: "desc" },
       take: 20,
+    }),
+
+    // Repository-blocked halts the driver surfaced as unread blocker
+    // notifications. One durable signal — the driver dedups to one unread per
+    // repo — so a repo-blocked halt is visible here, not just in the tick log
+    // (MUS-295).
+    prisma.notification.findMany({
+      where: {
+        companyId: input.companyId,
+        type: "blocker",
+        entityType: "repository",
+        read: false,
+      },
+      select: { id: true, entityId: true, body: true, actionUrl: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
@@ -222,6 +243,25 @@ export async function detectStuckWork(
       entityId: session.id,
       entityType: "execution_session",
       stuckSinceMs: completedMs,
+    });
+  }
+
+  // ── Repository-blocked halts ────────────────────────────────────────────────
+  for (const block of repositoryBlocks) {
+    const stuckSinceMs = now.getTime() - block.createdAt.getTime();
+    items.push({
+      category: "repository_blocked",
+      severity: "high",
+      title: "Execution blocked: repository not ready",
+      description:
+        block.body ??
+        "Autonomous work is halted because a repository isn't ready to run against.",
+      recommendation:
+        "Fix the repository connection / validation so autonomous work can resume.",
+      linkPath: block.actionUrl ?? "/connections",
+      entityId: block.entityId ?? "",
+      entityType: "repository",
+      stuckSinceMs,
     });
   }
 

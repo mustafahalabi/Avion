@@ -50,6 +50,7 @@ afterEach(async () => {
   await prisma.$executeRawUnsafe(`DELETE FROM "PlanningDraft"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "ExecutionSession"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Task"`);
+  await prisma.$executeRawUnsafe(`DELETE FROM "Notification"`);
 });
 
 afterAll(async () => {
@@ -487,5 +488,46 @@ describe("detectStuckWork", () => {
       expect(typeof item.recommendation).toBe("string");
       expect(item.recommendation.length).toBeGreaterThan(10);
     }
+  });
+
+  it("surfaces a repository-blocked halt from an unread blocker notification (MUS-295)", async () => {
+    await prisma.notification.create({
+      data: {
+        userId: "user-1",
+        companyId: "company-1",
+        title: "Execution blocked: repository not ready",
+        body: "Autonomous work can't run until the repository is ready. blocked: no default branch",
+        type: "blocker",
+        priority: "urgent",
+        entityType: "repository",
+        entityId: "repo-1",
+        actionUrl: "/work/repositories/repo-1",
+        read: false,
+      },
+    });
+
+    const result = await detector.detectStuckWork({ companyId: "company-1" });
+    const blocked = result.items.filter((i) => i.category === "repository_blocked");
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0].entityType).toBe("repository");
+    expect(blocked[0].linkPath).toBe("/work/repositories/repo-1");
+    expect(blocked[0].severity).toBe("high");
+  });
+
+  it("does not surface a repository-blocked halt once the notification is read", async () => {
+    await prisma.notification.create({
+      data: {
+        userId: "user-1",
+        companyId: "company-1",
+        title: "Execution blocked",
+        type: "blocker",
+        entityType: "repository",
+        entityId: "repo-1",
+        read: true,
+      },
+    });
+
+    const result = await detector.detectStuckWork({ companyId: "company-1" });
+    expect(result.items.some((i) => i.category === "repository_blocked")).toBe(false);
   });
 });

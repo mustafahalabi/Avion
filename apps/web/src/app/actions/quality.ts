@@ -128,6 +128,28 @@ export async function submitReviewVerdict(
     }
   }
 
+  // Surface needs_clarification as a CEO decision — otherwise it leaves the task
+  // silently at `in-review` with no automated resume and no alert (MUS-295).
+  if (verdict === "needs_clarification" && result.taskId) {
+    const review = await prisma.review.findFirst({
+      where: { id: reviewId, companyId: company.id },
+      select: { title: true },
+    });
+    if (review) {
+      await notify({
+        userId: user.id,
+        companyId: company.id,
+        title: "Review needs your input",
+        body: `Review for "${review.title}" is waiting on a decision from you${notes ? `: ${notes.slice(0, 80)}` : "."}`,
+        type: "decision",
+        priority: "high",
+        entityType: "task",
+        entityId: result.taskId,
+        actionUrl: `/work/quality/${reviewId}`,
+      });
+    }
+  }
+
   revalidatePath("/work/quality");
   revalidatePath(`/work/quality/${reviewId}`);
   if (result.taskId) {
