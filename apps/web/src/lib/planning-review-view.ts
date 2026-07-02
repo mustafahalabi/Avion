@@ -10,6 +10,10 @@ import type {
   PlanningRisk,
 } from "@/lib/planning-generator";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
+import {
+  describePlanProvenance,
+  type PlanProvenanceBadge,
+} from "@/lib/planning/plan-provenance";
 
 export interface PlanningReviewOutcomeContext {
   readonly id: string;
@@ -40,6 +44,9 @@ export interface PlanningReviewDraftInput {
   readonly rejectionReason: string | null;
   readonly generationError: string | null;
   readonly applicationError: string | null;
+  readonly provider: string | null;
+  readonly providerAttempted: string | null;
+  readonly fallbackReason: string | null;
   readonly approvedAt: Date | null;
   readonly rejectedAt: Date | null;
   readonly appliedAt: Date | null;
@@ -70,6 +77,8 @@ export interface PlanningReviewView {
   readonly rejectionReason: string | null;
   readonly generationError: string | null;
   readonly applicationError: string | null;
+  /** Which planner produced this draft, and any AI→deterministic fallback reason (MUS-271). */
+  readonly provenance: PlanProvenanceBadge;
   readonly approvedAt: Date | null;
   readonly rejectedAt: Date | null;
   readonly appliedAt: Date | null;
@@ -132,6 +141,11 @@ export function buildPlanningReviewView(draft: PlanningReviewDraftInput): Planni
     rejectionReason: draft.rejectionReason,
     generationError: draft.generationError,
     applicationError: draft.applicationError,
+    provenance: describePlanProvenance({
+      provider: draft.provider,
+      providerAttempted: draft.providerAttempted,
+      fallbackReason: draft.fallbackReason,
+    }),
     approvedAt: draft.approvedAt,
     rejectedAt: draft.rejectedAt,
     appliedAt: draft.appliedAt,

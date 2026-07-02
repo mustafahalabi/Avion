@@ -262,9 +262,29 @@ export interface PlanningGenerationFailure {
   readonly openCeoQuestions: readonly string[];
 }
 
+/**
+ * Which planner actually produced a draft, and — when the AI path was attempted
+ * but did not yield a trustworthy draft — why it fell back (MUS-271). Makes the
+ * charter's "AI validated with deterministic fallback" guarantee observable to
+ * the CEO instead of silent.
+ */
+export interface PlanningProvenance {
+  /** The planner whose output this draft actually is. */
+  readonly provider: "deterministic" | "ai";
+  /** "ai" when the AI path was attempted (even if it then fell back); null otherwise. */
+  readonly providerAttempted: "ai" | null;
+  /** Why the AI path fell back to deterministic, or null (genuine AI / plain deterministic). */
+  readonly fallbackReason: string | null;
+}
+
 export interface PlanningGenerationSuccess {
   readonly status: "success";
   readonly draft: DeterministicPlanningDraft;
+  /**
+   * Provenance of this draft. Optional on the type so the pure generator can omit
+   * it, but every adapter (deterministic + AI) attaches it so the service can persist it.
+   */
+  readonly provenance?: PlanningProvenance;
 }
 
 export type PlanningGenerationResult = PlanningGenerationSuccess | PlanningGenerationFailure;

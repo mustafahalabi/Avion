@@ -493,6 +493,9 @@ model PlanningDraft {
   rejectionReason        String?
   generationError        String?
   applicationError       String?
+  provider               String?
+  providerAttempted      String?
+  fallbackReason         String?
   approvedAt             DateTime?
   approvedById           String?
   rejectedAt             DateTime?

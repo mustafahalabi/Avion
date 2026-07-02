@@ -163,6 +163,23 @@ function stubFallback() {
   return { adapter, generate };
 }
 
+/** A fallback that succeeds (like the real DeterministicPlanningAdapter) so the AI adapter re-stamps provenance. */
+function stubSuccessfulFallback() {
+  const generate = vi.fn(
+    async (): Promise<PlanningGenerationResult> => ({
+      status: "success",
+      draft: validDraft(),
+      provenance: {
+        provider: "deterministic",
+        providerAttempted: null,
+        fallbackReason: null,
+      },
+    })
+  );
+  const adapter: PlanningAdapter = { provider: "deterministic", generate };
+  return { adapter, generate };
+}
+
 function stubLlm(completion: LlmCompletion): LlmClient {
   return {
     provider: "stub",
@@ -272,6 +289,41 @@ describe("AiPlanningAdapter", () => {
     const result = await adapter.generate(INPUT);
 
     expect(result).toBe(FALLBACK_RESULT);
+    expect(fallback.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("stamps ai provenance on a genuine AI plan (MUS-271)", async () => {
+    const adapter = new AiPlanningAdapter({
+      llm: stubLlm({ ok: true, text: JSON.stringify(validDraft()), durationMs: 5 }),
+      fallback: stubSuccessfulFallback().adapter,
+    });
+
+    const result = await adapter.generate(INPUT);
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+    expect(result.provenance).toEqual({
+      provider: "ai",
+      providerAttempted: "ai",
+      fallbackReason: null,
+    });
+  });
+
+  it("stamps deterministic-fallback provenance with the reason when the AI path fails (MUS-271)", async () => {
+    const fallback = stubSuccessfulFallback();
+    const adapter = new AiPlanningAdapter({
+      llm: stubLlm({ ok: false, error: "timeout after 180s", durationMs: 5 }),
+      fallback: fallback.adapter,
+    });
+
+    const result = await adapter.generate(INPUT);
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+    expect(result.provenance?.provider).toBe("deterministic");
+    expect(result.provenance?.providerAttempted).toBe("ai");
+    expect(result.provenance?.fallbackReason).toContain("LLM completion failed");
+    expect(result.provenance?.fallbackReason).toContain("timeout after 180s");
     expect(fallback.generate).toHaveBeenCalledTimes(1);
   });
 });

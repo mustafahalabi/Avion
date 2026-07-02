@@ -29,6 +29,13 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   failed: { label: "Failed", className: "border-red-900 bg-red-950/30 text-red-400" },
 };
 
+/** Planner-provenance badge colors (MUS-271). */
+const PROVENANCE_TONES: Record<string, string> = {
+  ai: "border-violet-900 bg-violet-950/30 text-violet-300",
+  deterministic: "border-neutral-700 bg-neutral-900 text-neutral-400",
+  fallback: "border-amber-900 bg-amber-950/30 text-amber-400",
+};
+
 /**
  * Renders the CEO-facing planning draft review dashboard.
  *
@@ -50,15 +57,32 @@ export function PlanReviewDashboard({ plan, outcomeTitle }: PlanReviewDashboardP
               <p className="mt-2 text-sm leading-relaxed text-neutral-500">{plan.summary}</p>
             )}
           </div>
-          <div
-            className={cn(
-              "rounded-full border px-2.5 py-1 text-[11px] font-medium",
-              statusCfg.className
-            )}
-          >
-            {statusCfg.label} · v{plan.version}
+          <div className="flex flex-col items-end gap-1.5">
+            <div
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                statusCfg.className
+              )}
+            >
+              {statusCfg.label} · v{plan.version}
+            </div>
+            <div
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                PROVENANCE_TONES[plan.provenance.tone] ?? PROVENANCE_TONES.deterministic
+              )}
+              title={plan.provenance.detail ?? undefined}
+            >
+              {plan.provenance.label}
+            </div>
           </div>
         </div>
+
+        {plan.provenance.tone === "fallback" && plan.provenance.detail && (
+          <Notice tone="warning" title="AI planning fell back to the deterministic template">
+            {plan.provenance.detail}
+          </Notice>
+        )}
 
         {plan.executionNotStarted && plan.status !== "rejected" && plan.status !== "failed" && (
           <p className="mt-4 rounded-md border border-blue-900/50 bg-blue-950/20 px-3 py-2 text-xs text-blue-200">
