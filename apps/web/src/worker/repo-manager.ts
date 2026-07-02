@@ -35,6 +35,68 @@ export interface RepoCheckoutResult {
 const WORKER_GIT_AUTHOR_NAME = "Avion Worker";
 const WORKER_GIT_AUTHOR_EMAIL = "worker@engineering-os.local";
 
+// ─── Hardened git invocation (MUS-293) ───────────────────────────────────────
+// Every git call the worker runs is bounded and non-interactive. Without this a
+// stalled network op (clone/push) or a credential prompt (git blocks forever
+// reading a username from an inherited TTY) freezes the single-threaded worker's
+// event loop — it can't heartbeat, reap stale sessions, or claim other work.
+
+/** Wall-clock bound for network git ops (clone / push / ls-remote). */
+const GIT_NETWORK_TIMEOUT_MS =
+  Number(process.env.WORKER_GIT_NETWORK_TIMEOUT_SECONDS ?? 300) * 1000;
+/** Wall-clock bound for local git ops (checkout / status / rev-parse / diff). */
+const GIT_LOCAL_TIMEOUT_MS =
+  Number(process.env.WORKER_GIT_LOCAL_TIMEOUT_SECONDS ?? 60) * 1000;
+
+/**
+ * Environment that makes git fail fast instead of blocking on a prompt:
+ * `GIT_TERMINAL_PROMPT=0` refuses terminal username/password prompts, and
+ * `GCM_INTERACTIVE=never` stops the Git Credential Manager from popping a UI.
+ */
+const NON_INTERACTIVE_GIT_ENV: NodeJS.ProcessEnv = {
+  ...process.env,
+  GIT_TERMINAL_PROMPT: "0",
+  GCM_INTERACTIVE: "never",
+};
+
+interface RunGitOptions {
+  /** Working directory for the git command. */
+  readonly cwd: string;
+  /** Wall-clock bound in ms; a run that exceeds it is SIGKILLed and throws. */
+  readonly timeoutMs: number;
+  /** Written to the child's stdin (e.g. a commit message for `commit -F -`). */
+  readonly input?: string;
+}
+
+/**
+ * Runs a git command with a hard timeout and no way to hang on input.
+ *
+ * stdin is `ignore`d (never an inherited TTY) unless an `input` is supplied, so
+ * git can't block reading a credential prompt; stdout/stderr are captured (never
+ * `inherit`ed). On timeout or non-zero exit `execSync` throws, so the caller
+ * fails the session and the worker keeps polling.
+ *
+ * @param command - The git command line.
+ * @param options - Working dir, timeout, and optional stdin input.
+ * @returns Captured stdout as a string.
+ */
+export function runGit(command: string, options: RunGitOptions): string {
+  return execSync(command, {
+    cwd: options.cwd,
+    encoding: "utf-8",
+    timeout: options.timeoutMs,
+    killSignal: "SIGKILL",
+    env: NON_INTERACTIVE_GIT_ENV,
+    maxBuffer: 64 * 1024 * 1024,
+    // No inherited stdin → git can never block on an interactive auth prompt.
+    stdio:
+      options.input !== undefined
+        ? ["pipe", "pipe", "pipe"]
+        : ["ignore", "pipe", "pipe"],
+    ...(options.input !== undefined ? { input: options.input } : {}),
+  });
+}
+
 /** Input for committing and pushing the session branch after an agent run. */
 export interface CommitAndPushInput {
   /** Local checkout path. */
@@ -101,16 +163,22 @@ export async function checkoutRepository(
 
   fs.mkdirSync(checkoutPath, { recursive: true });
 
-  execSync(`git clone ${cloneUrl} .`, {
+  runGit(`git clone ${cloneUrl} .`, {
     cwd: checkoutPath,
-    stdio: "inherit",
+    timeoutMs: GIT_NETWORK_TIMEOUT_MS,
   });
 
   const branchExists = branchExistsOnRemote(checkoutPath, branchName);
   if (branchExists) {
-    execSync(`git checkout ${branchName}`, { cwd: checkoutPath, stdio: "inherit" });
+    runGit(`git checkout ${branchName}`, {
+      cwd: checkoutPath,
+      timeoutMs: GIT_LOCAL_TIMEOUT_MS,
+    });
   } else {
-    execSync(`git checkout -b ${branchName}`, { cwd: checkoutPath, stdio: "inherit" });
+    runGit(`git checkout -b ${branchName}`, {
+      cwd: checkoutPath,
+      timeoutMs: GIT_LOCAL_TIMEOUT_MS,
+    });
   }
 
   return {
@@ -171,13 +239,13 @@ export function commitAndPushSessionBranch(
   // Stage and commit anything the agent left uncommitted in the working tree.
   const hadWorkingChanges = hasUncommittedChanges(checkoutPath);
   if (hadWorkingChanges) {
-    execSync("git add -A", { cwd: checkoutPath, stdio: "inherit" });
-    execSync(
+    runGit("git add -A", { cwd: checkoutPath, timeoutMs: GIT_LOCAL_TIMEOUT_MS });
+    runGit(
       `git -c user.name="${WORKER_GIT_AUTHOR_NAME}" -c user.email="${WORKER_GIT_AUTHOR_EMAIL}" commit -F -`,
       {
         cwd: checkoutPath,
+        timeoutMs: GIT_LOCAL_TIMEOUT_MS,
         input: commitMessage,
-        stdio: ["pipe", "inherit", "inherit"],
       }
     );
   }
@@ -191,7 +259,10 @@ export function commitAndPushSessionBranch(
   }
 
   // Push the branch to origin. Never force-push.
-  execSync(`git push origin ${branchName}`, { cwd: checkoutPath, stdio: "inherit" });
+  runGit(`git push origin ${branchName}`, {
+    cwd: checkoutPath,
+    timeoutMs: GIT_NETWORK_TIMEOUT_MS,
+  });
 
   return { pushed: true, commitSha: headSha };
 }
@@ -203,10 +274,9 @@ export function commitAndPushSessionBranch(
  * @returns Whether `git status --porcelain` reports any changes.
  */
 function hasUncommittedChanges(checkoutPath: string): boolean {
-  const output = execSync("git status --porcelain", {
+  const output = runGit("git status --porcelain", {
     cwd: checkoutPath,
-    encoding: "utf-8",
-    stdio: ["pipe", "pipe", "pipe"],
+    timeoutMs: GIT_LOCAL_TIMEOUT_MS,
   });
   return output.trim().length > 0;
 }
@@ -218,10 +288,9 @@ function hasUncommittedChanges(checkoutPath: string): boolean {
  * @returns Full HEAD commit SHA.
  */
 function getHeadSha(checkoutPath: string): string {
-  return execSync("git rev-parse HEAD", {
+  return runGit("git rev-parse HEAD", {
     cwd: checkoutPath,
-    encoding: "utf-8",
-    stdio: ["pipe", "pipe", "pipe"],
+    timeoutMs: GIT_LOCAL_TIMEOUT_MS,
   }).trim();
 }
 
@@ -427,10 +496,9 @@ function getChangedFiles(checkoutPath: string, baseCommitSha?: string): string[]
   // Committed changes since the checkout base (rename detection resolves to the
   // new path by default).
   if (baseCommitSha) {
-    const committed = execSync(`git diff --name-only ${baseCommitSha} HEAD`, {
+    const committed = runGit(`git diff --name-only ${baseCommitSha} HEAD`, {
       cwd: checkoutPath,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
+      timeoutMs: GIT_LOCAL_TIMEOUT_MS,
     });
     for (const line of committed.split("\n")) {
       const path = line.trim();
@@ -439,10 +507,9 @@ function getChangedFiles(checkoutPath: string, baseCommitSha?: string): string[]
   }
 
   // Working-tree changes.
-  const output = execSync("git status --porcelain", {
+  const output = runGit("git status --porcelain", {
     cwd: checkoutPath,
-    encoding: "utf-8",
-    stdio: ["pipe", "pipe", "pipe"],
+    timeoutMs: GIT_LOCAL_TIMEOUT_MS,
   });
   for (const rawLine of output.split("\n")) {
     if (rawLine.trim().length === 0) continue;
@@ -464,10 +531,9 @@ function getChangedFiles(checkoutPath: string, baseCommitSha?: string): string[]
  */
 function branchExistsOnRemote(checkoutPath: string, branchName: string): boolean {
   try {
-    const output = execSync(`git ls-remote --heads origin ${branchName}`, {
+    const output = runGit(`git ls-remote --heads origin ${branchName}`, {
       cwd: checkoutPath,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
+      timeoutMs: GIT_NETWORK_TIMEOUT_MS,
     });
     return output.trim().length > 0;
   } catch {
