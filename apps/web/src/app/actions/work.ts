@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
+import { evaluateOutcomeCompletionForTask } from "@/lib/outcome-completion-service";
 import { evaluateTaskStatusChange } from "@/lib/task-status-gate";
 import { z } from "zod";
 import { redirect } from "next/navigation";
@@ -200,5 +201,15 @@ export async function updateTaskStatus(
     where: { id: taskId, companyId: company.id },
     data: { status },
   });
+
+  // Outcome lifecycle (MUS-259): a gated manual `done` may have finished the
+  // outcome's last open task. Best-effort.
+  if (status === "done") {
+    try {
+      await evaluateOutcomeCompletionForTask(company.id, taskId);
+    } catch {
+      // Outcome completion is best-effort.
+    }
+  }
   return {};
 }

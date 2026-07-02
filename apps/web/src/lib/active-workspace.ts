@@ -64,3 +64,43 @@ export async function resolveActiveWorkspaceId(
   if (cookieId && workspaces.some((w) => w.id === cookieId)) return cookieId;
   return workspaces[0]!.id;
 }
+
+/**
+ * Resolves the repository a newly created outcome should be scoped to:
+ * the active workspace's most recently updated repository, falling back to the
+ * company's most recently updated repository anywhere. Null when the company
+ * has no repositories at all.
+ *
+ * Chat- and inbox-born outcomes use this so plan application inherits a real
+ * repository (and its workspace) instead of landing repo-less in the default
+ * workspace (MUS-259).
+ *
+ * @param companyId - Company creating the outcome.
+ * @returns A repository id, or null when none exists.
+ */
+export async function resolveDefaultRepositoryId(
+  companyId: string
+): Promise<string | null> {
+  const workspaces = await prisma.workspace.findMany({
+    where: { companyId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  const activeWorkspaceId = await resolveActiveWorkspaceId(workspaces);
+
+  if (activeWorkspaceId) {
+    const activeRepo = await prisma.repository.findFirst({
+      where: { workspaceId: activeWorkspaceId },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+    if (activeRepo) return activeRepo.id;
+  }
+
+  const anyRepo = await prisma.repository.findFirst({
+    where: { workspace: { companyId } },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+  return anyRepo?.id ?? null;
+}

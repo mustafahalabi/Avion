@@ -39,6 +39,12 @@ export interface RuntimeOutcomeInput {
   readonly title: string;
   readonly rawRequest: string;
   readonly priority?: OutcomePriority;
+  /**
+   * Repository the outcome is scoped to. Chat-/inbox-born outcomes resolve the
+   * active workspace's repository so plan application inherits a real repo
+   * instead of landing in the default workspace (MUS-259).
+   */
+  readonly repositoryId?: string | null;
 }
 
 export interface OutcomeCreateData {
@@ -46,6 +52,7 @@ export interface OutcomeCreateData {
   readonly runtimeRequestId: string;
   readonly title: string;
   readonly rawRequest: string;
+  readonly repositoryId: string | null;
   readonly successCriteria: string;
   readonly constraints: string;
   readonly status: OutcomeStatus;
@@ -103,6 +110,7 @@ export function buildOutcomeCreateData(input: RuntimeOutcomeInput): OutcomeCreat
     runtimeRequestId: input.runtimeRequestId,
     title: input.title,
     rawRequest: input.rawRequest,
+    repositoryId: input.repositoryId ?? null,
     successCriteria: "[]",
     constraints: "[]",
     status: "proposed",

@@ -1,6 +1,7 @@
 "use server";
 
 import { getCurrentUser } from "@/lib/current-user";
+import { markOutcomeReleased } from "@/lib/outcome-completion-service";
 import { prisma } from "@/lib/prisma";
 import {
   createReleaseCandidate as createReleaseCandidateRecord,
@@ -145,7 +146,7 @@ export async function markReleased(releaseId: string): Promise<MarkReleasedResul
 
   const release = await prisma.release.findFirst({
     where: { id: releaseId, companyId: company.id },
-    select: { checklist: true, status: true },
+    select: { checklist: true, status: true, outcomeId: true },
   });
   if (!release) return { error: "Release not found." };
   if (release.status === "released") return {};
@@ -168,6 +169,16 @@ export async function markReleased(releaseId: string): Promise<MarkReleasedResul
       updatedAt: new Date(),
     },
   });
+
+  // Outcome lifecycle (MUS-259): a shipped release moves its linked outcome to
+  // the terminal `released` status. Best-effort.
+  if (release.outcomeId) {
+    try {
+      await markOutcomeReleased(company.id, release.outcomeId, releaseId);
+    } catch {
+      // Outcome bookkeeping is best-effort.
+    }
+  }
 
   revalidatePath(`/work/releases/${releaseId}`);
   revalidatePath("/work/releases");

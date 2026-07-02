@@ -169,6 +169,7 @@ export async function createRepositoryAnalysisSnapshot(input: CreateRepositorySn
       fileFingerprints: json(outcome.fileFingerprints),
       risks: json(outcome.risks),
       ignoredPaths: json(IGNORED_PATHS),
+      envInventory: json(outcome.envInventory),
       analysisSummary: outcome.intelligenceSummary,
     },
   });

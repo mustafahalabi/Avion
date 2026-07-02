@@ -99,6 +99,7 @@ export async function getRepositoryValidationView(
       scripts: true,
       dependencies: true,
       importantFiles: true,
+      envInventory: true,
     },
   });
 
@@ -141,11 +142,16 @@ export async function getRepositoryValidationView(
         scripts.lint !== null ||
         scripts.typecheck !== null));
 
-  // The analyzer never ingests .env files, so env evidence is normally absent.
-  // We still honour any .env.example that surfaced in importantFiles.
+  // The analyzer never ingests .env *values*, but since MUS-225 it records the
+  // env-var *names* the source references (process.env.X / import.meta.env.X).
+  // Older snapshots have no inventory (null) — passed through as "not captured".
   const hasEnvExample = importantFiles.some((file) =>
     /\.env\.example$/i.test(file)
   );
+  const referencedEnvVars =
+    snapshot.envInventory === null
+      ? null
+      : parseJsonField<string[]>(snapshot.envInventory, []);
 
   const assessment = assessRepositoryValidation({
     scripts,
@@ -156,6 +162,7 @@ export async function getRepositoryValidationView(
     hasAnalysis: true,
     hasPackageManifest,
     hasEnvExample: hasEnvExample ? true : undefined,
+    referencedEnvVars,
   });
 
   const missingData: string[] = [];
