@@ -114,7 +114,6 @@ export default async function TaskDetailPage({ params }: Props) {
           },
         },
       },
-      subtasks: { orderBy: { createdAt: "asc" } },
       planningDraft: { select: { generatedTasks: true } },
     },
   });
@@ -262,7 +261,6 @@ export default async function TaskDetailPage({ params }: Props) {
 
   const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG["todo"];
   const Icon = cfg.icon;
-  const subtasksDone = task.subtasks.filter((s) => s.completed).length;
 
   const attachedRepository = resolveTaskRepository(
     task.project?.workspace?.repositories
@@ -578,41 +576,6 @@ export default async function TaskDetailPage({ params }: Props) {
           </section>
         )}
 
-        {/* Subtasks */}
-        {task.subtasks.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between">
-              <SectionLabel>Subtasks</SectionLabel>
-              <span className="text-xs text-neutral-600">
-                {subtasksDone}/{task.subtasks.length} done
-              </span>
-            </div>
-            <div className="mt-3 flex flex-col gap-1.5">
-              {task.subtasks.map((sub) => (
-                <div
-                  key={sub.id}
-                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5"
-                >
-                  {sub.completed ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                  ) : (
-                    <Circle className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
-                  )}
-                  <span
-                    className={cn(
-                      "text-sm",
-                      sub.completed
-                        ? "text-neutral-600 line-through"
-                        : "text-neutral-300"
-                    )}
-                  >
-                    {sub.title}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
       </div>
     </div>
   );

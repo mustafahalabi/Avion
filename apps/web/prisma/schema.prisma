@@ -242,8 +242,6 @@ model Project {
   outcome           Outcome?           @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
   planningDraft     PlanningDraft?     @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
   features          Feature[]
-  milestones        Milestone[]
-  sprints           Sprint[]
   tasks             Task[]
   executionSessions ExecutionSession[]
 
@@ -282,7 +280,6 @@ model Task {
   companyId       String
   projectId       String?
   featureId       String?
-  sprintId        String?
   assigneeId      String?
   outcomeId       String?
   planningDraftId String?
@@ -296,54 +293,13 @@ model Task {
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   project           Project?           @relation(fields: [companyId, projectId], references: [companyId, id], onDelete: Restrict)
   feature           Feature?           @relation(fields: [companyId, featureId], references: [companyId, id], onDelete: Restrict)
-  sprint            Sprint?            @relation(fields: [sprintId], references: [id])
   assignee          Employee?          @relation(fields: [companyId, assigneeId], references: [companyId, id], onDelete: Restrict)
   outcome           Outcome?           @relation(fields: [companyId, outcomeId], references: [companyId, id], onDelete: Restrict)
   planningDraft     PlanningDraft?     @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
-  subtasks          Subtask[]
   executionSessions ExecutionSession[]
 
   @@unique([companyId, id])
   @@unique([planningDraftId, planItemId])
-}
-
-model Subtask {
-  id        String   @id @default(cuid())
-  title     String
-  taskId    String
-  completed Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-}
-
-model Sprint {
-  id        String    @id @default(cuid())
-  name      String
-  projectId String
-  goal      String?
-  status    String    @default("planned")
-  startDate DateTime?
-  endDate   DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tasks   Task[]
-}
-
-model Milestone {
-  id          String    @id @default(cuid())
-  title       String
-  projectId   String
-  description String?
-  status      String    @default("pending")
-  dueDate     DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 // ─── Memory / Knowledge Models ────────────────────────────────────────────────
