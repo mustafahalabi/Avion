@@ -546,6 +546,29 @@ describe("buildTaskImplementationBrief (MUS-273)", () => {
     );
   });
 
+  it("fetches the company culture and passes it into the brief (MUS-288)", async () => {
+    mockCompanySettingsFindUnique.mockResolvedValue({
+      autonomyLevel: "assist",
+      cultureProfile: "enterprise",
+    });
+
+    await buildTaskImplementationBrief(BASE_INPUT);
+
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({ cultureProfile: "enterprise" })
+    );
+  });
+
+  it("passes a null culture when settings retrieval fails (best-effort)", async () => {
+    mockCompanySettingsFindUnique.mockRejectedValue(new Error("db down"));
+
+    await buildTaskImplementationBrief(BASE_INPUT);
+
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({ cultureProfile: null })
+    );
+  });
+
   it("passes rework context through to the brief when provided", async () => {
     await buildTaskImplementationBrief({
       ...BASE_INPUT,

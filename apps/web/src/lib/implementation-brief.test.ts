@@ -246,6 +246,43 @@ describe("generateClaudeImplementationBrief", () => {
     });
   });
 
+  describe("company culture (MUS-288)", () => {
+    it("adds a culture section that biases the implementation for a known culture", () => {
+      const result = generateClaudeImplementationBrief({
+        ...MINIMAL_INPUT,
+        cultureProfile: "enterprise",
+      });
+      expect(result.brief).toContain("## Company Culture");
+      expect(result.brief).toContain("Enterprise");
+      expect(result.brief.toLowerCase()).toMatch(/valid|security|authoriz/);
+    });
+
+    it("produces materially different briefs for different cultures", () => {
+      const enterprise = generateClaudeImplementationBrief({
+        ...MINIMAL_INPUT,
+        cultureProfile: "enterprise",
+      }).brief;
+      const design = generateClaudeImplementationBrief({
+        ...MINIMAL_INPUT,
+        cultureProfile: "design-first",
+      }).brief;
+      expect(enterprise).not.toBe(design);
+      expect(design.toLowerCase()).toMatch(/a11y|accessib|ux|design/);
+    });
+
+    it("omits the culture section for an unset or unknown culture", () => {
+      expect(
+        generateClaudeImplementationBrief(MINIMAL_INPUT).brief
+      ).not.toContain("## Company Culture");
+      expect(
+        generateClaudeImplementationBrief({
+          ...MINIMAL_INPUT,
+          cultureProfile: "not-a-culture",
+        }).brief
+      ).not.toContain("## Company Culture");
+    });
+  });
+
   describe("scope constraints", () => {
     it("forbids unrelated changes", () => {
       const result = generateClaudeImplementationBrief(MINIMAL_INPUT);

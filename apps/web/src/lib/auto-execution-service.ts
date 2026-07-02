@@ -99,6 +99,20 @@ export async function buildTaskImplementationBrief(
     companyMemory = [];
   }
 
+  // Company culture (CompanySettings.cultureProfile) biases the implementation
+  // (MUS-288). Best-effort, like memory: a failure or unset culture just omits
+  // the culture section.
+  let cultureProfile: string | null = null;
+  try {
+    const settings = await prisma.companySettings.findUnique({
+      where: { companyId: input.companyId },
+      select: { cultureProfile: true },
+    });
+    cultureProfile = settings?.cultureProfile ?? null;
+  } catch {
+    cultureProfile = null;
+  }
+
   return generateClaudeImplementationBrief({
     taskId: input.taskId,
     taskTitle: input.taskTitle,
@@ -113,6 +127,7 @@ export async function buildTaskImplementationBrief(
     linearTicketUrl: input.linearTicketUrl,
     reworkContext: input.reworkContext ?? null,
     companyMemory,
+    cultureProfile,
   });
 }
 

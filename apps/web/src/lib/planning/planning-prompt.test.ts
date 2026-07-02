@@ -100,4 +100,19 @@ describe("buildPlanningPrompt", () => {
     const { prompt } = buildPlanningPrompt(INPUT);
     expect(prompt).toContain("no prior company memory yet");
   });
+
+  it("injects company culture guidance when a culture is configured (MUS-288)", () => {
+    const { prompt } = buildPlanningPrompt({
+      ...INPUT,
+      cultureProfile: "enterprise",
+    });
+    expect(prompt).toContain("## Company culture");
+    expect(prompt).toContain("Enterprise");
+    expect(prompt).toContain("Reflect the company culture");
+  });
+
+  it("notes a neutral culture when none is configured", () => {
+    const { prompt } = buildPlanningPrompt(INPUT);
+    expect(prompt).toContain("no specific culture configured");
+  });
 });

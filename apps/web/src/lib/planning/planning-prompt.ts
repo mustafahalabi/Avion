@@ -1,3 +1,4 @@
+import { getCultureGuidance } from "@/lib/company-culture";
 import type {
   OutcomePlanningInput,
   PlanningEmployeeContext,
@@ -163,6 +164,23 @@ function renderMemory(memory: OutcomePlanningInput["companyMemory"]): string {
 }
 
 /**
+ * Renders the company's culture guidance for the planner (MUS-288).
+ *
+ * @param culture - `CompanySettings.cultureProfile`, if any.
+ * @returns The culture guidance block, or a neutral note when unset/unknown.
+ */
+function renderCulture(culture: OutcomePlanningInput["cultureProfile"]): string {
+  const guidance = getCultureGuidance(culture ?? null);
+  if (!guidance) {
+    return "(no specific culture configured — use balanced engineering judgment)";
+  }
+  return [
+    `**${guidance.label}** — ${guidance.summary}`,
+    ...guidance.directives.map((directive) => `- ${directive}`),
+  ].join("\n");
+}
+
+/**
  * Builds the grounded system/user prompt pair for AI planning.
  *
  * @param input - Company-scoped outcome, employee, and repository context.
@@ -200,9 +218,13 @@ export function buildPlanningPrompt(
     "## Company memory (lessons learned from past reviews, QA, and releases)",
     renderMemory(input.companyMemory),
     "",
+    "## Company culture",
+    renderCulture(input.cultureProfile),
+    "",
     "## Instructions",
     "- Ground every project, feature, and task in the outcome and the repository intelligence above.",
     "- Apply the company memory: honor promoted standards and avoid repeating past review/QA findings.",
+    "- Reflect the company culture above when scoping and prioritizing work (e.g. weight review/security, UX/accessibility, or performance tasks accordingly).",
     "- Only assign recommendedEmployeeId / ownerEmployeeId values that appear in the employee roster; otherwise use null.",
     "- Only reference files in requiredContext that appear in a repository's importantFiles list.",
     "- Set estimatedExecutionOrder to the task planItemId values in the order they should be executed.",
