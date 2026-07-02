@@ -28,6 +28,22 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 
+// ─── SHELVED: Electron production packaging is parked (MUS-267 decision) ───────
+// The product ships as web + hosted services (MUS-269); desktop packaging was
+// built for the pre-Postgres SQLite era (MUS-247 removed better-sqlite3 and the
+// bundled file DB) and is not maintained. `electron:dev` still works for local
+// experimentation. This guard fails fast so the decision is explicit at the entry
+// point; to un-shelve, reopen MUS-267 and delete this block after reworking the
+// packaging (see docs/ELECTRON.md). Nothing below is deleted — only parked.
+if (process.env.EOS_ELECTRON_BUILD_UNSHELVE !== "1") {
+  console.error(
+    "[electron:build] SHELVED (MUS-267): desktop packaging is parked. See " +
+      "docs/ELECTRON.md. Set EOS_ELECTRON_BUILD_UNSHELVE=1 only after reworking " +
+      "packaging for a hosted-Postgres DATABASE_URL."
+  );
+  process.exit(1);
+}
+
 const args = new Set(process.argv.slice(2));
 const skipNext = args.has("--skip-next");
 const skipNative = args.has("--skip-native");

@@ -22,10 +22,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 console.error(
-  "[template-db] DEFERRED: the SQLite desktop template is superseded by the " +
-    "hosted-Postgres migration (MUS-247). The Electron app must connect to a " +
-    "PostgreSQL DATABASE_URL; rework the desktop packaging before building it.\n" +
-    "See AGENTS.md / docs for the deferred-Electron follow-up."
+  "[template-db] SHELVED (MUS-267): the Electron desktop app is formally parked. " +
+    "Its SQLite template DB was superseded by the hosted-Postgres migration (MUS-247), " +
+    "and the product ships as web + hosted services (MUS-269). Desktop packaging is " +
+    "not maintained; `electron:dev` still works for local experimentation.\n" +
+    "See docs/ELECTRON.md. To un-shelve, reopen MUS-267 and rework packaging for a " +
+    "PostgreSQL DATABASE_URL (connection-string config, no offline file DB)."
 );
 process.exit(1);
 // eslint-disable-next-line no-unreachable
