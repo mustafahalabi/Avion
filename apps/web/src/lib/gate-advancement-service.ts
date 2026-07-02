@@ -240,7 +240,14 @@ export async function advanceTaskGates(
     techStack: parseJsonStringArray(session?.repository?.techStack),
   }).map((command) => command.command);
 
-  if (!qaAllowed) {
+  // Hold at the QA checkpoint and surface it to the CEO instead of advancing.
+  // Used both when automated QA isn't permitted (low autonomy) and when it IS
+  // permitted but there's no real validation evidence to truthfully pass on
+  // (MUS-292) — unverified work must never auto-complete to done.
+  const holdForCeoQa = async (
+    reason: string,
+    timelineSummary: string
+  ): Promise<GateAdvanceResult> => {
     const checklist = generateQaChecklist({
       acceptanceCriteria: [],
       reviewNotes: null,
@@ -255,7 +262,7 @@ export async function advanceTaskGates(
       where: { id: qa.id },
       data: { checks: serializeChecklist(checklist) },
     });
-    await writeTimelineEntry(taskId, "qa_requested", "QA requested.", {
+    await writeTimelineEntry(taskId, "qa_requested", timelineSummary, {
       qaResultId: qa.id,
     });
     if (qaFirstPause) {
@@ -263,12 +270,19 @@ export async function advanceTaskGates(
     }
     return {
       status: "awaiting_qa",
-      reason: "Awaiting CEO QA decision (needs CEO action).",
+      reason,
       taskId,
       reviewId: review.id,
       qaResultId: qa.id,
       taskStatus: "in-review",
     };
+  };
+
+  if (!qaAllowed) {
+    return holdForCeoQa(
+      "Awaiting CEO QA decision (needs CEO action).",
+      "QA requested."
+    );
   }
 
   // Drive the automated QA path truthfully: the verdict is derived from the
@@ -323,30 +337,15 @@ export async function advanceTaskGates(
   }
 
   // No real validation evidence exists for this session (no commands detected,
-  // or the run could not execute them). Pass on the approved review alone with
-  // an honest note — and no fabricated checklist items.
-  await prisma.qAResult.update({
-    where: { id: qa.id },
-    data: { checks: "[]" },
-  });
-  await recordQaResult({
-    companyId,
-    qaResultId: qa.id,
-    verdict: "passed",
-    notes:
-      "Automated QA: no validation-command results were recorded for this session; passing on review approval only (no checks were fabricated).",
-    findings: [],
-  });
-
-  return {
-    status: "completed",
-    reason:
-      "Review approved; QA passed on review approval (no validation results were recorded).",
-    taskId,
-    reviewId: review.id,
-    qaResultId: qa.id,
-    taskStatus: "done",
-  };
+  // dependency install failed, or the validation run threw). Unverified work must
+  // NOT auto-pass to done — even at delegate/autonomous — so hold at the QA
+  // checkpoint and surface it to the CEO as a decision. Only a real, all-passing
+  // marker auto-completes the task; the CEO can still QA-approve unverified work
+  // explicitly (MUS-292).
+  return holdForCeoQa(
+    "No validation evidence to auto-pass QA (no detected checks, or they could not run); holding for your QA decision.",
+    "QA requested — no automated validation evidence recorded; needs your review."
+  );
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────────────────

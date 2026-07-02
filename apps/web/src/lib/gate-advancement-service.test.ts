@@ -83,9 +83,26 @@ async function taskStatus(): Promise<string | undefined> {
   return t?.status;
 }
 
+/**
+ * Embeds a real, all-passing validation marker on ses-1 — the only truthful way
+ * a task auto-completes to done (MUS-292): without evidence the QA gate holds.
+ */
+async function seedPassingMarker(): Promise<void> {
+  const { serializeValidationChecksMarker } = await import("./validation-runner");
+  const marker = serializeValidationChecksMarker([
+    { id: "tsc", kind: "tsc", command: "npx tsc --noEmit", passed: true, exitCode: 0, output: "", skipped: false },
+    { id: "test", kind: "test", command: "npm run test", passed: true, exitCode: 0, output: "", skipped: false },
+  ]);
+  await prisma.executionSession.update({
+    where: { id: "ses-1" },
+    data: { validationOutput: `## Validation\nall good\n\n${marker}` },
+  });
+}
+
 describe("advanceTaskGates", () => {
   it("at high autonomy advances review → QA → done with recorded results", async () => {
     await setAutonomy("autonomous");
+    await seedPassingMarker(); // real evidence — the only path to auto-done
 
     const result = await service.advanceTaskGates("company-1", "task-1");
 
@@ -106,6 +123,7 @@ describe("advanceTaskGates", () => {
 
   it("at delegate autonomy also completes both gates", async () => {
     await setAutonomy("delegate");
+    await seedPassingMarker(); // real evidence — the only path to auto-done
     const result = await service.advanceTaskGates("company-1", "task-1");
     expect(result.status).toBe("completed");
     expect(await taskStatus()).toBe("done");
@@ -173,6 +191,7 @@ describe("advanceTaskGates", () => {
 
   it("is idempotent — re-running after completion reports completed", async () => {
     await setAutonomy("autonomous");
+    await seedPassingMarker(); // real evidence so the first run actually completes
     await service.advanceTaskGates("company-1", "task-1");
 
     const second = await service.advanceTaskGates("company-1", "task-1");
@@ -281,20 +300,43 @@ describe("advanceTaskGates", () => {
     expect(changeRequests[0].reason).toMatch(/npm run test/);
   });
 
-  it("passes automated QA with an honest note when no validation results were recorded", async () => {
+  it("holds at the QA checkpoint (does NOT reach done) when no validation evidence was recorded", async () => {
     await setAutonomy("autonomous");
-    // ses-1 has validationOutput NULL — no marker.
+    // ses-1 has validationOutput NULL — no marker, i.e. no real evidence.
+    const result = await service.advanceTaskGates("company-1", "task-1");
+
+    // Unverified work must not auto-complete — it holds for a CEO QA decision.
+    expect(result.status).toBe("awaiting_qa");
+    expect(await taskStatus()).toBe("in-review");
+    expect(await taskStatus()).not.toBe("done");
+
+    const qa = await prisma.qAResult.findFirst({
+      where: { companyId: "company-1", entityId: "task-1" },
+      orderBy: { createdAt: "desc" },
+    });
+    // The QA is NOT marked passed on empty evidence.
+    expect(qa?.status).not.toBe("passed");
+
+    // The CEO is surfaced a decision (checkpoint notification for the owner).
+    const notifications = await prisma.notification.findMany({
+      where: { userId: "user-1" },
+    });
+    expect(notifications.length).toBeGreaterThan(0);
+  });
+
+  it("auto-completes only with a real all-passing marker, not on empty evidence", async () => {
+    await setAutonomy("autonomous");
+    await seedPassingMarker();
     const result = await service.advanceTaskGates("company-1", "task-1");
 
     expect(result.status).toBe("completed");
+    expect(await taskStatus()).toBe("done");
     const qa = await prisma.qAResult.findFirst({
       where: { companyId: "company-1", entityId: "task-1" },
       orderBy: { createdAt: "desc" },
     });
     expect(qa?.status).toBe("passed");
-    // No fabricated checklist: checks stay empty and the note says why.
-    expect(qa?.checks).toBe("[]");
-    expect(qa?.notes).toMatch(/no validation-command results/i);
+    expect(qa?.notes).toMatch(/recorded validation/i);
   });
 
   // ── Rework re-review (MUS-250) ────────────────────────────────────────────
