@@ -18,6 +18,7 @@
 import { authorizeAutonomyAction } from "@/lib/autonomy-policy";
 import {
   createExecutionSession,
+  LiveSessionExistsError,
   findLiveSessionForTask,
   prepareExecutionSession,
 } from "@/lib/execution-session-service";
@@ -144,7 +145,11 @@ export async function buildTaskImplementationBrief(
 export async function prepareExecutionSessionForTask(
   companyId: string,
   taskId: string
-): Promise<PrepareTaskExecutionResult | { readonly error: string }> {
+): Promise<
+  | PrepareTaskExecutionResult
+  | { readonly error: string }
+  | { readonly skippedExistingSessionId: string }
+> {
   // `repository` is the explicit Project→Repository link (the chosen repo); the
   // `workspace.repositories` include is the legacy "first repo in the workspace"
   // fallback for pre-link projects.
@@ -225,18 +230,29 @@ export async function prepareExecutionSessionForTask(
     reworkContext,
   });
 
-  const session = await createExecutionSession({
-    companyId,
-    taskId: task.id,
-    taskTitle: task.title,
-    projectId: resolvedProjectId,
-    repositoryId: repoRow?.id ?? null,
-    planningDraftId: task.planningDraftId ?? null,
-    // agentType intentionally omitted: the company's configured default
-    // (CompanySettings.defaultAgentType, null → "claude_code") applies.
-    branchName,
-    baseBranch: priorSession?.baseBranch ?? null,
-  });
+  let session;
+  try {
+    session = await createExecutionSession({
+      companyId,
+      taskId: task.id,
+      taskTitle: task.title,
+      projectId: resolvedProjectId,
+      repositoryId: repoRow?.id ?? null,
+      planningDraftId: task.planningDraftId ?? null,
+      // agentType intentionally omitted: the company's configured default
+      // (CompanySettings.defaultAgentType, null → "claude_code") applies.
+      branchName,
+      baseBranch: priorSession?.baseBranch ?? null,
+    });
+  } catch (err) {
+    // Lost an atomic idempotency race with a concurrent preparer — a live
+    // session already exists for this task. Treat it as "already prepared"
+    // (MUS-294), not an error: nothing was double-created.
+    if (err instanceof LiveSessionExistsError) {
+      return { skippedExistingSessionId: err.existingSessionId };
+    }
+    throw err;
+  }
 
   const prepared = await prepareExecutionSession(companyId, session.id, brief);
   if (!prepared) return { error: "Failed to prepare execution session." };
@@ -590,6 +606,14 @@ export async function autoPrepareNextExecutionSession(
   }
 
   const prepared = await prepareExecutionSessionForTask(companyId, taskId);
+  if ("skippedExistingSessionId" in prepared) {
+    return {
+      status: "skipped_existing_session",
+      reason: `Task ${taskId} already has a live session (created concurrently); skipped.`,
+      sessionId: prepared.skippedExistingSessionId,
+      taskId,
+    };
+  }
   if ("error" in prepared) {
     return { status: "error", reason: prepared.error, taskId };
   }
