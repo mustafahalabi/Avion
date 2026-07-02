@@ -283,15 +283,15 @@ This section is the authoritative separation of what runs today from what the or
 
 | Capability | Where |
 |---|---|
-| `Review` model with verdict, findings (JSON), change-request notes, plan/task linkage | `prisma/schema.prisma` (`Review`, `ChangeRequest`, `QAResult`) |
-| Four review verdicts with state-routing side effects | `src/lib/review-service.ts` (`recordReviewResult`) |
-| Review brief generation (scope, criteria, checklist, decision, reviewer instructions) | `src/lib/review-brief.ts` |
-| QA gate that requires an approved review and all passing checks before `done` | `src/lib/qa-service.ts` (`recordQaResult`) |
-| QA checklist generation across functional/regression/security/performance/UX/validation | `src/lib/qa-checklist.ts` |
-| Autonomy-driven review/QA advancement that never bypasses gates | `src/lib/gate-advancement-service.ts` |
-| Single autonomy policy (`auto_review` / `auto_qa` / `auto_merge`) + approval checkpoints | `src/lib/autonomy-policy.ts` |
-| Server actions and UI for verdicts, change requests, QA checklists | `src/app/actions/quality.ts`, `src/app/(app)/work/quality/**` |
-| Plan review (approve/reject, idempotent) and plan application | `src/lib/plan-application-service.ts`, `src/lib/planning-review-service.ts` |
+| `Review` model with verdict, findings (JSON), change-request notes, plan/task linkage | `apps/web/prisma/schema.prisma` (`Review`, `ChangeRequest`, `QAResult`) |
+| Four review verdicts with state-routing side effects | `apps/web/src/lib/review-service.ts` (`recordReviewResult`) |
+| Review brief generation (scope, criteria, checklist, decision, reviewer instructions) | `apps/web/src/lib/review-brief.ts` |
+| QA gate that requires an approved review and all passing checks before `done` | `apps/web/src/lib/qa-service.ts` (`recordQaResult`) |
+| QA checklist generation across functional/regression/security/performance/UX/validation | `apps/web/src/lib/qa-checklist.ts` |
+| Autonomy-driven review/QA advancement that never bypasses gates | `apps/web/src/lib/gate-advancement-service.ts` |
+| Single autonomy policy (`auto_review` / `auto_qa` / `auto_merge`) + approval checkpoints | `apps/web/src/lib/autonomy-policy.ts` |
+| Server actions and UI for verdicts, change requests, QA checklists | `apps/web/src/app/actions/quality.ts`, `apps/web/src/app/(app)/work/quality/**` |
+| Plan review (approve/reject, idempotent) and plan application | `apps/web/src/lib/plan-application-service.ts`, `apps/web/src/lib/planning-review-service.ts` |
 | Timeline events for every review and QA transition | emitted by the services above |
 | Approval checkpoints surfaced in the Inbox, bell, and dashboard | approvals slice (MUS-216) |
 

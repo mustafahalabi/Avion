@@ -48,9 +48,9 @@ Manual smoke checklist for the first Outcome Planning Engine vertical slice in E
 
 ## Regression checks
 
-- [ ] `npm run lint`
-- [ ] `npm run build`
-- [ ] `npm run test`
+- [ ] `pnpm lint`
+- [ ] `pnpm build`
+- [ ] `pnpm --filter @avion/web test`
 
 ## Known limitations (expected)
 

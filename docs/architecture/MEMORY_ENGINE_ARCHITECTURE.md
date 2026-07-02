@@ -82,7 +82,7 @@ This section is the authoritative description of what the codebase does **today*
 
 ### 3.1 Data model (implemented)
 
-Two persisted models back memory today, defined in `prisma/schema.prisma`:
+Two persisted models back memory today, defined in `apps/web/prisma/schema.prisma`:
 
 **`Memory`** — a named memory bank.
 
@@ -109,15 +109,15 @@ Two persisted models back memory today, defined in `prisma/schema.prisma`:
 | `confidence` | Float, defaults to `1.0` |
 | `createdAt` / `updatedAt` | Timestamps |
 
-The implemented `category` enum is fixed in the create action (`src/app/actions/memory.ts`) to: `company`, `architecture`, `product`, `security`, `operations`, `employee`, `feature`, `decision`. These categories are the seed of the layered model described in [Memory Layers](#4-memory-layers).
+The implemented `category` enum is fixed in the create action (`apps/web/src/app/actions/memory.ts`) to: `company`, `architecture`, `product`, `security`, `operations`, `employee`, `feature`, `decision`. These categories are the seed of the layered model described in [Memory Layers](#4-memory-layers).
 
 ### 3.2 Seeding (implemented)
 
-When a company is provisioned, `src/lib/company-seed.ts` creates five default memory banks — **Company**, **Architecture**, **Product**, **Security**, and **Operations** — each with `ownerType: "company"` and `ownerId` set to the company. A new company therefore starts with an empty-but-structured memory, not a blank slate.
+When a company is provisioned, `apps/web/src/lib/company-seed.ts` creates five default memory banks — **Company**, **Architecture**, **Product**, **Security**, and **Operations** — each with `ownerType: "company"` and `ownerId` set to the company. A new company therefore starts with an empty-but-structured memory, not a blank slate.
 
 ### 3.3 User surface (implemented)
 
-The `/memory` route renders the banks (with record and category counts), `/memory/[id]` renders a bank and its records (showing `source` and a `confidence` percentage), `/memory/new` creates a bank, and the add-record form appends a record. The two server actions in `src/app/actions/memory.ts` (`createMemory`, `addMemoryRecord`) are the only write paths.
+The `/memory` route renders the banks (with record and category counts), `/memory/[id]` renders a bank and its records (showing `source` and a `confidence` percentage), `/memory/new` creates a bank, and the add-record form appends a record. The two server actions in `apps/web/src/app/actions/memory.ts` (`createMemory`, `addMemoryRecord`) are the only write paths.
 
 ### 3.4 Honest limitations (today)
 

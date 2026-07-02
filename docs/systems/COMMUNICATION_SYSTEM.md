@@ -13,7 +13,7 @@ Communication is not a feature layered on top of the company — it is the conne
 
 This document has two layers, kept explicitly separate throughout:
 
-- **Implemented today** — behavior the platform genuinely ships, grounded in the codebase (`src/lib`, `src/app/actions`, `prisma/schema.prisma`).
+- **Implemented today** — behavior the platform genuinely ships, grounded in the codebase (`apps/web/src/lib`, `apps/web/src/app/actions`, `apps/web/prisma/schema.prisma`).
 - **Designed / planned** — behavior specified in [`COMPANY_RUNTIME.md`](../architecture/COMPANY_RUNTIME.md) and the organizational documentation that is not yet implemented.
 
 Where this document overlaps with the [Company Runtime](../architecture/COMPANY_RUNTIME.md), the Runtime owns the canonical state-machine and event definitions; this document owns the communication rules — what is said, by whom, to whom, in what form, and what reaches the CEO.
@@ -135,7 +135,7 @@ The format has six fields, in order:
 - The format is used **up** the authority chain (recommendation to a higher authority) and **out** to the CEO (approval requests). It is not used for routine implementation chatter between peers.
 - The employee who loses a decision records their objection inside the format's record. The objection is preserved, never erased.
 
-> **Implemented today (partial).** The CEO-facing next-action recommender (`src/lib/next-action-recommendation.ts`) already emits a structured object per recommendation — `{ title, reason, priority, confidence, href, cta }`. This maps directly onto four of the six fields: `title` → **Recommendation**, `reason` → **Reasoning** (a one-sentence grounding in workspace state), `confidence` → **Confidence**, and `cta`/`href` → **Next action**. The two remaining fields — explicit **Risks** and **Alternatives** — are not yet generated because plan and recommendation generation is deterministic/templated by design (no AI before the models are specified). The full six-field format on every employee escalation is **designed**, and is documented here as the target contract.
+> **Implemented today (partial).** The CEO-facing next-action recommender (`apps/web/src/lib/next-action-recommendation.ts`) already emits a structured object per recommendation — `{ title, reason, priority, confidence, href, cta }`. This maps directly onto four of the six fields: `title` → **Recommendation**, `reason` → **Reasoning** (a one-sentence grounding in workspace state), `confidence` → **Confidence**, and `cta`/`href` → **Next action**. The two remaining fields — explicit **Risks** and **Alternatives** — are not yet generated because plan and recommendation generation is deterministic/templated by design (no AI before the models are specified). The full six-field format on every employee escalation is **designed**, and is documented here as the target contract.
 
 ---
 
@@ -145,11 +145,11 @@ These are the real, shipping channels through which communication flows. Each is
 
 ### 6.1 Conversations and Messages
 
-`Conversation` and `Message` (`prisma/schema.prisma`) back the CEO request-intake chat. The CEO states an outcome in natural language; `sendMessage` (`src/app/actions/chat.ts`) persists the message, creates the `Outcome`, and seeds a planning draft. A `Message` carries `role` (default `user`), `content`, `type`, and an optional `requestId` linking it to the originating `RuntimeRequest`. This is the CEO → company channel.
+`Conversation` and `Message` (`apps/web/prisma/schema.prisma`) back the CEO request-intake chat. The CEO states an outcome in natural language; `sendMessage` (`apps/web/src/app/actions/chat.ts`) persists the message, creates the `Outcome`, and seeds a planning draft. A `Message` carries `role` (default `user`), `content`, `type`, and an optional `requestId` linking it to the originating `RuntimeRequest`. This is the CEO → company channel.
 
 ### 6.2 Notifications
 
-`Notification` is the CEO's attention channel. It carries `title`, `body`, a `type` (`info` | `warning` | `alert` | `decision` | `progress` | `blocker`), a `priority` (`low` | `medium` | `high` | `urgent`), an optional `entityType`/`entityId`, an `actionUrl`, and `read`/`readAt`. All notifications are created through `notify()` / `notifyInTx()` (`src/lib/notify.ts`) so the shape stays uniform. Surfaced at `/notifications` (with mark-read / mark-all-read actions in `src/app/actions/notifications.ts`), on the sidebar bell, and on the dashboard "Pending approvals" card.
+`Notification` is the CEO's attention channel. It carries `title`, `body`, a `type` (`info` | `warning` | `alert` | `decision` | `progress` | `blocker`), a `priority` (`low` | `medium` | `high` | `urgent`), an optional `entityType`/`entityId`, an `actionUrl`, and `read`/`readAt`. All notifications are created through `notify()` / `notifyInTx()` (`apps/web/src/lib/notify.ts`) so the shape stays uniform. Surfaced at `/notifications` (with mark-read / mark-all-read actions in `apps/web/src/app/actions/notifications.ts`), on the sidebar bell, and on the dashboard "Pending approvals" card.
 
 ### 6.3 Timeline and Events
 
@@ -161,11 +161,11 @@ These are the real, shipping channels through which communication flows. Each is
 
 ### 6.5 QA Results
 
-`QAResult` carries `status`, `passedCount`, `failedCount`, `notes`, and a JSON `checks` array. The QA Engineer's go/no-go judgment is expressed here. A `failed` verdict raises an `alert` notification (`src/app/actions/quality.ts`).
+`QAResult` carries `status`, `passedCount`, `failedCount`, `notes`, and a JSON `checks` array. The QA Engineer's go/no-go judgment is expressed here. A `failed` verdict raises an `alert` notification (`apps/web/src/app/actions/quality.ts`).
 
 ### 6.6 Inbox and Approval Queue
 
-The Inbox (`/inbox`) is the CEO's action surface. It lists incoming requests and — critically — pending approval checkpoints (see §14), each with Approve / Reject controls wired to `src/app/actions/approvals.ts`.
+The Inbox (`/inbox`) is the CEO's action surface. It lists incoming requests and — critically — pending approval checkpoints (see §14), each with Approve / Reject controls wired to `apps/web/src/app/actions/approvals.ts`.
 
 ---
 
@@ -195,7 +195,7 @@ Employees collaborate **directly** with each other. Collaboration never routes t
 
 Status is communicated as work advances, but at the right altitude for each audience.
 
-- **Phase-level, not task-level, for the CEO.** The CEO is informed at phase boundaries (request received, brief ready for approval, blocked, complete) — not on individual task completions. This is enforced by the notification call sites in `src/app/actions/runtime.ts`, which fire on request status transitions, not on every internal step.
+- **Phase-level, not task-level, for the CEO.** The CEO is informed at phase boundaries (request received, brief ready for approval, blocked, complete) — not on individual task completions. This is enforced by the notification call sites in `apps/web/src/app/actions/runtime.ts`, which fire on request status transitions, not on every internal step.
 - **Immediate, not deferred, for the Tech Lead.** A progress concern is communicated the moment it is known, not at the end of a sprint. If an estimate is at risk, the owning employee surfaces it before the deadline passes.
 - **Status is pulled as well as pushed.** The CEO can ask for status at any time and receives a plain-language summary of where any work item currently sits in its lifecycle. The company holds the continuity so the CEO never has to.
 - **Long-running work reports at phase boundaries.** Work spanning multiple sessions writes a record at each phase boundary, not only at final completion, so state survives across sessions.
@@ -208,7 +208,7 @@ Status is communicated as work advances, but at the right altitude for each audi
 
 Routing decides which employee receives a communication first.
 
-**Request routing (implemented).** Incoming CEO requests are routed by type via `REQUEST_ROUTING` (`src/lib/request-routing.ts`):
+**Request routing (implemented).** Incoming CEO requests are routed by type via `REQUEST_ROUTING` (`apps/web/src/lib/request-routing.ts`):
 
 | Request type | First receiver |
 |---|---|
@@ -221,7 +221,7 @@ Routing decides which employee receives a communication first.
 | `performance` | Tech Lead |
 | `question` | Company |
 
-When a request is created, the runtime records the assignee and notifies the CEO that the request was "Routed to {assignee}. Team is reviewing." (`src/app/actions/runtime.ts`).
+When a request is created, the runtime records the assignee and notifies the CEO that the request was "Routed to {assignee}. Team is reviewing." (`apps/web/src/app/actions/runtime.ts`).
 
 **Routing principles:**
 
@@ -299,13 +299,13 @@ Notifications are created exclusively through `notify()` / `notifyInTx()` so eve
 
 | Trigger | Type | Priority | Source |
 |---|---|---|---|
-| New request created and routed | `info` | `medium` | `src/app/actions/runtime.ts` |
-| Request → `awaiting_approval` | `decision` | `high` | `src/app/actions/runtime.ts` |
-| Request → `blocked` | `blocker` | `urgent` | `src/app/actions/runtime.ts` |
-| Request → `complete` | `progress` | `low` | `src/app/actions/runtime.ts` |
-| Review/QA checkpoint paused (autonomy gate) | `decision` | `high` | `src/lib/gate-advancement-service.ts` |
-| Changes requested on a review | `alert` | `high` | `src/app/actions/quality.ts` |
-| QA failed | `alert` | `high` | `src/app/actions/quality.ts` |
+| New request created and routed | `info` | `medium` | `apps/web/src/app/actions/runtime.ts` |
+| Request → `awaiting_approval` | `decision` | `high` | `apps/web/src/app/actions/runtime.ts` |
+| Request → `blocked` | `blocker` | `urgent` | `apps/web/src/app/actions/runtime.ts` |
+| Request → `complete` | `progress` | `low` | `apps/web/src/app/actions/runtime.ts` |
+| Review/QA checkpoint paused (autonomy gate) | `decision` | `high` | `apps/web/src/lib/gate-advancement-service.ts` |
+| Changes requested on a review | `alert` | `high` | `apps/web/src/app/actions/quality.ts` |
+| QA failed | `alert` | `high` | `apps/web/src/app/actions/quality.ts` |
 
 **Rules:**
 
@@ -338,7 +338,7 @@ The timeline is the company's immutable narrative; events are its audit log. Tog
 
 An approval checkpoint is the most consequential CEO-facing communication: the company pauses real work and asks the CEO to decide.
 
-**How it works (implemented, `src/lib/approval-checkpoints.ts`):**
+**How it works (implemented, `apps/web/src/lib/approval-checkpoints.ts`):**
 
 - At sub-threshold autonomy, the gate-advancement service halts a task at a review or QA gate instead of auto-advancing. The pause is **persisted** as a pending `Review` or `QAResult` row whose task is still `in-review`.
 - `listPendingCheckpoints(companyId)` reads those rows as the CEO's "needs your decision" queue (reviews before QA, newest first). `countPendingCheckpoints` feeds the sidebar bell and Inbox badge.

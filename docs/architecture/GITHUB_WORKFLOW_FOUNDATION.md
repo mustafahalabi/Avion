@@ -69,12 +69,12 @@ Optional Git fields when recording agent output manually: commit SHA, PR URL, PR
 ## Validation
 
 ```bash
-npm run test
+pnpm --filter @avion/web test
 ```
 
 Key test files:
 
-- `src/lib/github-workflow-status.test.ts`
-- `src/lib/repository-task-context.test.ts`
-- `src/lib/implementation-brief.test.ts`
-- `src/lib/execution-session-service.test.ts`
+- `apps/web/src/lib/github-workflow-status.test.ts`
+- `apps/web/src/lib/repository-task-context.test.ts`
+- `apps/web/src/lib/implementation-brief.test.ts`
+- `apps/web/src/lib/execution-session-service.test.ts`

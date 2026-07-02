@@ -87,7 +87,7 @@ Engineering OS organizes alerts along two axes that exist in the data model toda
 
 ### 3.1 Implemented type taxonomy
 
-The platform's notification layer (`src/lib/notify.ts`) emits the following types today. Each maps to a distinct meaning and a distinct visual treatment on the Notifications surface.
+The platform's notification layer (`apps/web/src/lib/notify.ts`) emits the following types today. Each maps to a distinct meaning and a distinct visual treatment on the Notifications surface.
 
 | Type | Meaning | Typical priority | Actionable |
 |---|---|---|---|
@@ -118,7 +118,7 @@ When the incident and health pipelines come online, they should reuse the existi
 
 ## 4. Priority Levels
 
-Priority answers one question: *how much should this interrupt the CEO?* The platform supports four levels (`src/lib/notify.ts`), and they map directly to the consequence of inaction.
+Priority answers one question: *how much should this interrupt the CEO?* The platform supports four levels (`apps/web/src/lib/notify.ts`), and they map directly to the consequence of inaction.
 
 | Priority | Meaning | Consequence of ignoring | Default surfacing |
 |---|---|---|---|

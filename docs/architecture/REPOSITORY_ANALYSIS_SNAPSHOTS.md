@@ -29,7 +29,7 @@ Most structured fields are stored as JSON strings to match the existing reposito
 
 ## Snapshot Creation
 
-`createRepositoryAnalysisSnapshot` in `src/lib/repository-snapshot-service.ts` is the application service for snapshot creation.
+`createRepositoryAnalysisSnapshot` in `apps/web/src/lib/repository-snapshot-service.ts` is the application service for snapshot creation.
 
 Success path:
 
@@ -64,13 +64,13 @@ The snapshot stores the resulting `fileFingerprints` array. Snapshot comparison 
 
 ## Application Path
 
-Callable server actions in `src/app/actions/repository.ts` expose the service path:
+Callable server actions in `apps/web/src/app/actions/repository.ts` expose the service path:
 
 - `analyzeRepository`
 - `compareLatestRepositorySnapshots`
 - `analyzeLatestRepositorySnapshotImpact`
 
-`src/lib/repository-change-intelligence.ts` exposes the read-only latest change intelligence path for UI and planning code. It loads the latest two snapshots for a repository/company, runs deterministic comparison and impact analysis, and returns snapshot summary, comparison, and impact output without importing the filesystem analyzer.
+`apps/web/src/lib/repository-change-intelligence.ts` exposes the read-only latest change intelligence path for UI and planning code. It loads the latest two snapshots for a repository/company, runs deterministic comparison and impact analysis, and returns snapshot summary, comparison, and impact output without importing the filesystem analyzer.
 
 Current product surfaces:
 

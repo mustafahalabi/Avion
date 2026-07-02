@@ -285,12 +285,12 @@ Per the project's hard rule against describing capability that does not exist, t
 
 The platform produces and persists the raw signals this system learns from, and enforces the quality gates that generate them:
 
-- **Review findings are first-class and classified.** `recordReviewResult` (`src/lib/review-service.ts`) stores review verdicts (`approved` / `changes_requested` / `blocked` / `needs_clarification`) and findings tagged `blocker` / `non_blocker`, and opens `ChangeRequest` records when changes are requested. These are the literal signals of the Review source.
-- **QA results carry pass/fail evidence.** `recordQaResult` (`src/lib/qa-service.ts`) stores QA verdicts and per-check results against acceptance criteria, and **blocks completion** when required checks did not pass — no task reaches `done` on an unverified claim. This is the QA source.
+- **Review findings are first-class and classified.** `recordReviewResult` (`apps/web/src/lib/review-service.ts`) stores review verdicts (`approved` / `changes_requested` / `blocked` / `needs_clarification`) and findings tagged `blocker` / `non_blocker`, and opens `ChangeRequest` records when changes are requested. These are the literal signals of the Review source.
+- **QA results carry pass/fail evidence.** `recordQaResult` (`apps/web/src/lib/qa-service.ts`) stores QA verdicts and per-check results against acceptance criteria, and **blocks completion** when required checks did not pass — no task reaches `done` on an unverified claim. This is the QA source.
 - **Gate advancement is truthful and recorded.** `gate-advancement-service.ts` advances tasks through review and QA strictly according to autonomy level, never bypassing a gate, and writes a `TimelineEntry` for each transition. The honest gate is what makes the signals trustworthy.
 - **The execution audit trail captures guardrail signals.** `worker-audit-log.ts` records `command_blocked`, `guardrail_triggered`, `validation_run`, `pr_opened`, and related events for every autonomous run — the raw material of the Execution Audit source.
 - **Incidents are modeled.** An `Incident` record (`severity`, `status`, `resolvedAt`) exists in the schema as the anchor for incident-derived lessons.
-- **Memory records carry source and confidence.** `Memory` / `MemoryRecord` (`src/app/actions/memory.ts`) persist insights with a `source` and a `confidence` value (0–1) across eight categories including `decision`, `security`, and `operations` — the destination for written insights and patterns.
+- **Memory records carry source and confidence.** `Memory` / `MemoryRecord` (`apps/web/src/app/actions/memory.ts`) persist insights with a `source` and a `confidence` value (0–1) across eight categories including `decision`, `security`, and `operations` — the destination for written insights and patterns.
 - **Company intelligence surfaces what needs attention.** `next-action-recommendation.ts` reads workspace state (blocked tasks, failed executions, stuck requests, pending approvals) and recommends the CEO's next action — an early form of surfacing where the company is struggling.
 
 ### 12.2 Designed / planned (not yet built)

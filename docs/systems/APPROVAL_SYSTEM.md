@@ -11,7 +11,7 @@ The Approval System defines when Engineering OS pauses to ask a human for an exp
 
 This document has two layers, kept visibly distinct throughout:
 
-- **Implemented today** — behavior the platform enforces in code right now. Grounded in `src/lib/autonomy-policy.ts`, `src/lib/approval-checkpoints.ts`, `src/lib/gate-advancement-service.ts`, `src/lib/worker-permissions.ts`, `src/lib/plan-application-service.ts`, `src/app/actions/approvals.ts`, and the Prisma schema.
+- **Implemented today** — behavior the platform enforces in code right now. Grounded in `apps/web/src/lib/autonomy-policy.ts`, `apps/web/src/lib/approval-checkpoints.ts`, `apps/web/src/lib/gate-advancement-service.ts`, `apps/web/src/lib/worker-permissions.ts`, `apps/web/src/lib/plan-application-service.ts`, `apps/web/src/app/actions/approvals.ts`, and the Prisma schema.
 - **Designed / planned** — organizational behavior specified by the company documentation that is not yet (or only partially) enforced in code. Grounded in [COMPANY_RUNTIME.md](../architecture/COMPANY_RUNTIME.md) and the SOPs.
 
 Where the two disagree, the implemented layer is authoritative for what the software does today, and the designed layer is authoritative for where it is going.
@@ -124,7 +124,7 @@ Release approval is the decision to ship validated work to users. In the organiz
 
 ## 5. The Autonomy Gate
 
-*(Implemented — `src/lib/autonomy-policy.ts`.)*
+*(Implemented — `apps/web/src/lib/autonomy-policy.ts`.)*
 
 The autonomy gate is the heart of the implemented Approval System. It maps a company's autonomy level and a proposed agentic action to one of three dispositions:
 
@@ -167,8 +167,8 @@ Two functions express the entire gate:
 
 The only difference between the manual and autonomous paths is what they pass for `hasApproval`:
 
-- The **manual path** (`src/app/actions/execution.ts`) treats the CEO's click as the approval — it passes `hasApproval: true`, so a `requires_approval` action proceeds, and it refuses only when the level denies the action outright.
-- The **autonomous driver** (`src/lib/auto-execution-service.ts`, `gate-advancement-service.ts`) passes the persisted approval state — a `requires_approval` action with no prior approval halts and raises a checkpoint.
+- The **manual path** (`apps/web/src/app/actions/execution.ts`) treats the CEO's click as the approval — it passes `hasApproval: true`, so a `requires_approval` action proceeds, and it refuses only when the level denies the action outright.
+- The **autonomous driver** (`apps/web/src/lib/auto-execution-service.ts`, `gate-advancement-service.ts`) passes the persisted approval state — a `requires_approval` action with no prior approval halts and raises a checkpoint.
 
 This is why the two paths can never authorize differently: they call the same function and differ only in the approval evidence they supply.
 
@@ -180,7 +180,7 @@ An approval moves through a small, explicit state machine. Two concrete implemen
 
 ### 6.1 Checkpoint states
 
-*(Implemented — `src/lib/autonomy-policy.ts`.)*
+*(Implemented — `apps/web/src/lib/autonomy-policy.ts`.)*
 
 ```
             evaluateAutonomyCheckpoint(requires_approval, no prior approval)
@@ -198,7 +198,7 @@ A checkpoint records the autonomy `level`, the `action`, its `status`, decision 
 
 ### 6.2 Review and QA checkpoints
 
-*(Implemented — `src/lib/gate-advancement-service.ts`, `src/lib/approval-checkpoints.ts`, `src/app/actions/approvals.ts`.)*
+*(Implemented — `apps/web/src/lib/gate-advancement-service.ts`, `apps/web/src/lib/approval-checkpoints.ts`, `apps/web/src/app/actions/approvals.ts`.)*
 
 The most visible approvals are the review and QA gates. When an execution session completes, the task moves to `in-review` and stops. The gate-advancement service then advances it according to autonomy:
 
@@ -219,7 +219,7 @@ Crucially, `recordQaResult` independently re-checks that an **approved review ex
 
 ### 6.3 Plan approval
 
-*(Implemented — `src/lib/plan-application-service.ts`.)*
+*(Implemented — `apps/web/src/lib/plan-application-service.ts`.)*
 
 A generated planning draft is a proposal, not work. It must be approved before it becomes real Project / Feature / Task records. `approvePlanningDraft` and `rejectPlanningDraft` are **idempotent**: re-approving an already-approved draft is a no-op, an already-applied draft reports `already_applied`, and illegal transitions (approving a rejected draft, rejecting an approved one) throw. Approval and rejection stamp `approvedAt` / `approvedById` or `rejectedAt` / `rejectedById` / `rejectionReason` on the `PlanningDraft` and write a timeline entry. Rejection creates **no work records** — the draft is recorded as rejected and the company waits for new direction.
 
@@ -278,7 +278,7 @@ Approval is exceptional, so the system is explicit about when it is *not* requir
 
 1. **The autonomy level `allow`s the action.** Per the matrix in §5.1, most actions are `allow`ed at `delegate` and all are at `autonomous`. This is the primary, intended way approval is skipped — by raising trust, set once, rather than by overriding per action.
 2. **A prior approval already exists for this action.** `evaluateAutonomyCheckpoint` proceeds when `hasApproval` is true. On the manual path the CEO's own initiating click is that approval (e.g. a CEO-initiated session preparation is the human-supplied approval for the `create_session` checkpoint).
-3. **The change set is within the worker's approval threshold.** The worker permission profile declares `requiresApprovalAbove` — the file count above which a change set must request approval (20 at `assist`/`execute`, 40 at `full`). A change set at or below the threshold proceeds without a per-change-set approval (`src/lib/worker-permissions.ts`).
+3. **The change set is within the worker's approval threshold.** The worker permission profile declares `requiresApprovalAbove` — the file count above which a change set must request approval (20 at `assist`/`execute`, 40 at `full`). A change set at or below the threshold proceeds without a per-change-set approval (`apps/web/src/lib/worker-permissions.ts`).
 
 Approval **cannot** be skipped in these cases:
 
@@ -344,7 +344,7 @@ The principle: an approval is a decision, and decisions accrue to memory so the 
 
 ## 13. Notifications
 
-*(Implemented — `src/lib/gate-advancement-service.ts` via `notify`.)*
+*(Implemented — `apps/web/src/lib/gate-advancement-service.ts` via `notify`.)*
 
 When a sub-threshold gate pauses, the company notifies the owner exactly once, when the checkpoint is first raised — not on every driver loop. The notification:
 
@@ -385,7 +385,7 @@ An approval is recorded with no actor. **Response:** server actions refuse when 
 
 | Capability | Status | Source |
 |---|---|---|
-| Autonomy action matrix (5 levels × 7 actions) | Implemented | `src/lib/autonomy-policy.ts` |
+| Autonomy action matrix (5 levels × 7 actions) | Implemented | `apps/web/src/lib/autonomy-policy.ts` |
 | Single authorization seam for manual + driver | Implemented | `autonomy-policy.ts`, `execution.ts`, `auto-execution-service.ts` |
 | Checkpoint lifecycle (awaiting → approved/rejected, one-shot) | Implemented | `autonomy-policy.ts` |
 | Review checkpoint (pause, surface, approve/reject) | Implemented | `gate-advancement-service.ts`, `approval-checkpoints.ts`, `approvals.ts` |

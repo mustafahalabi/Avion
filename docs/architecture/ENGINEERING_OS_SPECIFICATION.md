@@ -128,7 +128,7 @@ Repository facts are evidence-bearing: detection records **evidence paths and co
 
 ## 9. The Planning Contract
 
-Planning is the bridge from a CEO outcome to reviewable, applicable work. It has a **single, provider-independent contract**, defined in code by `src/lib/planning-generator.ts` and the `PlanningAdapter` interface (`src/lib/planning/planning-adapter.ts`). Every planning provider — deterministic or AI — MUST conform to it exactly so the downstream quality gate, CEO/autonomy review gate, and idempotent application path are identical regardless of source.
+Planning is the bridge from a CEO outcome to reviewable, applicable work. It has a **single, provider-independent contract**, defined in code by `apps/web/src/lib/planning-generator.ts` and the `PlanningAdapter` interface (`apps/web/src/lib/planning/planning-adapter.ts`). Every planning provider — deterministic or AI — MUST conform to it exactly so the downstream quality gate, CEO/autonomy review gate, and idempotent application path are identical regardless of source.
 
 ### 9.1 Input → Output
 
@@ -172,7 +172,7 @@ Selection is by `resolvePlanningAdapter`, which reads an explicit override first
 
 ### 10.2 The AI-free generator boundary (hard rule)
 
-`src/lib/planning-generator.ts` is the deterministic core and MUST remain free of any AI-provider references. There is a conformance test asserting the file contains no `Claude`, `OpenAI`, `generateText`, `streamText`, or `fetch(` references. Therefore **all** AI-provider wiring, the `"ai-claude"` provider string, the AI generator-version constant, and any LLM client live in the planning provider/adapter modules — never in `planning-generator.ts` (Invariant I-8).
+`apps/web/src/lib/planning-generator.ts` is the deterministic core and MUST remain free of any AI-provider references. There is a conformance test asserting the file contains no `Claude`, `OpenAI`, `generateText`, `streamText`, or `fetch(` references. Therefore **all** AI-provider wiring, the `"ai-claude"` provider string, the AI generator-version constant, and any LLM client live in the planning provider/adapter modules — never in `planning-generator.ts` (Invariant I-8).
 
 ### 10.3 The non-negotiable pipeline
 
@@ -218,7 +218,7 @@ The gate enforces, at minimum, that a draft has:
 
 ## 12. Permissions and Autonomy Gates
 
-Automated work is governed by the company's **autonomy level**, normalized to one of five values (`normalizeAutonomyLevel`, safest-default `manual`): **manual → suggest → assist → delegate → autonomous**. There is a **single source of truth** for what each level permits — the `AUTONOMY_POLICY_MATRIX` in `src/lib/autonomy-policy.ts` — used identically by the manual UI and the continuous driver (Invariant I-11).
+Automated work is governed by the company's **autonomy level**, normalized to one of five values (`normalizeAutonomyLevel`, safest-default `manual`): **manual → suggest → assist → delegate → autonomous**. There is a **single source of truth** for what each level permits — the `AUTONOMY_POLICY_MATRIX` in `apps/web/src/lib/autonomy-policy.ts` — used identically by the manual UI and the continuous driver (Invariant I-11).
 
 Each automatable action (`AutonomyAction`) — `create_session`, `run_agent`, `push`, `open_pr`, `auto_merge`, `auto_review`, `auto_qa` — maps, per level, to one disposition (`AutonomyDisposition`):
 
@@ -244,7 +244,7 @@ When an action's disposition is `requires_approval`, the flow **pauses** and cre
 
 ## 13. Execution Guardrails
 
-Guardrails are **always on**, independent of the agent's permission mode and independent of the autonomy level. They are enforced **before** any push (`runAllGuardrails`, `checkFileGuardrails`, `checkBranchGuardrail`, `checkCommandGuardrail` in `src/lib/repository-guardrails.ts`). A blocked run **fails the session** and records the offending paths/commands in the execution audit trail (Invariant I-12).
+Guardrails are **always on**, independent of the agent's permission mode and independent of the autonomy level. They are enforced **before** any push (`runAllGuardrails`, `checkFileGuardrails`, `checkBranchGuardrail`, `checkCommandGuardrail` in `apps/web/src/lib/repository-guardrails.ts`). A blocked run **fails the session** and records the offending paths/commands in the execution audit trail (Invariant I-12).
 
 - **Protected paths** (`PROTECTED_FILE_PATTERNS`) — never written: `.env*`, key/cert files (`*.key`, `*.pem`, `*.p12`, `*.pfx`), `prisma/migrations/**`, `.github/workflows/**`, lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`), and secret/credential directories.
 - **Protected branches** (`PROTECTED_BRANCHES`) — never targeted directly: `master`, `main`, `release/*`, `hotfix/*`. Implementation work happens on session branches and reaches protected branches only through PR + the autonomy-gated merge action.
@@ -273,7 +273,7 @@ These are the binding, testable rules of Engineering OS. They are numbered for r
 - **I-5 — Deterministic is always the fallback.** The deterministic adapter is always available, performs no LLM I/O, and is the fallback for the AI adapter, so AI planning can never produce a worse result than the baseline. *(§10.1)*
 - **I-6 — Apply is idempotent and traceable.** Applying the same approved draft more than once never creates duplicate work records, and every applied record traces back to its source Outcome and PlanningDraft. *(§9.3)*
 - **I-7 — No `done` without approved review and passing QA.** A task cannot reach `done` without a recorded approved Review and passing QA. *(§5, §14)*
-- **I-8 — The generator core is AI-free.** `src/lib/planning-generator.ts` contains no `Claude`/`OpenAI`/`generateText`/`streamText`/`fetch(` references; all AI wiring, the `"ai-claude"` string, and the AI version constant live only in the provider/adapter modules. *(§10.2)*
+- **I-8 — The generator core is AI-free.** `apps/web/src/lib/planning-generator.ts` contains no `Claude`/`OpenAI`/`generateText`/`streamText`/`fetch(` references; all AI wiring, the `"ai-claude"` string, and the AI version constant live only in the provider/adapter modules. *(§10.2)*
 - **I-9 — Repository facts are evidenced.** Repository detection records evidence paths and confidence rather than overstating certainty; missing metadata is recorded as a gap, not guessed. *(§8)*
 - **I-10 — Autonomy relaxes approvals, never guardrails.** A higher autonomy level may remove *approval checkpoints* but can never disable an execution guardrail. *(§12, §13)*
 - **I-11 — One autonomy source of truth.** Manual UI and the continuous driver evaluate the same `AUTONOMY_POLICY_MATRIX`; there is no second, divergent policy. *(§12)*
@@ -298,7 +298,7 @@ Each invariant in §15 maps to enforcement that already exists or is required of
 | I-12 | `repository-guardrails.test.ts` and `worker-audit-log.test.ts` |
 | I-13 | Event-model / timeline / notification tests |
 
-The total suite size is reported by `npm run test:count`; the full pipeline (and the verified-live loop) is exercised end-to-end via `npm run dogfood:local` and the real live run in `scripts/DOGFOOD.md`. Any change that would violate an invariant must either be rejected or accompanied by a CTO-approved Decision Record amending this specification.
+The total suite size is reported by `pnpm --filter @avion/web test:count`; the full pipeline (and the verified-live loop) is exercised end-to-end via `pnpm --filter @avion/web dogfood:local` and the real live run in `apps/web/scripts/DOGFOOD.md`. Any change that would violate an invariant must either be rejected or accompanied by a CTO-approved Decision Record amending this specification.
 
 ---
 
