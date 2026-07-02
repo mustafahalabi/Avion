@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockCompanySettingsFindUnique = vi.fn();
 const mockTaskFindFirst = vi.fn();
+const mockTaskUpdateMany = vi.fn();
+const mockSessionFindFirst = vi.fn();
+const mockSessionCount = vi.fn();
+const mockChangeRequestFindMany = vi.fn();
+const mockCompanyFindFirst = vi.fn();
+const mockTimelineCreate = vi.fn();
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     companySettings: {
@@ -11,8 +17,27 @@ vi.mock("@/lib/prisma", () => ({
     },
     task: {
       findFirst: (...args: unknown[]) => mockTaskFindFirst(...args),
+      updateMany: (...args: unknown[]) => mockTaskUpdateMany(...args),
+    },
+    executionSession: {
+      findFirst: (...args: unknown[]) => mockSessionFindFirst(...args),
+      count: (...args: unknown[]) => mockSessionCount(...args),
+    },
+    changeRequest: {
+      findMany: (...args: unknown[]) => mockChangeRequestFindMany(...args),
+    },
+    company: {
+      findFirst: (...args: unknown[]) => mockCompanyFindFirst(...args),
+    },
+    timelineEntry: {
+      create: (...args: unknown[]) => mockTimelineCreate(...args),
     },
   },
+}));
+
+const mockNotify = vi.fn();
+vi.mock("@/lib/notify", () => ({
+  notify: (...args: unknown[]) => mockNotify(...args),
 }));
 
 const mockSelectNext = vi.fn();
@@ -91,6 +116,14 @@ beforeEach(() => {
   });
   mockCreateSession.mockResolvedValue({ id: "ses-new" });
   mockPrepareSession.mockResolvedValue({ id: "ses-new", status: "prepared" });
+  // Retry/rework defaults: no prior sessions, no open change requests.
+  mockSessionFindFirst.mockResolvedValue(null);
+  mockSessionCount.mockResolvedValue(0);
+  mockChangeRequestFindMany.mockResolvedValue([]);
+  mockTaskUpdateMany.mockResolvedValue({ count: 1 });
+  mockCompanyFindFirst.mockResolvedValue({ ownerId: "user-1" });
+  mockTimelineCreate.mockResolvedValue({ id: "tl-1" });
+  mockNotify.mockResolvedValue(undefined);
 });
 
 describe("autoPrepareNextExecutionSession", () => {
@@ -169,6 +202,56 @@ describe("autoPrepareNextExecutionSession", () => {
     expect(result.reason).toMatch(/Failed to prepare/);
     expect(result.taskId).toBe("task-1");
   });
+
+  it("blocks the task and notifies the CEO when the retry budget is exhausted", async () => {
+    // Default WORKER_MAX_RETRIES is 1 → two consecutive failures exhaust it.
+    mockSessionCount.mockResolvedValue(2);
+
+    const result = await autoPrepareNextExecutionSession("company-1");
+
+    expect(result.status).toBe("retries_exhausted");
+    expect(mockTaskUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "blocked" }),
+      })
+    );
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "blocker", entityId: "task-1" })
+    );
+    // No session was prepared for the exhausted task.
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("waits out the backoff window after a failed attempt", async () => {
+    mockSessionCount.mockResolvedValue(1);
+    mockSessionFindFirst.mockImplementation((args: { where?: { status?: string } }) => {
+      // latest failed session finished moments ago → still in backoff.
+      if (args?.where?.status === "failed") {
+        return Promise.resolve({ completedAt: new Date(Date.now() - 5_000) });
+      }
+      return Promise.resolve(null);
+    });
+
+    const result = await autoPrepareNextExecutionSession("company-1");
+
+    expect(result.status).toBe("retry_backoff");
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("retries once the backoff window has elapsed", async () => {
+    mockSessionCount.mockResolvedValue(1);
+    mockSessionFindFirst.mockImplementation((args: { where?: { status?: string; branchName?: unknown } }) => {
+      if (args?.where?.status === "failed") {
+        // Failure finished 10 minutes ago — beyond the 60s first backoff.
+        return Promise.resolve({ completedAt: new Date(Date.now() - 600_000) });
+      }
+      return Promise.resolve(null);
+    });
+
+    const result = await autoPrepareNextExecutionSession("company-1");
+
+    expect(result.status).toBe("prepared");
+  });
 });
 
 describe("prepareExecutionSessionForTask", () => {
@@ -232,6 +315,47 @@ describe("prepareExecutionSessionForTask", () => {
     // Resolved via the feature's project workspace (legacy fallback).
     expect(mockCreateSession).toHaveBeenCalledWith(
       expect.objectContaining({ repositoryId: "repo-9", projectId: "proj-2" })
+    );
+  });
+
+  it("builds a rework brief on the prior branch when unresolved change requests exist", async () => {
+    mockChangeRequestFindMany.mockResolvedValue([
+      { reason: "CI checks failed: test.", requestedBy: "Reviewer" },
+    ]);
+    mockSessionFindFirst.mockImplementation((args: { where?: { branchName?: unknown } }) => {
+      if (args?.where?.branchName) {
+        return Promise.resolve({
+          branchName: "feature/task-1-add-health",
+          prUrl: "https://github.com/x/y/pull/9",
+          baseBranch: "master",
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    const result = await prepareExecutionSessionForTask("company-1", "task-1");
+
+    expect("error" in result).toBe(false);
+    // The brief carries the change requests and reuses the prior branch/PR.
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branchName: "feature/task-1-add-health",
+        reworkContext: expect.objectContaining({
+          priorPrUrl: "https://github.com/x/y/pull/9",
+          changeRequests: [
+            { reason: "CI checks failed: test.", requestedBy: "Reviewer" },
+          ],
+        }),
+      })
+    );
+  });
+
+  it("passes no rework context on a fresh run (no open change requests)", async () => {
+    const result = await prepareExecutionSessionForTask("company-1", "task-1");
+
+    expect("error" in result).toBe(false);
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({ reworkContext: null, branchName: null })
     );
   });
 

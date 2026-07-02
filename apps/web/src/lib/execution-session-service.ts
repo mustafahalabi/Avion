@@ -505,6 +505,52 @@ export function isSessionTerminal(session: ExecutionSession): boolean {
   return terminalStatuses.includes(session.status as ExecutionSessionStatus);
 }
 
+// ─── Run outcome classification ───────────────────────────────────────────────
+
+/** Classified outcome of an agent run, for truthful ingestion. */
+export interface AgentRunClassification {
+  /** Session status to ingest. */
+  readonly status: "completed" | "failed";
+  /** True when the agent claimed success but produced no commit (a no-op run). */
+  readonly noOp: boolean;
+  /** Error message to record for a no-op run, null otherwise. */
+  readonly noOpReason: string | null;
+}
+
+/**
+ * Classifies an agent run for ingestion. An agent that reports success but
+ * produced **no commit** (zero changes) is a failed attempt, not a completion —
+ * otherwise the task would advance to review/done with no code and no PR
+ * ("shipped work that doesn't exist").
+ *
+ * @param input.agentSuccess - Whether the agent itself reported success.
+ * @param input.commitSha - HEAD commit after commit/push, or null when no changes existed.
+ * @returns The truthful ingestion status plus no-op metadata.
+ *
+ * @example
+ * ```ts
+ * classifyAgentRunForIngestion({ agentSuccess: true, commitSha: null });
+ * // → { status: "failed", noOp: true, noOpReason: "Agent reported success but…" }
+ * ```
+ */
+export function classifyAgentRunForIngestion(input: {
+  agentSuccess: boolean;
+  commitSha: string | null;
+}): AgentRunClassification {
+  if (!input.agentSuccess) {
+    return { status: "failed", noOp: false, noOpReason: null };
+  }
+  if (!input.commitSha) {
+    return {
+      status: "failed",
+      noOp: true,
+      noOpReason:
+        "Agent reported success but produced no changes (no commit, no PR). Treated as a failed attempt so the task does not advance without real work.",
+    };
+  }
+  return { status: "completed", noOp: false, noOpReason: null };
+}
+
 // ─── Ingestion Result ─────────────────────────────────────────────────────────
 
 /**

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { CheckCommand } from "./check-command-profile";
 import {
+  parseValidationChecksMarker,
   qaChecksFromValidation,
   runValidationCommands,
+  serializeValidationChecksMarker,
   type CommandSpawn,
   type ValidationCommandResult,
 } from "./validation-runner";
@@ -273,5 +275,61 @@ describe("qaChecksFromValidation", () => {
       },
     ];
     expect(qaChecksFromValidation(results)).toEqual([]);
+  });
+});
+
+describe("validation checks marker (worker ↔ QA gate)", () => {
+  const RESULTS: ValidationCommandResult[] = [
+    {
+      id: "tsc",
+      kind: "tsc",
+      command: "npx tsc --noEmit",
+      passed: true,
+      exitCode: 0,
+      output: "",
+      skipped: false,
+    },
+    {
+      id: "test",
+      kind: "test",
+      command: "npm run test",
+      passed: false,
+      exitCode: 1,
+      output: "2 failed",
+      skipped: false,
+    },
+  ];
+
+  it("round-trips checks through the marker", () => {
+    const marker = serializeValidationChecksMarker(RESULTS);
+    const parsed = parseValidationChecksMarker(
+      `## Validation summary\n- stuff\n\n${marker}`
+    );
+
+    expect(parsed).toEqual(qaChecksFromValidation(RESULTS));
+  });
+
+  it("parses the LAST marker when a rework appended a fresh block", () => {
+    const first = serializeValidationChecksMarker([RESULTS[1]]);
+    const second = serializeValidationChecksMarker([RESULTS[0]]);
+    const parsed = parseValidationChecksMarker(`${first}\n\nrework ran\n\n${second}`);
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed?.[0].passed).toBe(true);
+  });
+
+  it("returns null when no marker exists or the JSON is corrupt", () => {
+    expect(parseValidationChecksMarker(null)).toBeNull();
+    expect(parseValidationChecksMarker("plain text output")).toBeNull();
+    expect(
+      parseValidationChecksMarker("<!-- avion:validation-checks {broken -->")
+    ).toBeNull();
+  });
+
+  it("drops malformed entries while keeping valid ones", () => {
+    const parsed = parseValidationChecksMarker(
+      '<!-- avion:validation-checks [{"label":"ok","passed":true},{"nope":1}] -->'
+    );
+    expect(parsed).toEqual([{ label: "ok", passed: true }]);
   });
 });

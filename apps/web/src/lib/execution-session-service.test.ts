@@ -841,4 +841,42 @@ describe("execution-session-service", () => {
       );
     });
   });
+
+  // ── classifyAgentRunForIngestion (no-op detection, MUS-252) ───────────────
+
+  describe("classifyAgentRunForIngestion", () => {
+    it("completes a successful run that produced a commit", () => {
+      const classification = service.classifyAgentRunForIngestion({
+        agentSuccess: true,
+        commitSha: "abc123",
+      });
+      expect(classification).toEqual({
+        status: "completed",
+        noOp: false,
+        noOpReason: null,
+      });
+    });
+
+    it("fails a 'successful' run with no commit (no-op) so the task cannot advance", () => {
+      const classification = service.classifyAgentRunForIngestion({
+        agentSuccess: true,
+        commitSha: null,
+      });
+      expect(classification.status).toBe("failed");
+      expect(classification.noOp).toBe(true);
+      expect(classification.noOpReason).toMatch(/no changes/i);
+    });
+
+    it("fails a failed run without labeling it a no-op", () => {
+      const classification = service.classifyAgentRunForIngestion({
+        agentSuccess: false,
+        commitSha: null,
+      });
+      expect(classification).toEqual({
+        status: "failed",
+        noOp: false,
+        noOpReason: null,
+      });
+    });
+  });
 });

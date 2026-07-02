@@ -292,3 +292,69 @@ export function qaChecksFromValidation(
       actionable: !r.passed,
     }));
 }
+
+// ─── Machine-readable results marker ─────────────────────────────────────────
+
+/**
+ * Sentinel wrapping the machine-readable validation checks embedded in a
+ * session's `validationOutput`. The worker appends this marker after the
+ * human-readable summary; the QA gate (`gate-advancement-service`) parses it
+ * back so the automated QA verdict is derived from *real* command outcomes.
+ */
+const VALIDATION_CHECKS_MARKER_PREFIX = "<!-- avion:validation-checks ";
+const VALIDATION_CHECKS_MARKER_SUFFIX = " -->";
+
+/**
+ * Serializes validation results into the machine-readable marker block.
+ *
+ * @param results - Results from {@link runValidationCommands}.
+ * @returns A single-line HTML-comment marker embedding the QA checks as JSON.
+ */
+export function serializeValidationChecksMarker(
+  results: readonly ValidationCommandResult[]
+): string {
+  const checks = qaChecksFromValidation(results);
+  return `${VALIDATION_CHECKS_MARKER_PREFIX}${JSON.stringify(checks)}${VALIDATION_CHECKS_MARKER_SUFFIX}`;
+}
+
+/**
+ * Extracts the machine-readable validation checks from a session's
+ * `validationOutput`, when the worker embedded them.
+ *
+ * The *last* marker in the text wins (a re-run appends a fresh block).
+ *
+ * @param validationOutput - Raw session validation output, or null.
+ * @returns Parsed QA checks, or null when no valid marker exists.
+ */
+export function parseValidationChecksMarker(
+  validationOutput: string | null | undefined
+): QaCheck[] | null {
+  if (!validationOutput) return null;
+
+  const start = validationOutput.lastIndexOf(VALIDATION_CHECKS_MARKER_PREFIX);
+  if (start < 0) return null;
+  const end = validationOutput.indexOf(
+    VALIDATION_CHECKS_MARKER_SUFFIX,
+    start + VALIDATION_CHECKS_MARKER_PREFIX.length
+  );
+  if (end < 0) return null;
+
+  const json = validationOutput.slice(
+    start + VALIDATION_CHECKS_MARKER_PREFIX.length,
+    end
+  );
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const checks = parsed.filter(
+      (item): item is QaCheck =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as QaCheck).label === "string" &&
+        typeof (item as QaCheck).passed === "boolean"
+    );
+    return checks;
+  } catch {
+    return null;
+  }
+}

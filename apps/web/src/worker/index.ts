@@ -1,14 +1,13 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import { ClaudeCodeAdapter } from "@/lib/adapters/claude-code-adapter";
 import type { PermissionLevel } from "@/lib/adapters/execution-adapter";
 import { getCommandsForRepo } from "@/lib/check-command-profile";
 import {
   runValidationCommands,
+  serializeValidationChecksMarker,
   type RunValidationResult,
 } from "@/lib/validation-runner";
 import {
+  classifyAgentRunForIngestion,
   ingestAgentExecutionResult,
   type PrStatus,
 } from "@/lib/execution-session-service";
@@ -23,6 +22,10 @@ import { getProviderConnection } from "@/lib/provider-connection-service";
 import { createWorkerAuditLog } from "@/lib/worker-audit-log";
 import { getWorkerPermissions } from "@/lib/worker-permissions";
 
+import {
+  ensureDependenciesInstalled,
+  summarizeDependencyInstall,
+} from "./dependency-installer";
 import {
   buildAgentCommitMessage,
   checkoutRepository,
@@ -185,10 +188,9 @@ async function processSession(sessionId: string): Promise<void> {
     );
 
     // ── Run the repository's real validation commands (close-the-loop) ────────
-    // Best-effort: capture real lint/typecheck/test/build results as additional
-    // signal for the PR body and the QA gate. Skipped when dependencies are not
-    // installed in the checkout (so a missing environment never produces false
-    // failures), and never crashes the worker.
+    // The QA gate derives its automated verdict from these results, so a fresh
+    // clone first gets its dependencies installed (bounded, permission-guarded)
+    // instead of silently skipping every check. Never crashes the worker.
     let combinedValidationOutput: string | null = result.validationOutput;
     if (result.success) {
       try {
@@ -199,25 +201,44 @@ async function processSession(sessionId: string): Promise<void> {
         });
         if (commands.length === 0) {
           // No validation commands detected for this repository profile.
-        } else if (!existsSync(join(checkout.path, "node_modules"))) {
-          combinedValidationOutput = appendValidation(
-            combinedValidationOutput,
-            "## Validation commands\nSkipped: dependencies not installed in the checkout."
-          );
         } else {
-          const validation = await runValidationCommands({
+          const install = await ensureDependenciesInstalled({
             repoPath: checkout.path,
-            commands,
-            timeoutSeconds: WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS,
             permissions,
+            timeoutSeconds: WORKER_CONFIG.WORKER_INSTALL_TIMEOUT_SECONDS,
           });
-          combinedValidationOutput = appendValidation(
-            combinedValidationOutput,
-            summarizeValidation(validation)
-          );
-          workerLogger.info(
-            `Ran ${validation.results.length} validation command(s): allPassed=${validation.allPassed}`
-          );
+          if (install.attempted || !install.ok) {
+            combinedValidationOutput = appendValidation(
+              combinedValidationOutput,
+              summarizeDependencyInstall(install)
+            );
+            workerLogger.info(install.summary);
+          }
+          if (install.ok) {
+            const validation = await runValidationCommands({
+              repoPath: checkout.path,
+              commands,
+              timeoutSeconds: WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS,
+              permissions,
+            });
+            combinedValidationOutput = appendValidation(
+              combinedValidationOutput,
+              summarizeValidation(validation)
+            );
+            // Machine-readable block the QA gate parses back for its verdict.
+            combinedValidationOutput = appendValidation(
+              combinedValidationOutput,
+              serializeValidationChecksMarker(validation.results)
+            );
+            workerLogger.info(
+              `Ran ${validation.results.length} validation command(s): allPassed=${validation.allPassed}`
+            );
+          } else {
+            combinedValidationOutput = appendValidation(
+              combinedValidationOutput,
+              "## Validation commands\nSkipped: dependency install did not succeed."
+            );
+          }
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -321,13 +342,26 @@ async function processSession(sessionId: string): Promise<void> {
       }
     }
 
+    // No-op detection (MUS-252): an agent that claims success without a commit
+    // must not advance the task — ingest the run as failed so the retry policy
+    // (bounded, with backoff) owns what happens next.
+    const classification = classifyAgentRunForIngestion({
+      agentSuccess: result.success,
+      commitSha,
+    });
+    if (classification.noOp) {
+      workerLogger.error(classification.noOpReason ?? "No-op agent run.");
+    }
+
     const combinedError =
-      [result.errorMessage, prError].filter(Boolean).join(" | ") || null;
+      [result.errorMessage, prError, classification.noOpReason]
+        .filter(Boolean)
+        .join(" | ") || null;
 
     const outcome = await ingestAgentExecutionResult({
       companyId: fullSession.companyId,
       sessionId: fullSession.id,
-      status: result.success ? "completed" : "failed",
+      status: classification.status,
       resultSummary: result.resultSummary,
       filesChanged: result.filesChanged,
       validationOutput: combinedValidationOutput,
