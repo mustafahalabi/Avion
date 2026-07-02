@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { ExecutionSession } from "@/generated/prisma/client";
+import { EXECUTION_ADAPTER_AGENT_TYPES } from "@/lib/adapters/execution-adapter";
 import { deriveBranchName, isProtectedBranch } from "@/lib/implementation-brief";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -53,7 +54,11 @@ export interface CreateExecutionSessionInput {
   employeeId?: string | null;
   /** Originating planning draft */
   planningDraftId?: string | null;
-  /** Type of agent executing the session */
+  /**
+   * Type of agent executing the session. When omitted, the company's
+   * configured default applies (CompanySettings.defaultAgentType,
+   * null → "claude_code").
+   */
   agentType?: ExecutionSessionAgentType;
   /**
    * Implementation branch the agent will work on. If omitted and both taskId
@@ -130,6 +135,31 @@ function deserializeFiles(raw: string): string[] {
 // ─── Service Functions ────────────────────────────────────────────────────────
 
 /**
+ * Resolves the default agent type for a company's execution sessions.
+ *
+ * Reads `CompanySettings.defaultAgentType` (MUS-264). Only agent types with a
+ * registered execution adapter are honored — null, "human", or any
+ * unrecognized value falls back to "claude_code" so a bad setting can never
+ * strand sessions on an unrunnable agent.
+ *
+ * @param companyId - Company whose default agent type to resolve
+ * @returns A runnable agent type, defaulting to "claude_code"
+ */
+export async function getCompanyDefaultAgentType(
+  companyId: string
+): Promise<ExecutionSessionAgentType> {
+  const settings = await prisma.companySettings.findUnique({
+    where: { companyId },
+    select: { defaultAgentType: true },
+  });
+  const stored = settings?.defaultAgentType;
+  return stored &&
+    (EXECUTION_ADAPTER_AGENT_TYPES as readonly string[]).includes(stored)
+    ? (stored as ExecutionSessionAgentType)
+    : "claude_code";
+}
+
+/**
  * Creates a new ExecutionSession in the "queued" state for a given task.
  *
  * @param input - Session creation parameters
@@ -169,7 +199,10 @@ export async function createExecutionSession(
       repositoryId: input.repositoryId ?? null,
       employeeId: input.employeeId ?? null,
       planningDraftId: input.planningDraftId ?? null,
-      agentType: input.agentType ?? "claude_code",
+      // Explicit input wins; otherwise the company's configured default
+      // (CompanySettings.defaultAgentType, null → "claude_code") applies.
+      agentType:
+        input.agentType ?? (await getCompanyDefaultAgentType(input.companyId)),
       status: "queued",
       branchName,
       baseBranch,

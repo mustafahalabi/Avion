@@ -51,6 +51,7 @@ export default async function SettingsPage() {
             autonomyLevel={company.settings?.autonomyLevel ?? "assist"}
             cultureProfile={company.settings?.cultureProfile ?? "startup"}
             planningProvider={company.settings?.planningProvider ?? null}
+            defaultAgentType={company.settings?.defaultAgentType ?? "claude_code"}
           />
         </section>
 
