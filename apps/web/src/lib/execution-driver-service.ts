@@ -22,6 +22,7 @@ import {
   autoPrepareNextExecutionSession,
   type AutoPrepareResult,
 } from "@/lib/auto-execution-service";
+import { captureCompanyHealthSnapshot } from "@/lib/company-health-snapshot-service";
 import { LIVE_EXECUTION_SESSION_STATUSES } from "@/lib/execution-session-service";
 import {
   advanceTaskGates,
@@ -62,6 +63,14 @@ export interface DriverTickResult {
     readonly changeRequestsOpened: number;
     readonly merged: number;
     readonly autoMerged: number;
+  } | null;
+  /**
+   * Company health snapshot captured this tick (MUS-263): honest delivery/
+   * quality/learning counts persisted at most once per UTC day per company.
+   * Best-effort — null when the step errored.
+   */
+  readonly health?: {
+    readonly status: "captured" | "already_captured";
   } | null;
 }
 
@@ -145,7 +154,27 @@ export async function runDriverTickForCompany(
     memory = null;
   }
 
-  return { companyId, liveSessionsBefore, concurrencyLimit, enqueued, advanced, memory, prFeedback };
+  // ── Capture today's health snapshot (best-effort; never breaks the tick) ──
+  // Persist the honest delivery/quality/learning counts at most once per UTC
+  // day per company, after memory compounding so today's snapshot includes it.
+  let health: DriverTickResult["health"] = null;
+  try {
+    const captured = await captureCompanyHealthSnapshot(companyId);
+    health = { status: captured.status };
+  } catch {
+    health = null;
+  }
+
+  return {
+    companyId,
+    liveSessionsBefore,
+    concurrencyLimit,
+    enqueued,
+    advanced,
+    memory,
+    prFeedback,
+    health,
+  };
 }
 
 /**

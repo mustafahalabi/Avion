@@ -30,9 +30,15 @@ import {
   computeProviderCardState,
 } from "@/lib/provider-card-state";
 import { buildControlCenterViewModel } from "@/lib/control-center-view-model";
+import {
+  computeCurrentCompanyHealth,
+  listRecentCompanyHealthSnapshots,
+} from "@/lib/company-health-snapshot-service";
+import { buildCompanyHealthViewModel } from "@/lib/company-health-view-model";
 import { loadLivePipeline } from "@/lib/live-pipeline-data";
 import { AttentionPanel } from "./attention-panel";
 import { ActivityPanel } from "@/components/control-center/activity-panel";
+import { CompanyHealthPanel } from "@/components/control-center/company-health-panel";
 import { LivePipelineWidget } from "@/components/control-center/live-pipeline-widget";
 import type { TimelineItem } from "@/components/timeline-entry";
 
@@ -108,6 +114,8 @@ export default async function ControlCenterPage() {
     recentEvents,
     pendingPlanCount,
     livePipeline,
+    currentHealth,
+    recentHealthSnapshots,
   ] = await Promise.all([
     detectStuckWork({ companyId: company.id }),
     listPendingCheckpoints(company.id),
@@ -127,6 +135,10 @@ export default async function ControlCenterPage() {
     countPendingPlanningDrafts(company.id),
     // Compact live board for the home-screen widget — no stream / done items.
     loadLivePipeline(company.id, { streamLimit: 1, doneLimit: 0 }),
+    // Company health (MUS-263): metrics computed live from real rows, plus the
+    // two most recent daily snapshots for the trend delta.
+    computeCurrentCompanyHealth(company.id),
+    listRecentCompanyHealthSnapshots(company.id, 2),
   ]);
 
   const execByStatus = Object.fromEntries(
@@ -152,6 +164,12 @@ export default async function ControlCenterPage() {
       activeRequestCount: company.runtimeRequests.length,
       isNewCompany,
     });
+
+  const healthVm = buildCompanyHealthViewModel({
+    current: currentHealth,
+    latestSnapshot: recentHealthSnapshots[0] ?? null,
+    previousSnapshot: recentHealthSnapshots[1] ?? null,
+  });
 
   const vm = buildControlCenterViewModel({
     primaryAction,
@@ -299,6 +317,9 @@ export default async function ControlCenterPage() {
             href="/memory"
           />
         </section>
+
+        {/* Company health — honest counts with provenance (MUS-263) */}
+        <CompanyHealthPanel vm={healthVm} />
 
         {/* Provider health */}
         <section>

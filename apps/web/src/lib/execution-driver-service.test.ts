@@ -27,6 +27,12 @@ vi.mock("@/lib/gate-advancement-service", () => ({
   advanceTaskGates: (...args: unknown[]) => mockAdvanceTaskGates(...args),
 }));
 
+const mockCaptureHealthSnapshot = vi.fn();
+vi.mock("@/lib/company-health-snapshot-service", () => ({
+  captureCompanyHealthSnapshot: (...args: unknown[]) =>
+    mockCaptureHealthSnapshot(...args),
+}));
+
 // Keep the LIVE status constant real-ish without importing the heavy service.
 vi.mock("@/lib/execution-session-service", () => ({
   LIVE_EXECUTION_SESSION_STATUSES: ["queued", "prepared", "running"],
@@ -49,6 +55,11 @@ beforeEach(() => {
     status: "completed",
     reason: "done",
     taskId: "task-1",
+  });
+  mockCaptureHealthSnapshot.mockResolvedValue({
+    status: "captured",
+    snapshotId: "health-1",
+    dayKey: "2026-07-02",
   });
 });
 
@@ -125,6 +136,37 @@ describe("runDriverTickForCompany — gate advancement", () => {
     const result = await runDriverTickForCompany("company-1");
     expect(mockAdvanceTaskGates).not.toHaveBeenCalled();
     expect(result.advanced).toHaveLength(0);
+  });
+});
+
+describe("runDriverTickForCompany — health snapshot (best-effort)", () => {
+  it("captures the company's daily health snapshot and reports its status", async () => {
+    const result = await runDriverTickForCompany("company-1");
+
+    expect(mockCaptureHealthSnapshot).toHaveBeenCalledTimes(1);
+    expect(mockCaptureHealthSnapshot).toHaveBeenCalledWith("company-1");
+    expect(result.health).toEqual({ status: "captured" });
+  });
+
+  it("reports already_captured on the second tick of the day", async () => {
+    mockCaptureHealthSnapshot.mockResolvedValue({
+      status: "already_captured",
+      dayKey: "2026-07-02",
+    });
+
+    const result = await runDriverTickForCompany("company-1");
+
+    expect(result.health).toEqual({ status: "already_captured" });
+  });
+
+  it("never breaks the tick when the snapshot step fails", async () => {
+    mockCaptureHealthSnapshot.mockRejectedValue(new Error("db down"));
+
+    const result = await runDriverTickForCompany("company-1");
+
+    // The tick still completes and reports the step as errored (null).
+    expect(result.health).toBeNull();
+    expect(result.companyId).toBe("company-1");
   });
 });
 
