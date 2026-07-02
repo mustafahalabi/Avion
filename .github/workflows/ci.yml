@@ -1,0 +1,81 @@
+# CI for the Avion monorepo (pnpm + Turborepo).
+#
+# Ordering matters because we bypass turbo's task graph for finer-grained steps:
+# @avion/web and @avion/api both import @avion/shared, whose package exports
+# point at dist/ (built by tsup, gitignored) — so shared builds first. Prisma
+# clients are generated into src/generated/prisma (also gitignored) before any
+# typecheck runs.
+#
+# The web test suite needs DATABASE_URL exported explicitly (vitest does not
+# read .env); tests create isolated schemas themselves from
+# apps/web/prisma/migrations against the postgres:16 service container.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Typecheck, build, and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: avion
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d avion"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma clients (web + api)
+        run: pnpm db:generate
+
+      - name: Typecheck and build @avion/shared
+        run: |
+          pnpm --filter @avion/shared typecheck
+          pnpm --filter @avion/shared build
+
+      - name: Typecheck @avion/web
+        run: pnpm --filter @avion/web exec tsc --noEmit
+
+      - name: Typecheck and build @avion/api
+        run: pnpm --filter @avion/api build
+
+      - name: Test @avion/web
+        # The web `test` script is `tsc --noEmit && vitest run`; tsc already
+        # ran in the typecheck step, so run vitest directly to avoid a
+        # duplicate compile.
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/avion
+        run: pnpm --filter @avion/web exec vitest run
