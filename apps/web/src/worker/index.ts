@@ -12,6 +12,7 @@ import {
 import {
   classifyAgentRunForIngestion,
   ingestAgentExecutionResult,
+  reapStaleRunningSessions,
   type PrStatus,
 } from "@/lib/execution-session-service";
 import {
@@ -418,6 +419,22 @@ async function startPollingLoop(): Promise<void> {
 
   while (!isShuttingDown) {
     heartbeat.beat();
+
+    // Crash recovery (MUS-280): release any session left `running` past the
+    // session timeout by a worker that died mid-run, so an orphan can't stall the
+    // driver (findLiveSessionForTask + concurrency) for its task forever.
+    try {
+      const reaped = await reapStaleRunningSessions({
+        timeoutSeconds: WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS,
+      });
+      if (reaped > 0) {
+        workerLogger.info(`Reaped ${reaped} stale running session(s) (crash recovery).`);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      workerLogger.error(`Stale-session reaper failed: ${message}`);
+    }
+
     const session = await claimNextSession();
 
     if (!session) {

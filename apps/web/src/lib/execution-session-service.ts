@@ -339,6 +339,67 @@ export async function findLiveSessionForTask(
   });
 }
 
+/** Default grace period before a `running` session is considered abandoned. */
+const DEFAULT_STALE_SESSION_TIMEOUT_SECONDS = 1800;
+
+/**
+ * Resolves the stale-session grace period from the environment (mirrors the
+ * worker's `WORKER_SESSION_TIMEOUT_SECONDS`, so a session is only reaped once it
+ * has exceeded the time a legitimate run is allowed).
+ */
+function staleSessionTimeoutSeconds(): number {
+  const parsed = Number(
+    process.env.WORKER_SESSION_TIMEOUT_SECONDS ?? DEFAULT_STALE_SESSION_TIMEOUT_SECONDS
+  );
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_STALE_SESSION_TIMEOUT_SECONDS;
+}
+
+/**
+ * Releases execution sessions stuck in `running` past the session timeout — the
+ * signature of a worker that died mid-run (MUS-280). Because `running` is a LIVE
+ * status, an orphaned session makes {@link findLiveSessionForTask} return it and
+ * consumes a driver concurrency slot, so the task can never be re-enqueued. Reaping
+ * it to `failed` (crash-recovery semantics) hands control back to the bounded-retry
+ * policy, which owns whether/when the task retries.
+ *
+ * Idempotent, and never touches a session still within its timeout window (a
+ * legitimate in-flight run). Optionally scoped to one company.
+ *
+ * @param options.companyId - Restrict to a single company (default: all).
+ * @param options.now - Current time (injectable for tests).
+ * @param options.timeoutSeconds - Grace period; a running session whose `startedAt`
+ *   is older than this is treated as abandoned. Defaults to the env/worker timeout.
+ * @returns The number of sessions reaped.
+ */
+export async function reapStaleRunningSessions(options?: {
+  companyId?: string;
+  now?: Date;
+  timeoutSeconds?: number;
+}): Promise<number> {
+  const now = options?.now ?? new Date();
+  const timeoutSeconds = options?.timeoutSeconds ?? staleSessionTimeoutSeconds();
+  const cutoff = new Date(now.getTime() - timeoutSeconds * 1000);
+
+  const result = await prisma.executionSession.updateMany({
+    where: {
+      status: "running",
+      startedAt: { lt: cutoff },
+      ...(options?.companyId ? { companyId: options.companyId } : {}),
+    },
+    data: {
+      status: "failed",
+      errorMessage:
+        "Worker did not finish within the session timeout; released as failed (crash recovery). The bounded-retry policy owns what happens next.",
+      completedAt: now,
+      updatedAt: now,
+    },
+  });
+
+  return result.count;
+}
+
 /**
  * Marks a session as running and records the start timestamp.
  *
