@@ -24,6 +24,12 @@ export type TimelineItem = {
   contextLabel: string;
   contextHref: string;
   createdAt: Date;
+  /**
+   * The outcome ("workflow") this event belongs to, when known. Lets a
+   * conversation-scoped view (the chat thread) filter the company-wide activity
+   * stream down to its own work. Null for company-level events (e.g. intake).
+   */
+  workflowId?: string | null;
 };
 
 // ─── Event config ────────────────────────────────────────────────────────────
