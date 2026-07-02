@@ -118,10 +118,10 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
     }
 
     const resultSummary = parseResultSummary(stdout);
-    let filesChanged = parseFilesChanged(stdout);
-    if (filesChanged.length === 0) {
-      filesChanged = parseFilesChangedFromGit(context.repositoryPath);
-    }
+    // On-disk git truth is authoritative for what actually changed; the stdout
+    // parse is only a fallback when this is not a git repo (MUS-278).
+    const fromGit = parseFilesChangedFromGit(context.repositoryPath);
+    const filesChanged = fromGit.length > 0 ? fromGit : parseFilesChanged(stdout);
     const validationOutput = parseValidationOutput(stdout);
     const success = exitCode === 0 && !timedOut;
 
