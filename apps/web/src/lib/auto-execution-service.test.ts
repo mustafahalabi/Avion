@@ -86,6 +86,7 @@ vi.mock("@/lib/task-repository-context", async (importActual) => {
 
 import {
   autoPrepareNextExecutionSession,
+  buildTaskImplementationBrief,
   prepareExecutionSessionForTask,
 } from "./auto-execution-service";
 
@@ -482,6 +483,84 @@ describe("prepareExecutionSessionForTask", () => {
     expect("error" in result).toBe(false);
     expect(mockCreateSession).toHaveBeenCalledWith(
       expect.objectContaining({ repositoryId: "repo-linked", projectId: "project-1" })
+    );
+  });
+});
+
+describe("buildTaskImplementationBrief (MUS-273)", () => {
+  const BASE_INPUT = {
+    companyId: "company-1",
+    taskId: "task-1",
+    taskTitle: "Add /health endpoint",
+    taskDescription: null,
+    priority: "medium",
+    planningDraftId: null,
+    planItemId: null,
+    generatedTasksJson: null,
+    repository: null,
+    branchName: null,
+    baseBranch: "master",
+    linearTicketUrl: null,
+  } as const;
+
+  it("injects relevant company memory into the shared brief assembler", async () => {
+    mockGetMemory.mockResolvedValue([
+      {
+        id: "rec-1",
+        category: "standards",
+        bankTitle: "Standards",
+        content: "Always add ownership guards to new queries.",
+        source: null,
+        confidence: 0.9,
+        createdAt: new Date(),
+      },
+    ]);
+
+    const result = await buildTaskImplementationBrief(BASE_INPUT);
+
+    expect(result.brief).toBe("BRIEF");
+    expect(mockGetMemory).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: "company-1" })
+    );
+    // The scripts (live-run-prepare / e2e-agent-test) get the memory section
+    // for free by routing through this single assembler.
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyMemory: [
+          {
+            category: "standards",
+            content: "Always add ownership guards to new queries.",
+          },
+        ],
+      })
+    );
+  });
+
+  it("falls back to an empty memory section when retrieval fails (best-effort)", async () => {
+    mockGetMemory.mockRejectedValue(new Error("memory backend down"));
+
+    await buildTaskImplementationBrief(BASE_INPUT);
+
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({ companyMemory: [] })
+    );
+  });
+
+  it("passes rework context through to the brief when provided", async () => {
+    await buildTaskImplementationBrief({
+      ...BASE_INPUT,
+      reworkContext: {
+        changeRequests: [{ reason: "Fix the failing test", requestedBy: "QA" }],
+        priorPrUrl: "https://github.com/x/y/pull/1",
+      },
+    });
+
+    expect(mockGenerateBrief).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reworkContext: expect.objectContaining({
+          priorPrUrl: "https://github.com/x/y/pull/1",
+        }),
+      })
     );
   });
 });
