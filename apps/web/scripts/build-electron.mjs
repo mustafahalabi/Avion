@@ -31,8 +31,9 @@ const root = path.resolve(__dirname, "..");
 // ─── SHELVED: Electron production packaging is parked (MUS-267 decision) ───────
 // The product ships as web + hosted services (MUS-269); desktop packaging was
 // built for the pre-Postgres SQLite era (MUS-247 removed better-sqlite3 and the
-// bundled file DB) and is not maintained. `electron:dev` still works for local
-// experimentation. This guard fails fast so the decision is explicit at the entry
+// bundled file DB) and is not maintained. `electron:dev` is a thin shell over
+// `next dev` and is *expected* to run, but is unverified against the Postgres
+// runtime. This guard fails fast so the decision is explicit at the entry
 // point; to un-shelve, reopen MUS-267 and delete this block after reworking the
 // packaging (see docs/ELECTRON.md). Nothing below is deleted — only parked.
 if (process.env.EOS_ELECTRON_BUILD_UNSHELVE !== "1") {
