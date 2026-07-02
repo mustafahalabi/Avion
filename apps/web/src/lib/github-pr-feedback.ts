@@ -71,8 +71,31 @@ interface GitHubCheckRunsResponse {
   readonly check_runs?: GitHubCheckRunPayload[];
 }
 
-/** Conclusions that count as a failed CI run. */
-const FAILURE_CONCLUSIONS = new Set(["failure", "timed_out", "cancelled"]);
+/** Minimal shape of the GitHub combined commit-status response. */
+interface GitHubCombinedStatusResponse {
+  /** Rolled-up state across all commit statuses: failure | pending | success. */
+  readonly state?: string;
+  /** Number of statuses — 0 means the legacy Status API isn't used on this repo. */
+  readonly total_count?: number;
+  readonly statuses?: {
+    readonly context?: string;
+    readonly state?: string;
+  }[];
+}
+
+/**
+ * Conclusions that count as a failed CI run. `action_required` and `stale` are
+ * included: a check demanding action or gone stale is NOT clean, and treating it
+ * as absent (which is what happens if it's excluded) would let a red PR
+ * auto-merge (MUS-286).
+ */
+const FAILURE_CONCLUSIONS = new Set([
+  "failure",
+  "timed_out",
+  "cancelled",
+  "action_required",
+  "stale",
+]);
 
 /**
  * Reads up to 500 chars of a response body without throwing.
@@ -151,11 +174,61 @@ function computeChecks(runs: readonly GitHubCheckRunPayload[]): {
 }
 
 /**
+ * Computes the aggregate conclusion + per-status breakdown from the **legacy
+ * Commit Status API** (`/commits/{sha}/status`). Many repos report CI via
+ * commit statuses (external CI, deploy/coverage gates) that never appear in the
+ * check-runs endpoint, so ignoring them let a failing PR read as "no CI" and
+ * auto-merge (MUS-286).
+ *
+ * GitHub returns a combined `state` of `pending` even when there are **zero**
+ * statuses, so `total_count`/`statuses.length` is the authority for "absent" —
+ * only an empty status set reads as `none`.
+ */
+function computeCommitStatus(status: GitHubCombinedStatusResponse | null): {
+  conclusion: PullRequestFeedback["checksConclusion"];
+  checks: { name: string; conclusion: string }[];
+} {
+  if (!status) return { conclusion: "none", checks: [] };
+  const statuses = Array.isArray(status.statuses) ? status.statuses : [];
+  const total = status.total_count ?? statuses.length;
+  if (total === 0) return { conclusion: "none", checks: [] };
+
+  const checks = statuses.map((entry) => ({
+    name: entry.context ?? "status",
+    conclusion: entry.state ?? "",
+  }));
+  const conclusion: PullRequestFeedback["checksConclusion"] =
+    status.state === "failure"
+      ? "failure"
+      : status.state === "pending"
+        ? "pending"
+        : status.state === "success"
+          ? "success"
+          : "none";
+  return { conclusion, checks };
+}
+
+/**
+ * Combines two CI conclusions into the strictest one: any failure wins, then
+ * pending, then success; `none` only when both are absent.
+ */
+function combineConclusions(
+  left: PullRequestFeedback["checksConclusion"],
+  right: PullRequestFeedback["checksConclusion"]
+): PullRequestFeedback["checksConclusion"] {
+  if (left === "failure" || right === "failure") return "failure";
+  if (left === "pending" || right === "pending") return "pending";
+  if (left === "success" || right === "success") return "success";
+  return "none";
+}
+
+/**
  * Fetches and normalizes the live feedback for a pull request.
  *
- * Performs three reads: the PR itself (state + head sha), its reviews
- * (aggregate decision), and the head commit's check-runs (CI conclusion). Only
- * a non-2xx on the PR read throws; reviews and check-runs degrade to "none".
+ * Performs up to four reads: the PR itself (state + head sha), its reviews
+ * (aggregate decision), and the head commit's check-runs AND combined commit
+ * status (CI conclusion, folded together). Only a non-2xx on the PR read throws;
+ * reviews and both CI signals degrade to "none".
  *
  * @param input - Token, repo coordinates, PR number, optional head sha, fetch.
  * @returns Normalized {@link PullRequestFeedback}.
@@ -202,8 +275,12 @@ export async function fetchPullRequestFeedback(
   }
   const reviewDecision = computeReviewDecision(reviews);
 
-  // ── Check-runs (best-effort; needs a head sha) ──────────────────────────
+  // ── CI signals (best-effort; needs a head sha) ──────────────────────────
+  // Read BOTH the modern Check-Runs API and the legacy Commit Status API — a
+  // repo may report CI via either (or both), and reading only check-runs let a
+  // failing commit-status PR read as "no CI" and auto-merge (MUS-286).
   let runs: GitHubCheckRunPayload[] = [];
+  let combinedStatus: GitHubCombinedStatusResponse | null = null;
   if (sha) {
     try {
       const checksRes = await fetchImpl(
@@ -217,8 +294,27 @@ export async function fetchPullRequestFeedback(
     } catch {
       runs = [];
     }
+
+    try {
+      const statusRes = await fetchImpl(`${repoBase}/commits/${sha}/status`, {
+        method: "GET",
+        headers,
+      });
+      if (statusRes.ok) {
+        combinedStatus = (await statusRes.json()) as GitHubCombinedStatusResponse;
+      }
+    } catch {
+      combinedStatus = null;
+    }
   }
-  const { conclusion: checksConclusion, checks } = computeChecks(runs);
+
+  const fromCheckRuns = computeChecks(runs);
+  const fromCommitStatus = computeCommitStatus(combinedStatus);
+  const checksConclusion = combineConclusions(
+    fromCheckRuns.conclusion,
+    fromCommitStatus.conclusion
+  );
+  const checks = [...fromCheckRuns.checks, ...fromCommitStatus.checks];
 
   return { state, reviewDecision, checksConclusion, checks };
 }
