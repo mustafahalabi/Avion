@@ -23,7 +23,10 @@ import {
   type AutoPrepareResult,
 } from "@/lib/auto-execution-service";
 import { captureCompanyHealthSnapshot } from "@/lib/company-health-snapshot-service";
-import { LIVE_EXECUTION_SESSION_STATUSES } from "@/lib/execution-session-service";
+import {
+  LIVE_EXECUTION_SESSION_STATUSES,
+  reapStaleRunningSessions,
+} from "@/lib/execution-session-service";
 import {
   advanceTaskGates,
   type GateAdvanceResult,
@@ -90,6 +93,15 @@ export async function runDriverTickForCompany(
   });
   const autonomyLevel = settings?.autonomyLevel ?? "assist";
   const concurrencyLimit = getRunModeConfig(autonomyLevel).maxConcurrentSessions;
+
+  // Crash recovery (MUS-280): reap sessions left `running` past the timeout by a
+  // dead worker BEFORE counting live sessions or selecting work — otherwise an
+  // orphan permanently consumes a concurrency slot and blocks this task's selection.
+  try {
+    await reapStaleRunningSessions({ companyId });
+  } catch {
+    // Best-effort: a reaper failure must never break the tick.
+  }
 
   const liveSessionsBefore = await prisma.executionSession.count({
     where: {

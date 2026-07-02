@@ -965,4 +965,74 @@ describe("execution-session-service", () => {
       });
     });
   });
+
+  describe("reapStaleRunningSessions (MUS-280)", () => {
+    async function createRunningSession(input: {
+      companyId: string;
+      taskId: string;
+      startedAt: Date;
+    }): Promise<string> {
+      const created = await service.createExecutionSession({
+        companyId: input.companyId,
+        taskId: input.taskId,
+      });
+      await prisma.executionSession.update({
+        where: { id: created.id },
+        data: { status: "running", startedAt: input.startedAt },
+      });
+      return created.id;
+    }
+
+    it("releases a session running past the timeout and leaves recent ones", async () => {
+      const now = new Date("2026-07-02T12:00:00.000Z");
+      const staleId = await createRunningSession({
+        companyId: "company-1",
+        taskId: "task-1",
+        startedAt: new Date(now.getTime() - 3600 * 1000), // 1h ago
+      });
+      const freshId = await createRunningSession({
+        companyId: "company-1",
+        taskId: "task-1",
+        startedAt: new Date(now.getTime() - 60 * 1000), // 1min ago
+      });
+
+      const reaped = await service.reapStaleRunningSessions({ now, timeoutSeconds: 1800 });
+      expect(reaped).toBe(1);
+
+      const stale = await prisma.executionSession.findUnique({ where: { id: staleId } });
+      const fresh = await prisma.executionSession.findUnique({ where: { id: freshId } });
+      expect(stale?.status).toBe("failed");
+      expect(stale?.completedAt).toBeInstanceOf(Date);
+      expect(stale?.errorMessage).toContain("crash recovery");
+      expect(fresh?.status).toBe("running");
+    });
+
+    it("scopes reaping to a single company when companyId is given", async () => {
+      const now = new Date("2026-07-02T12:00:00.000Z");
+      const oldStart = new Date(now.getTime() - 3600 * 1000);
+      const c1 = await createRunningSession({
+        companyId: "company-1",
+        taskId: "task-1",
+        startedAt: oldStart,
+      });
+      const c2 = await createRunningSession({
+        companyId: "company-2",
+        taskId: "task-2",
+        startedAt: oldStart,
+      });
+
+      const reaped = await service.reapStaleRunningSessions({
+        now,
+        timeoutSeconds: 1800,
+        companyId: "company-1",
+      });
+      expect(reaped).toBe(1);
+      expect(
+        (await prisma.executionSession.findUnique({ where: { id: c1 } }))?.status
+      ).toBe("failed");
+      expect(
+        (await prisma.executionSession.findUnique({ where: { id: c2 } }))?.status
+      ).toBe("running");
+    });
+  });
 });
