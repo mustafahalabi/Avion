@@ -51,6 +51,23 @@ function makeTaskRow(overrides: TaskRowOverrides = {}) {
   };
 }
 
+/**
+ * Builds a task row created outside planning: no planning draft link, and no
+ * loaded `planningDraft` relation. Only selectable as a rework candidate.
+ */
+function makePlanlessTaskRow(overrides: TaskRowOverrides = {}) {
+  return {
+    id: overrides.id ?? "task-adhoc",
+    title: overrides.title ?? "Ad-hoc task",
+    status: overrides.status ?? "in-progress",
+    priority: overrides.priority ?? "medium",
+    planningDraftId: null,
+    planItemId: overrides.planItemId ?? null,
+    createdAt: overrides.createdAt ?? new Date("2026-01-01T00:00:00Z"),
+    planningDraft: null,
+  };
+}
+
 interface DraftRow {
   id: string;
   generatedTasks: string;
@@ -276,6 +293,72 @@ describe("selectNextExecutableTaskForCompany", () => {
 
     expect(result.task).toBeNull();
     expect(result.reasonCode).toBe("all_blocked_by_status");
+  });
+
+  it("includes planless in-progress tasks in the selection query (MUS-270)", async () => {
+    await selectNextExecutableTaskForCompany("company-1");
+
+    const taskWhere = mockTaskFindMany.mock.calls[0][0].where;
+    expect(Array.isArray(taskWhere.OR)).toBe(true);
+    // One branch targets planless in-progress tasks (created outside planning).
+    expect(taskWhere.OR).toContainEqual({
+      planningDraftId: null,
+      status: "in-progress",
+    });
+  });
+
+  it("selects a planless in-progress task with unresolved change requests as rework (MUS-270)", async () => {
+    // A task created outside planning (no draft) that failed QA: driven back to
+    // in-progress with an open change request. It must re-enter the driver.
+    mockTaskFindMany.mockResolvedValue([
+      makePlanlessTaskRow({ id: "task-adhoc", title: "Fix copy typo" }),
+    ]);
+    mockReviewFindMany.mockResolvedValue([{ entityId: "task-adhoc" }]);
+
+    const result = await selectNextExecutableTaskForCompany("company-1");
+
+    expect(result.reasonCode).toBe("selected");
+    expect(result.task?.id).toBe("task-adhoc");
+    // No plan linkage travels with a planless task.
+    expect(result.task?.planningDraftId).toBe("");
+    expect(result.task?.planItemId).toBeNull();
+  });
+
+  it("does NOT select a planless in-progress task without unresolved change requests", async () => {
+    mockTaskFindMany.mockResolvedValue([
+      makePlanlessTaskRow({ id: "task-adhoc" }),
+    ]);
+    mockReviewFindMany.mockResolvedValue([]);
+
+    const result = await selectNextExecutableTaskForCompany("company-1");
+
+    expect(result.task).toBeNull();
+    // With no rework signal and no plan-linked candidate, nothing is selectable.
+    expect(result.reasonCode).toBe("no_approved_plans");
+  });
+
+  it("prefers a ready plan-linked task but still surfaces a planless rework alongside it", async () => {
+    // Mixed population: a plan-linked todo and a planless rework both selectable.
+    // The plan-linked todo (urgent) wins on priority, proving planless inclusion
+    // does not starve or override normal plan-driven selection.
+    mockTaskFindMany.mockResolvedValue([
+      makeTaskRow({
+        id: "task-plan",
+        title: "Planned urgent work",
+        priority: "urgent",
+        planItemId: "task:planned",
+      }),
+      makePlanlessTaskRow({ id: "task-adhoc", priority: "low" }),
+    ]);
+    mockPlanningDraftFindMany.mockResolvedValue([
+      makeDraftRow("draft-1", [{ planItemId: "task:planned", dependencies: [] }]),
+    ]);
+    mockReviewFindMany.mockResolvedValue([{ entityId: "task-adhoc" }]);
+
+    const result = await selectNextExecutableTaskForCompany("company-1");
+
+    expect(result.reasonCode).toBe("selected");
+    expect(result.task?.id).toBe("task-plan");
   });
 
   it("carries the planning draft id and plan item id onto the selected task", async () => {

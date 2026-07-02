@@ -157,6 +157,30 @@ export function isExecutableCandidate(candidate: TaskSelectionCandidate): boolea
 }
 
 /**
+ * Checks whether a candidate belongs to the selectable population at all,
+ * independent of its status.
+ *
+ * - **Plan-linked** tasks (a non-empty `planningDraftId`) require an approved or
+ *   applied planning draft — a fresh plan cannot drive execution until the CEO
+ *   approves it.
+ * - **Planless** tasks (created outside planning — e.g. a chat- or
+ *   script-created task) are selectable only as *rework* candidates: a task with
+ *   unresolved change requests must re-enter the loop regardless of where it came
+ *   from, otherwise a QA failure on a planless task strands with an open change
+ *   request and an open PR no automation will ever touch (MUS-270). Planless
+ *   tasks never enter selection for a *first* implementation attempt.
+ *
+ * @param candidate - Task selection candidate
+ * @returns True when the candidate may be considered for selection
+ */
+export function isSelectableCandidate(candidate: TaskSelectionCandidate): boolean {
+  if (candidate.planningDraftId.length > 0) {
+    return isApprovedOrAppliedPlanningDraft(candidate.planningDraftStatus);
+  }
+  return candidate.needsRework === true;
+}
+
+/**
  * Determines whether all declared task dependencies are satisfied.
  *
  * @param dependencies - Deterministic plan item IDs that must be complete first
@@ -201,17 +225,14 @@ export function selectNextExecutableTask(
   completedPlanItemIds: ReadonlySet<string>,
   generatedTaskMetadata: ReadonlyMap<string, GeneratedTaskMetadata>
 ): SelectNextExecutableTaskResult {
-  const eligibleCandidates = candidates.filter(
-    (candidate) =>
-      isApprovedOrAppliedPlanningDraft(candidate.planningDraftStatus) &&
-      candidate.planningDraftId.length > 0
-  );
+  const eligibleCandidates = candidates.filter(isSelectableCandidate);
 
   if (eligibleCandidates.length === 0) {
     return {
       task: null,
       reasonCode: "no_approved_plans",
-      reason: "No tasks are linked to an approved or applied planning draft.",
+      reason:
+        "No selectable tasks: none are linked to an approved or applied planning draft, and no planless task needs rework.",
     };
   }
 

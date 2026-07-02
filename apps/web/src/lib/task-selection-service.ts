@@ -28,10 +28,22 @@ export async function selectNextExecutableTaskForCompany(
     prisma.task.findMany({
       where: {
         companyId,
-        planningDraftId: { not: null },
-        planningDraft: {
-          status: { in: ["approved", "applied"] },
-        },
+        OR: [
+          // Plan-linked tasks driven by an approved or applied plan.
+          {
+            planningDraftId: { not: null },
+            planningDraft: {
+              status: { in: ["approved", "applied"] },
+            },
+          },
+          // Planless rework candidates (MUS-270): tasks created outside planning
+          // (chat/manual/script) that a failed review, QA, or PR feedback put back
+          // into `in-progress` with an open change request. Without this, their
+          // rework never re-enters the driver — the change request and its PR
+          // strand with no automation to touch them. The needs-rework filter
+          // below keeps non-rework planless tasks out of selection.
+          { planningDraftId: null, status: "in-progress" },
+        ],
       },
       select: {
         id: true,
@@ -70,7 +82,15 @@ export async function selectNextExecutableTaskForCompany(
     tasks.map((task) => task.id)
   );
   const candidates = tasks
-    .filter((task) => task.planningDraft !== null && task.planningDraftId !== null)
+    .filter((task) =>
+      // Plan-linked tasks: keep only those whose draft actually loaded.
+      // Planless tasks (no draft): keep only genuine rework candidates — a task
+      // with an unresolved change request — so the driver never picks up an
+      // ad-hoc `in-progress` task that isn't awaiting rework.
+      task.planningDraftId !== null
+        ? task.planningDraft !== null
+        : reworkTaskIds.has(task.id)
+    )
     .map((task) => toTaskSelectionCandidate(task, reworkTaskIds.has(task.id)));
 
   return selectNextExecutableTask(candidates, completedPlanItemIds, generatedTaskMetadata);
