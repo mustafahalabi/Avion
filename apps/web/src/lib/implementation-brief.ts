@@ -267,6 +267,30 @@ function buildRepositoryContextSection(
 }
 
 /**
+ * Builds the "Task Objective" section from the live task description (MUS-277).
+ *
+ * The brief otherwise renders only the title + acceptance criteria drawn from the
+ * planning draft, so a CEO editing the task's description after the plan is applied
+ * saw their change silently dropped. The live `Task.description` is the mutable
+ * source of truth the UI edits, so it is rendered here and marked authoritative.
+ *
+ * @param taskDescription - The live `Task.description` (already reflects CEO edits).
+ * @returns Markdown section, or null when there is no description.
+ */
+function buildTaskObjectiveSection(taskDescription: string | null): string | null {
+  const description = taskDescription?.trim();
+  if (!description) return null;
+
+  return [
+    "## Task Objective",
+    "",
+    "This is the current, authoritative description of what to build. It reflects any CEO edits to the task and takes precedence over the plan metadata below:",
+    "",
+    description,
+  ].join("\n");
+}
+
+/**
  * Builds the acceptance criteria section from the planning draft payload.
  *
  * @param taskPayload - Resolved planning task when available.
@@ -407,11 +431,13 @@ export function generateClaudeImplementationBrief(
 
   const reviewRequirements = taskPayload?.reviewRequirements ?? [];
   const reworkSection = buildReworkSection(input.reworkContext ?? null, branchName);
+  const objectiveSection = buildTaskObjectiveSection(input.taskDescription);
   const memorySection = buildCompanyMemorySection(input.companyMemory ?? null);
 
   const sections: string[] = [
     buildHeader(input, branchName, baseBranch),
     ...(reworkSection ? [reworkSection] : []),
+    ...(objectiveSection ? [objectiveSection] : []),
     buildRepositoryContextSection(input, branchName, baseBranch),
     buildConstraintsSection(),
     ...(memorySection ? [memorySection] : []),

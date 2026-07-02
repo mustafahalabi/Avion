@@ -219,6 +219,31 @@ describe("generateClaudeImplementationBrief", () => {
         "Independent reviewer checks correctness and regression risk."
       );
     });
+
+    it("renders the live task description as the authoritative objective, even when a plan item exists (MUS-277)", () => {
+      // A CEO edit to Task.description after the plan was applied. The plan item
+      // (SAMPLE_GENERATED_TASKS) has its own description + acceptance criteria; the
+      // live description must still reach the brief instead of being silently dropped.
+      const edited =
+        "CEO EDIT: build a Stripe webhook that reconciles refunds, not the original manifest scan.";
+      const result = generateClaudeImplementationBrief({
+        ...MINIMAL_INPUT,
+        taskDescription: edited,
+      });
+
+      expect(result.brief).toContain("## Task Objective");
+      expect(result.brief).toContain(edited);
+      // And it is marked authoritative over the plan metadata.
+      expect(result.brief).toContain("takes precedence over the plan metadata");
+    });
+
+    it("omits the objective section when the task has no description", () => {
+      const result = generateClaudeImplementationBrief({
+        ...MINIMAL_INPUT,
+        taskDescription: null,
+      });
+      expect(result.brief).not.toContain("## Task Objective");
+    });
   });
 
   describe("scope constraints", () => {
