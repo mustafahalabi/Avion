@@ -37,12 +37,14 @@ export async function selectNextExecutableTaskForCompany(
             },
           },
           // Planless rework candidates (MUS-270): tasks created outside planning
-          // (chat/manual/script) that a failed review, QA, or PR feedback put back
-          // into `in-progress` with an open change request. Without this, their
-          // rework never re-enters the driver — the change request and its PR
-          // strand with no automation to touch them. The needs-rework filter
-          // below keeps non-rework planless tasks out of selection.
-          { planningDraftId: null, status: "in-progress" },
+          // (chat/manual/script) that a failed review, QA, or PR feedback put
+          // back into the loop with an open change request. `in-progress` is
+          // where a fresh rework sits; `todo` is where a *failed* rework attempt
+          // lands (a failed ingest sets the task to `todo`), so both must be
+          // fetched or the failed rework strands invisibly (MUS-284). The
+          // needs-rework filter below keeps non-rework planless tasks out of
+          // selection — a fresh planless `todo` with no change request is ignored.
+          { planningDraftId: null, status: { in: ["in-progress", "todo"] } },
         ],
       },
       select: {

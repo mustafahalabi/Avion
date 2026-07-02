@@ -300,10 +300,11 @@ describe("selectNextExecutableTaskForCompany", () => {
 
     const taskWhere = mockTaskFindMany.mock.calls[0][0].where;
     expect(Array.isArray(taskWhere.OR)).toBe(true);
-    // One branch targets planless in-progress tasks (created outside planning).
+    // One branch targets planless tasks (created outside planning) in either the
+    // in-progress (fresh rework) or todo (failed rework) status — MUS-270/284.
     expect(taskWhere.OR).toContainEqual({
       planningDraftId: null,
-      status: "in-progress",
+      status: { in: ["in-progress", "todo"] },
     });
   });
 
@@ -334,6 +335,32 @@ describe("selectNextExecutableTaskForCompany", () => {
 
     expect(result.task).toBeNull();
     // With no rework signal and no plan-linked candidate, nothing is selectable.
+    expect(result.reasonCode).toBe("no_approved_plans");
+  });
+
+  it("selects a planless task at `todo` after a failed rework attempt (MUS-284)", async () => {
+    // A failed/no-op rework ingest sets the task back to `todo`; it still carries
+    // an unresolved change request and must be re-selected, not stranded.
+    mockTaskFindMany.mockResolvedValue([
+      makePlanlessTaskRow({ id: "task-adhoc", status: "todo", planItemId: null }),
+    ]);
+    mockReviewFindMany.mockResolvedValue([{ entityId: "task-adhoc" }]);
+
+    const result = await selectNextExecutableTaskForCompany("company-1");
+
+    expect(result.reasonCode).toBe("selected");
+    expect(result.task?.id).toBe("task-adhoc");
+  });
+
+  it("does NOT select a fresh planless `todo` task with no change request (preserves MUS-270 scoping)", async () => {
+    mockTaskFindMany.mockResolvedValue([
+      makePlanlessTaskRow({ id: "task-adhoc", status: "todo", planItemId: null }),
+    ]);
+    mockReviewFindMany.mockResolvedValue([]);
+
+    const result = await selectNextExecutableTaskForCompany("company-1");
+
+    expect(result.task).toBeNull();
     expect(result.reasonCode).toBe("no_approved_plans");
   });
 
