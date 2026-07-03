@@ -15,6 +15,8 @@
     "worker:dev": "tsx watch src/worker/index.ts",
     "driver": "tsx src/worker/driver.ts",
     "driver:dev": "tsx watch src/worker/driver.ts",
+    "preview": "tsx src/worker/preview-service.ts",
+    "preview:dev": "tsx watch src/worker/preview-service.ts",
     "dogfood:local": "tsx scripts/dogfood-local.ts",
     "live:prepare": "set -a; . ./.env; . ./.env.live; set +a; tsx scripts/live-run-prepare.ts",
     "live:worker": "set -a; . ./.env; . ./.env.live; set +a; tsx src/worker/index.ts",

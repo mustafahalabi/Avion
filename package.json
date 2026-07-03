@@ -17,6 +17,7 @@
     "clean": "turbo run clean",
     "worker": "pnpm --filter @avion/web worker",
     "driver": "pnpm --filter @avion/web driver",
+    "preview": "pnpm --filter @avion/web preview",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:generate": "pnpm --filter @avion/web exec prisma generate && pnpm --filter @avion/api exec prisma generate"
