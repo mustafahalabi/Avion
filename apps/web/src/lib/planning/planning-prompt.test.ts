@@ -70,6 +70,16 @@ describe("buildPlanningPrompt", () => {
     expect(system).toContain("DeterministicPlanningDraft");
   });
 
+  it("requires an explicit task kind and discourages documentation-only tasks", () => {
+    const { system, prompt } = buildPlanningPrompt(INPUT);
+    expect(system).toContain("TASK DISCIPLINE");
+    expect(system).toContain('"kind": "implementation"');
+    expect(system).toContain('or "analysis"');
+    // Must steer planning content into plan fields rather than standalone doc tasks.
+    expect(system).toContain("belongs in scope, assumptions");
+    expect(prompt).toContain("real implementation tasks");
+  });
+
   it("notes the missing roster when no employees are provided", () => {
     const { prompt } = buildPlanningPrompt({ ...INPUT, employees: [] });
     expect(prompt).toContain("No employees are available");

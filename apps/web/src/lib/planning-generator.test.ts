@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  classifyTaskKind,
   generateDeterministicPlanningDraft,
   validatePlanningDraftQuality,
   type OutcomePlanningInput,
@@ -292,6 +293,39 @@ describe("generateDeterministicPlanningDraft", () => {
     expect(validatePlanningDraftQuality(result.draft)).toEqual([]);
   });
 
+  it("tags only the delivery task as implementation; the planning steps are analysis", () => {
+    const outcome = "Add a public health check endpoint that returns service status as JSON";
+    const result = generateDeterministicPlanningDraft(
+      buildInput({ title: outcome, rawRequest: outcome })
+    );
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+
+    // Exactly one task should open a PR: the delivery task. Everything else in the
+    // general-engineering plan is a planning/design/QA-planning artifact whose
+    // deliverable is the plan itself, so it must not become an executable Task row.
+    const kindByPlanItem = new Map(
+      result.draft.generatedTasks.map((task) => [task.planItemId, task.kind])
+    );
+    expect(kindByPlanItem.get("task:implement-outcome")).toBe("implementation");
+    for (const planItemId of [
+      "task:write-outcome-brief",
+      "task:map-code-touchpoints",
+      "task:define-data-api-contracts",
+      "task:design-user-workflow",
+      "task:create-review-checklist",
+      "task:create-qa-release-plan",
+    ]) {
+      expect(kindByPlanItem.get(planItemId)).toBe("analysis");
+    }
+
+    const implementationTasks = result.draft.generatedTasks.filter(
+      (task) => task.kind === "implementation"
+    );
+    expect(implementationTasks).toHaveLength(1);
+  });
+
   it("enriches repository intelligence tasks with repository-specific context", () => {
     const result = generateDeterministicPlanningDraft(buildInput());
 
@@ -441,5 +475,37 @@ describe("generateDeterministicPlanningDraft", () => {
     expect(runtimeSource).toContain("createOrUpdatePlanningDraftForOutcome");
     expect(chatSource).toContain("createOrUpdatePlanningDraftForOutcome");
     expect(generatorSource).not.toMatch(/Claude|OpenAI|generateText|streamText|fetch\(/i);
+  });
+});
+
+describe("classifyTaskKind", () => {
+  it("classifies non-authoring roles as analysis", () => {
+    for (const role of [
+      "Reviewer",
+      "QA Engineer",
+      "Product Manager",
+      "Product Analyst",
+      "Technical Writer",
+    ]) {
+      expect(classifyTaskKind(role)).toBe("analysis");
+    }
+  });
+
+  it("classifies engineer and unknown roles as implementation (never drops real work)", () => {
+    for (const role of [
+      "Backend Engineer",
+      "Frontend Engineer",
+      "Mobile Engineer",
+      "Tech Lead",
+      "Infrastructure Engineer",
+      "Some Future Role",
+    ]) {
+      expect(classifyTaskKind(role)).toBe("implementation");
+    }
+  });
+
+  it("is case- and whitespace-insensitive", () => {
+    expect(classifyTaskKind("  qa engineer ")).toBe("analysis");
+    expect(classifyTaskKind("REVIEWER")).toBe("analysis");
   });
 });

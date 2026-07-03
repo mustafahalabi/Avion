@@ -3,6 +3,50 @@ import type { CompanyMemoryItem } from "@/lib/memory/memory-types";
 
 export const PLANNING_GENERATOR_VERSION = "deterministic-v2" as const;
 
+/**
+ * Whether a generated task produces real product code or is a planning/analysis
+ * artifact already captured by the plan itself.
+ *
+ * - `implementation` — the task changes real product code; it earns an execution
+ *   session → branch → PR.
+ * - `analysis` — a planning/design/QA-planning step whose deliverable is plan
+ *   content (scope, feature descriptions, review/QA plans), not a code change.
+ *   Analysis tasks are NOT turned into executable Task rows (see
+ *   {@link import("@/lib/plan-application-service")}), so a plan spends exactly one
+ *   PR on the delivery task instead of one docs PR per planning step.
+ */
+export type PlanningTaskKind = "implementation" | "analysis";
+
+/**
+ * Roles that, by definition, do not author product code. Used only as the
+ * *fallback* classifier for tasks that lack an explicit {@link PlanningTaskKind}
+ * (e.g. AI-planned or planless tasks). The deterministic template sets `kind`
+ * explicitly per blueprint, so its design tasks assigned to engineer roles are
+ * still correctly treated as analysis regardless of this set.
+ */
+const ANALYSIS_ONLY_ROLES: ReadonlySet<string> = new Set([
+  "reviewer",
+  "qa engineer",
+  "product manager",
+  "product analyst",
+  "technical writer",
+]);
+
+/**
+ * Conservatively infers a task kind from its recommended role when no explicit
+ * kind is present. Defaults to `implementation` for any engineer/unknown role so
+ * this never silently drops real work — only roles that never write code
+ * ({@link ANALYSIS_ONLY_ROLES}) are treated as `analysis`.
+ *
+ * @param recommendedRole - The task's recommended owner role.
+ * @returns The inferred task kind.
+ */
+export function classifyTaskKind(recommendedRole: string): PlanningTaskKind {
+  return ANALYSIS_ONLY_ROLES.has(recommendedRole.trim().toLowerCase())
+    ? "analysis"
+    : "implementation";
+}
+
 const MIN_TASK_ACCEPTANCE_CRITERIA = 2;
 const MIN_TASK_DESCRIPTION_LENGTH = 48;
 
@@ -193,6 +237,14 @@ export interface GeneratedPlanningTask {
   readonly qaImpact: string;
   readonly estimatedExecutionOrder: number;
   readonly estimatePoints: number;
+  /**
+   * Whether this task produces real product code (`implementation`) or is a
+   * planning/analysis artifact already captured by the plan (`analysis`). Optional
+   * for back-compat with AI drafts and older persisted plans; a value is stamped
+   * before persistence ({@link classifyTaskKind} is the fallback), and an absent
+   * value is treated as `implementation` everywhere it is read.
+   */
+  readonly kind?: PlanningTaskKind;
 }
 
 export interface PlanningAssignmentRecommendation {
@@ -314,6 +366,12 @@ interface TaskBlueprint {
   readonly acceptanceCriteria: readonly string[];
   readonly qaImpact: string;
   readonly estimatePoints: number;
+  /**
+   * Explicit task kind. When omitted the task is treated as `implementation`.
+   * The general-engineering template sets this to `analysis` on its planning/design
+   * steps so they never open a PR even though some are owned by engineer roles.
+   */
+  readonly kind?: PlanningTaskKind;
 }
 
 /**
@@ -937,6 +995,7 @@ function buildFeatureBlueprints(
       taskBlueprints: [
         {
           id: "write-outcome-brief",
+          kind: "analysis",
           title: "Write outcome brief and measurable acceptance criteria",
           description:
             "Transform CEO intent into a short outcome brief with business value, user/system impact, non-scope, and measurable completion criteria.",
@@ -961,6 +1020,7 @@ function buildFeatureBlueprints(
       taskBlueprints: [
         {
           id: "map-code-touchpoints",
+          kind: "analysis",
           title: "Map affected code, data, and integration touchpoints",
           description:
             "Identify concrete modules, data models, actions/routes, integrations, and UI surfaces that need to change before implementation begins.",
@@ -975,6 +1035,7 @@ function buildFeatureBlueprints(
         },
         {
           id: "define-data-api-contracts",
+          kind: "analysis",
           title: "Define data and API contracts for the outcome",
           description:
             "Specify the data shape, validation rules, server action or route contract, idempotency behavior, and ownership checks required by the outcome.",
@@ -989,6 +1050,7 @@ function buildFeatureBlueprints(
         },
         {
           id: "design-user-workflow",
+          kind: "analysis",
           title: "Design user workflow and UI states",
           description:
             "Define entry points, success states, empty states, loading states, failure states, and the information hierarchy for the user-facing workflow.",
@@ -1008,6 +1070,7 @@ function buildFeatureBlueprints(
           // the acceptanceCriteria (not just the description) because the execution
           // brief renders title + acceptanceCriteria, not the task description (MUS-277).
           id: "implement-outcome",
+          kind: "implementation",
           title: `Implement the requested change: ${outcome}`,
           description:
             `Make the actual code change the CEO requested — implement "${outcome}" in real product code, guided by the touchpoint map, the data/API contracts, and the user-workflow design from the preceding tasks. This is the delivery task: when it is done, the visible result described in the outcome brief must exist in the repository and be exercised by the repo's real build/test commands. A documentation-only change does not satisfy this task. ${repositoryContext}`,
@@ -1033,6 +1096,7 @@ function buildFeatureBlueprints(
       taskBlueprints: [
         {
           id: "create-review-checklist",
+          kind: "analysis",
           title: "Create review checklist for ownership, correctness, and risk",
           description:
             "Define reviewer checks for correctness, company ownership, idempotency, observability, security, and user-facing behavior.",
@@ -1047,6 +1111,7 @@ function buildFeatureBlueprints(
         },
         {
           id: "create-qa-release-plan",
+          kind: "analysis",
           title: "Create QA and release verification plan",
           description:
             "Define automated checks, manual test scenarios, release readiness criteria, rollback trigger, and CEO acceptance evidence.",
@@ -1246,6 +1311,7 @@ function buildTask(
     qaImpact: blueprint.qaImpact,
     estimatedExecutionOrder: order,
     estimatePoints: blueprint.estimatePoints,
+    kind: blueprint.kind ?? "implementation",
   };
 
   return enrichTaskWithRepositoryContext(baseTask, blueprint.id, repositories, templateId);
