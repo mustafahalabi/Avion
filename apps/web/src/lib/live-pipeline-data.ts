@@ -190,6 +190,7 @@ export async function loadLivePipeline(
             where: { companyId, taskId: { in: taskIds } },
             orderBy: { createdAt: "desc" },
             select: {
+              id: true,
               taskId: true,
               status: true,
               agentType: true,
@@ -285,6 +286,7 @@ export async function loadLivePipeline(
       workflowTitle: workflow?.title ?? null,
       assigneeName: t.assignee?.name ?? null,
       taskStatus: t.status,
+      sessionId: session?.id ?? null,
       sessionStatus: session?.status ?? null,
       prStatus: session?.prStatus ?? null,
       prNumber: session?.prNumber ?? null,

@@ -5,6 +5,8 @@
  * with a structured brief and collecting normalized execution results.
  */
 
+import type { AgentStreamHandler } from "@/lib/agent-stream/types";
+
 /** Capability tier controlling how much autonomy the agent has during execution. */
 export type PermissionLevel = "read_only" | "suggest" | "execute" | "full";
 
@@ -31,6 +33,14 @@ export interface ExecutionContext {
   timeoutSeconds: number;
   /** Session ID for logging and correlation. */
   sessionId: string;
+  /**
+   * Optional live-output sink. When provided, the adapter emits a lifecycle
+   * "status" event at start/finish and one event per observed stdout/stderr
+   * line as the agent runs, so the worker can persist a live stream. The
+   * handler must never throw; adapters treat streaming as best-effort and it
+   * never affects the returned result. Omit for a silent (buffered-only) run.
+   */
+  onStream?: AgentStreamHandler;
 }
 
 /** Normalized result returned after an agent run completes or fails. */

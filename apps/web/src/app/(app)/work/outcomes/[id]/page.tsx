@@ -3,9 +3,10 @@ import { getCurrentUser } from "@/lib/current-user";
 import { buildPlanningReviewUrl } from "@/lib/planning-review-view";
 import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, GitBranch } from "lucide-react";
+import { ArrowLeft, GitBranch, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GeneratePlanButton } from "./generate-plan-button";
+import { GeneratingRefresh } from "./generating-refresh";
 
 const OUTCOME_STATUS_COLORS: Record<
   string,
@@ -22,6 +23,12 @@ const OUTCOME_STATUS_COLORS: Record<
     bg: "bg-blue-950/30",
     text: "text-blue-400",
     label: "Analyzing",
+  },
+  planning: {
+    border: "border-blue-900",
+    bg: "bg-blue-950/30",
+    text: "text-blue-400",
+    label: "Planning…",
   },
   planned: {
     border: "border-neutral-900",
@@ -137,7 +144,10 @@ export default async function OutcomeDetailPage({
     OUTCOME_STATUS_COLORS[outcome.status] ??
     OUTCOME_STATUS_COLORS["proposed"];
   const latestDraft = outcome.planningDrafts[0] ?? null;
-  const canGeneratePlan = !latestDraft || latestDraft.status === "failed";
+  // Generation runs after the response (the AI planner can take a while), so the
+  // outcome sits at "planning" until the draft lands — drive a live progress
+  // state off that instead of freezing on a synchronous request.
+  const isGenerating = outcome.status === "planning";
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
@@ -210,7 +220,21 @@ export default async function OutcomeDetailPage({
             Planning Draft
           </h3>
 
-          {latestDraft ? (
+          {isGenerating ? (
+            <div className="flex items-center gap-3 rounded-lg border border-blue-900 bg-blue-950/20 px-4 py-5">
+              <GeneratingRefresh active />
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-400" />
+              <div>
+                <p className="text-sm font-medium text-neutral-200">
+                  Generating your plan…
+                </p>
+                <p className="mt-0.5 text-xs text-neutral-500">
+                  Your company is drafting a structured plan from this outcome.
+                  This can take a moment — you can leave this page and come back.
+                </p>
+              </div>
+            </div>
+          ) : latestDraft ? (
             <div className="border border-neutral-800 bg-neutral-900 px-4 py-4 shadow-[6px_6px_0_rgba(0,0,0,0.45)]">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
@@ -263,8 +287,6 @@ export default async function OutcomeDetailPage({
               <GeneratePlanButton outcomeId={outcome.id} />
             </div>
           )}
-
-          {canGeneratePlan && latestDraft?.status !== "failed" && !latestDraft && null}
         </section>
 
         {planningTimeline.length > 0 && (

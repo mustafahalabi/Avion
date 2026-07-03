@@ -58,6 +58,10 @@ export class ClaudeCliLlmClient implements LlmClient {
         timeoutId = setTimeout(() => {
           timedOut = true;
           activeChild.kill("SIGTERM");
+          // Force-resolve on timeout: a `claude` process that is slow to exit (or
+          // ignores SIGTERM) must never hang the caller past its budget. `timedOut`
+          // drives the failure result below; a later `close` event is a no-op.
+          resolve(1);
         }, timeoutSeconds * 1000);
 
         activeChild.on("error", (error: Error) => {

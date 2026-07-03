@@ -27,6 +27,7 @@ import {
   type ConversationScope,
 } from "@/lib/chat-activity";
 import type { WorkItemView } from "@/lib/work-lifecycle";
+import { SessionStream } from "./SessionStream";
 
 /** A message row, serialized from the server page. */
 export interface ChatThreadMessage {
@@ -84,6 +85,16 @@ export function ChatThread({
     [pipeline.board, scope]
   );
 
+  // Sessions actively building right now — each gets a live "Avion is building…"
+  // agent-output feed (humanized by default, raw output behind an opt-in drawer).
+  const liveSessionIds = useMemo(
+    () =>
+      liveItems
+        .filter((i) => i.isLive && i.sessionId)
+        .map((i) => i.sessionId as string),
+    [liveItems]
+  );
+
   // Interleave messages + activity + decisions chronologically.
   const feed = useMemo(
     () => buildFeed(messages, activity, decisions),
@@ -128,6 +139,9 @@ export function ChatThread({
         return <ActivityBubble key={node.id} item={node.item} />;
       })}
       {liveItems.length > 0 && <WorkingNowPanel items={liveItems} />}
+      {liveSessionIds.map((sid) => (
+        <SessionStream key={sid} sessionId={sid} />
+      ))}
       <div ref={bottomRef} />
     </div>
   );
