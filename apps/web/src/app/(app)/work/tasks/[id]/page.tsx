@@ -296,6 +296,15 @@ export default async function TaskDetailPage({ params }: Props) {
   };
   const totalActiveMs = allSessions.reduce((sum, s) => sum + sessionSpanMs(s), 0);
   const hasRunningSession = allSessions.some((s) => s.status === "running");
+  // For a live-ticking total: bank the finished sessions' time, then let the
+  // open session count up from its start. (Sessions are created atomically, so
+  // at most one runs at a time — MUS-294.)
+  const runningSession = allSessions.find(
+    (s) => s.status === "running" && s.startedAt,
+  );
+  const bankedMs = allSessions
+    .filter((s) => s.status !== "running")
+    .reduce((sum, s) => sum + sessionSpanMs(s), 0);
   const latestAgentType =
     allSessions.length > 0 ? allSessions[allSessions.length - 1].agentType : null;
 
@@ -389,11 +398,20 @@ export default async function TaskDetailPage({ params }: Props) {
                     Total{hasRunningSession ? " so far" : ""} · {allSessions.length}{" "}
                     session{allSessions.length === 1 ? "" : "s"}
                   </p>
-                  <ElapsedTime
-                    ms={totalActiveMs}
-                    mode="clock"
-                    className="mt-1 block text-2xl font-bold text-brand-400"
-                  />
+                  {runningSession?.startedAt ? (
+                    <ElapsedTime
+                      baseMs={bankedMs}
+                      startedAt={runningSession.startedAt}
+                      mode="clock"
+                      className="mt-1 block text-2xl font-bold text-brand-400"
+                    />
+                  ) : (
+                    <ElapsedTime
+                      ms={totalActiveMs}
+                      mode="clock"
+                      className="mt-1 block text-2xl font-bold text-brand-400"
+                    />
+                  )}
                 </div>
                 {hasRunningSession && (
                   <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-brand-400">

@@ -15,6 +15,11 @@ import { cn } from "@/lib/utils";
  *  - `startedAt` + `completedAt` — a finished span. Static.
  *  - `startedAt` only — a LIVE span that ticks once a second from now.
  *
+ * `baseMs` adds a fixed offset onto a LIVE span — used for a running total that
+ * banks the time from prior finished spans and keeps counting the open one
+ * (e.g. "time on task" = completed sessions + the session running now). It only
+ * applies to the live branch; with a fixed `ms` or a finished span it's ignored.
+ *
  * The live value is client-ticked, so the timer is wrapped with
  * `suppressHydrationWarning` (server and first-client frames differ by design).
  */
@@ -53,6 +58,8 @@ export function formatDuration(durationMs: number, mode: Mode = "compact"): stri
 interface ElapsedTimeProps {
   /** A fixed duration in ms — wins over start/complete when provided. */
   ms?: number | null;
+  /** Fixed offset added onto a LIVE span (banked time). Ignored unless a live `startedAt` is present. */
+  baseMs?: number | null;
   startedAt?: Date | string | null;
   completedAt?: Date | string | null;
   mode?: Mode;
@@ -63,6 +70,7 @@ interface ElapsedTimeProps {
 
 export function ElapsedTime({
   ms,
+  baseMs,
   startedAt,
   completedAt,
   mode = "compact",
@@ -87,7 +95,7 @@ export function ElapsedTime({
   if (fixedMs != null) {
     value = formatDuration(fixedMs, mode);
   } else if (startMs != null) {
-    value = formatDuration((endMs ?? now) - startMs, mode);
+    value = formatDuration((baseMs ?? 0) + (endMs ?? now) - startMs, mode);
   } else {
     value = placeholder;
   }
