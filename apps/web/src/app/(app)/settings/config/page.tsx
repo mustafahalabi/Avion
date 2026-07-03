@@ -202,9 +202,10 @@ export default async function ConfigInventoryPage() {
               "—"
             }
           />
-          <ConfigRow label="Timezone" value={settings?.timezone ?? "UTC"} mono />
-          <ConfigRow label="Locale" value={settings?.locale ?? "en"} mono />
-          <ConfigRow label="Currency" value={settings?.currency ?? "USD"} mono />
+          {/* Timezone / Locale / Currency rows were removed (MUS-298): the
+              fields were never settable or consumed — they always showed the
+              hard-coded UTC / en / USD defaults. Reintroduce when they're
+              actually editable + used. */}
         </SectionCard>
 
         {/* ── 2. Integration Status ─────────────────────────────────────── */}
