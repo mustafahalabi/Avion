@@ -80,7 +80,7 @@ export default async function MemoryPage() {
         <h1 className="text-sm font-semibold text-neutral-100">Memory</h1>
         <Link
           href="/memory/new"
-          className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
+          className="inline-flex items-center gap-1.5 border border-brand-500 bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
         >
           <Plus className="h-3.5 w-3.5" />
           New memory
@@ -102,7 +102,7 @@ export default async function MemoryPage() {
 
         {/* Memory list */}
         <section>
-          <div className="mb-4 text-sm font-medium text-neutral-200">
+          <div className="mb-4 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
             Memory Banks
           </div>
 
@@ -118,11 +118,11 @@ export default async function MemoryPage() {
                   <Link
                     key={memory.id}
                     href={`/memory/${memory.id}`}
-                    className="group flex items-center gap-3.5 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3.5 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
+                    className="group flex items-center gap-3.5 border border-neutral-800 bg-neutral-900 px-4 py-3.5 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
                   >
                     <div
                       className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-xs font-bold",
+                        "flex h-8 w-8 shrink-0 items-center justify-center border text-xs font-bold",
                         cfg.color
                       )}
                     >
@@ -158,8 +158,8 @@ export default async function MemoryPage() {
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+    <div className="border border-neutral-800 bg-neutral-900 px-3.5 py-3">
+      <p className="font-mono text-[10px] uppercase tracking-widest text-neutral-500">
         {label}
       </p>
       <p className="mt-1.5 text-2xl font-semibold tabular-nums text-neutral-200">
@@ -171,7 +171,7 @@ function StatCard({ label, value }: { label: string; value: number }) {
 
 function EmptyMemory() {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-neutral-800 py-12 text-center">
+    <div className="flex flex-col items-center gap-3 border border-dashed border-neutral-800 py-12 text-center">
       <BookOpen className="h-6 w-6 text-neutral-600" />
       <div>
         <p className="text-sm font-medium text-neutral-400">No memories yet</p>

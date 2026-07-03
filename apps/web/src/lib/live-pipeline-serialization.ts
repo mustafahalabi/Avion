@@ -27,8 +27,13 @@ import type { TimelineItem } from "@/components/timeline-entry";
 
 // ─── Wire shapes — identical to the runtime shapes but with ISO-string dates ───
 
-type WireWorkItemView = Omit<WorkItemView, "updatedAt"> & {
+type WireWorkItemView = Omit<
+  WorkItemView,
+  "updatedAt" | "startedAt" | "completedAt"
+> & {
   readonly updatedAt: string;
+  readonly startedAt: string | null;
+  readonly completedAt: string | null;
 };
 type WireLifecycleColumn = Omit<LifecycleColumn, "items"> & {
   readonly items: readonly WireWorkItemView[];
@@ -74,7 +79,12 @@ export function serializeLivePipeline(pipeline: LivePipeline): string {
 // ─── Parse / revive ──────────────────────────────────────────────────────────
 
 function reviveWorkItem(item: WireWorkItemView): WorkItemView {
-  return { ...item, updatedAt: new Date(item.updatedAt) };
+  return {
+    ...item,
+    updatedAt: new Date(item.updatedAt),
+    startedAt: item.startedAt ? new Date(item.startedAt) : null,
+    completedAt: item.completedAt ? new Date(item.completedAt) : null,
+  };
 }
 
 function reviveColumn(column: WireLifecycleColumn): LifecycleColumn {

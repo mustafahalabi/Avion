@@ -55,7 +55,7 @@ export default async function NotificationsPage() {
 
       <div className="flex flex-col gap-6 p-6">
         {notifications.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-neutral-800 py-14 text-center">
+          <div className="flex flex-col items-center gap-3 border border-dashed border-neutral-800 py-14 text-center">
             <Bell className="h-5 w-5 text-neutral-700" />
             <div>
               <p className="text-sm font-medium text-neutral-500">
@@ -71,7 +71,7 @@ export default async function NotificationsPage() {
           <>
             {unread.length > 0 && (
               <section>
-                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-600">
+                <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
                   Unread ({unread.length})
                 </div>
                 <NotificationList notifications={unread} />
@@ -80,7 +80,7 @@ export default async function NotificationsPage() {
 
             {read.length > 0 && (
               <section>
-                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-700">
+                <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-neutral-600">
                   Earlier
                 </div>
                 <NotificationList notifications={read} dimmed />
@@ -119,7 +119,7 @@ function NotificationList({
         const inner = (
           <div
             className={cn(
-              "group flex items-start gap-3 rounded-lg border px-4 py-3.5 transition-colors",
+              "group flex items-start gap-3 border px-4 py-3.5 transition-colors",
               dimmed
                 ? "border-neutral-800 bg-neutral-900/50"
                 : "border-neutral-800 bg-neutral-900 hover:border-neutral-700 hover:bg-neutral-800"

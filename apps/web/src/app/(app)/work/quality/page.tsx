@@ -62,6 +62,19 @@ export default async function QualityPage() {
     }),
   ]);
 
+  // Resolve real task titles for the QA rows so they read "Login screen"
+  // instead of an opaque "Task 3f9a2b1c".
+  const qaTaskIds = qaResults
+    .filter((q) => q.entityType === "task")
+    .map((q) => q.entityId);
+  const qaTasks = qaTaskIds.length
+    ? await prisma.task.findMany({
+        where: { companyId: company.id, id: { in: qaTaskIds } },
+        select: { id: true, title: true },
+      })
+    : [];
+  const taskTitleById = new Map(qaTasks.map((t) => [t.id, t.title]));
+
   const reviewStats = {
     total: reviews.length,
     pending: reviews.filter((r) => r.status === "pending").length,
@@ -178,10 +191,14 @@ export default async function QualityPage() {
                     <Icon className={cn("h-4 w-4 shrink-0", cfg.color)} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-neutral-200 truncate">
-                        QA · <span className="capitalize">{qa.entityType}</span>{" "}
-                        <span className="font-mono text-xs text-neutral-600">
-                          {qa.entityId.slice(0, 8)}
-                        </span>
+                        {taskTitleById.get(qa.entityId) ?? (
+                          <>
+                            QA · <span className="capitalize">{qa.entityType}</span>{" "}
+                            <span className="font-mono text-xs text-neutral-600">
+                              {qa.entityId.slice(0, 8)}
+                            </span>
+                          </>
+                        )}
                       </p>
                       <p className="mt-0.5 text-xs text-neutral-600">
                         <span className={cn("font-medium", cfg.color)}>

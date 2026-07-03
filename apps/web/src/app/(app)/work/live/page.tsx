@@ -1,16 +1,21 @@
 import { redirect } from "next/navigation";
 
+import type { Metadata } from "next";
+
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { loadLivePipeline } from "@/lib/live-pipeline-data";
-import { LiveFlowBoard } from "@/components/live/live-flow-board";
+import { MissionControl } from "@/components/live/mission-control";
 
-// `/work/live` is the per-outcome **pipeline graph** (React Flow) streamed over
-// in-app **SSE** (`/api/work/live/stream`). This is intentionally distinct from
-// `/board` (the realtime **kanban board** over Socket.IO via `@avion/api`); see the
-// MUS-260 decision in AGENTS.md. Render a fresh snapshot on every load; the board
-// then streams its own updates in place — no full-page polling.
+// `/work/live` is **Mission Control** — the single canonical live surface. It
+// shows which agents are running (adapter + role), where (task/repo/branch/PR),
+// and for how long (live-ticking timers), with Agents / Graph / Board / Feed
+// lenses over one data model. It replaces the previously-overlapping `/board`
+// and `/work/board` (both now redirect here). Streamed in place over SSE
+// (`/api/work/live/stream`) — no full-page polling.
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = { title: "Mission Control" };
 
 export default async function LivePage() {
   const user = await getCurrentUser();
@@ -24,5 +29,5 @@ export default async function LivePage() {
 
   const initial = await loadLivePipeline(company.id);
 
-  return <LiveFlowBoard initial={initial} />;
+  return <MissionControl initial={initial} />;
 }

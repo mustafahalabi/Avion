@@ -42,10 +42,11 @@ export const STAGE_STYLE: Record<WorkStage, StageStyle> = {
   },
   building: {
     icon: Hammer,
-    accent: "text-blue-400",
-    chip: "bg-blue-500/15 text-blue-300",
-    iconWrap: "bg-blue-500/15 ring-blue-500/30",
-    bar: "bg-blue-500",
+    // Building = actively working now → vermilion, the reserved "live" accent.
+    accent: "text-brand-400",
+    chip: "bg-brand-500/15 text-brand-300",
+    iconWrap: "bg-brand-500/15 ring-brand-500/30",
+    bar: "bg-brand-500",
   },
   review: {
     icon: Eye,

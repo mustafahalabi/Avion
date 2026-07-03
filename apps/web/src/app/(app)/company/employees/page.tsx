@@ -3,11 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Users } from "lucide-react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
-import {
-  EmployeeStatusIndicator,
-  isEmployeeStatus,
-} from "@/components/ui/status-indicator";
+import { EmployeeCard } from "./employee-card";
 
 const DEPT_COLORS: Record<string, string> = {
   executive: "bg-neutral-950/50 border-neutral-900/50",
@@ -87,7 +83,7 @@ export default async function EmployeesPage() {
 
       <div className="flex flex-col gap-8 p-6">
         {employees.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-neutral-800 py-16 text-center">
+          <div className="flex flex-col items-center gap-3 border border-dashed border-neutral-800 py-16 text-center">
             <Users className="h-6 w-6 text-neutral-600" />
             <div>
               <p className="text-sm font-medium text-neutral-400">
@@ -105,7 +101,7 @@ export default async function EmployeesPage() {
             return (
               <section key={deptName}>
                 <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                  <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
                     {deptName}
                   </h3>
                   <span className="text-xs text-neutral-700">
@@ -114,59 +110,22 @@ export default async function EmployeesPage() {
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {deptEmployees.map((emp) => (
-                    <Link
+                    <EmployeeCard
                       key={emp.id}
-                      href={`/company/employees/${emp.id}`}
-                      className={cn(
-                        "group flex items-start gap-3 rounded-lg border p-4 transition-colors hover:brightness-110",
+                      id={emp.id}
+                      name={emp.name}
+                      status={emp.status}
+                      roleLabel={emp.role?.name ?? emp.title ?? "—"}
+                      manager={emp.manager}
+                      reportsTo={emp.reportsTo}
+                      colorClass={
                         DEPT_COLORS[deptSlug] ??
-                          "bg-neutral-900/50 border-neutral-800"
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
-                          DEPT_AVATAR[deptSlug] ??
-                            "bg-neutral-700 text-neutral-200"
-                        )}
-                      >
-                        {emp.name[0]}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-neutral-200 truncate">
-                            {emp.name}
-                          </p>
-                          <EmployeeStatusIndicator
-                            status={
-                              isEmployeeStatus(emp.status) ? emp.status : "idle"
-                            }
-                            showLabel={true}
-                            size="xs"
-                            className="shrink-0"
-                          />
-                        </div>
-                        <p className="mt-0.5 text-xs text-neutral-500 truncate">
-                          {emp.role?.name ?? emp.title ?? "—"}
-                        </p>
-                        {emp.manager ? (
-                          <p className="mt-1 text-[11px] text-neutral-600 truncate">
-                            Reports to{" "}
-                            <Link
-                              href={`/company/employees/${emp.manager.id}`}
-                              className="text-neutral-500 hover:text-neutral-300 transition-colors"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {emp.manager.name}
-                            </Link>
-                          </p>
-                        ) : emp.reportsTo ? (
-                          <p className="mt-1 text-[11px] text-neutral-600 truncate">
-                            Reports to {emp.reportsTo}
-                          </p>
-                        ) : null}
-                      </div>
-                    </Link>
+                        "bg-neutral-900/50 border-neutral-800"
+                      }
+                      avatarClass={
+                        DEPT_AVATAR[deptSlug] ?? "bg-neutral-700 text-neutral-200"
+                      }
+                    />
                   ))}
                 </div>
               </section>

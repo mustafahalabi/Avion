@@ -39,9 +39,9 @@ export function LiveStatusPill({
   const busy = status === "connecting" || status === "reconnecting";
 
   const dot = live
-    ? "bg-emerald-400 animate-pulse"
+    ? "bg-brand-500 animate-pulse"
     : busy
-    ? "bg-amber-400 animate-pulse"
+    ? "bg-warning-500 animate-pulse"
     : "bg-neutral-600";
 
   const text =

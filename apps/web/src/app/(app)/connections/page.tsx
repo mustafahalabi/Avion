@@ -60,10 +60,10 @@ export default async function ConnectionsPage() {
             return (
               <div
                 key={card.providerId}
-                className="flex flex-col overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900"
+                className="flex flex-col overflow-hidden border border-neutral-800 bg-neutral-900"
               >
                 <div className="flex items-center gap-4 px-5 py-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-neutral-700 bg-neutral-800">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center border border-neutral-700 bg-neutral-800">
                     <ProviderIcon id={card.providerId} />
                   </div>
                   <div className="min-w-0 flex-1">

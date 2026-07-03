@@ -192,12 +192,15 @@ export async function loadLivePipeline(
             select: {
               taskId: true,
               status: true,
+              agentType: true,
               prStatus: true,
               prNumber: true,
               prUrl: true,
               mergeStatus: true,
               branchName: true,
               filesChanged: true,
+              startedAt: true,
+              completedAt: true,
             },
           })
         : Promise.resolve([]),
@@ -251,6 +254,18 @@ export async function loadLivePipeline(
   const reviewByTask = latestByKey(reviews, (r) => r.entityId);
   const qaByTask = latestByKey(qaResults, (q) => q.entityId);
 
+  // Total time on task = sum of every session's active span (a task may have
+  // several sessions from retries/rework). A still-running session counts up to
+  // now; the live timer on the card ticks past this snapshot between pushes.
+  const now = Date.now();
+  const activeMsByTask = new Map<string, number>();
+  for (const s of sessions) {
+    if (!s.taskId || !s.startedAt) continue;
+    const end = s.completedAt ? s.completedAt.getTime() : now;
+    const span = Math.max(0, end - s.startedAt.getTime());
+    activeMsByTask.set(s.taskId, (activeMsByTask.get(s.taskId) ?? 0) + span);
+  }
+
   const taskInputs: WorkItemInput[] = tasks.map((t) => {
     const session = sessionByTask.get(t.id);
     const review = reviewByTask.get(t.id);
@@ -281,6 +296,10 @@ export async function loadLivePipeline(
       qaFailedCount: qa?.failedCount ?? null,
       branchName: session?.branchName ?? null,
       filesChangedCount: parseFilesChangedCount(session?.filesChanged),
+      agentType: session?.agentType ?? null,
+      sessionStartedAt: session?.startedAt ?? null,
+      sessionCompletedAt: session?.completedAt ?? null,
+      totalActiveMs: activeMsByTask.get(t.id) ?? null,
     };
   });
 

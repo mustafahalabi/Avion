@@ -5,18 +5,25 @@ import { Building2, Users, Layers, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
+// Canonical levels: worker-permissions.ts AUTONOMY_LEVELS
+// (manual | suggest | assist | delegate | autonomous). The old map used
+// full/assist/review, so a valid level like delegate/autonomous rendered as
+// "Not configured".
 const AUTONOMY_LABELS: Record<string, string> = {
-  full: "Full Autonomy",
+  manual: "Manual",
+  suggest: "Suggest",
   assist: "Assisted",
-  review: "Review Required",
-  manual: "Manual Approval",
+  delegate: "Delegate",
+  autonomous: "Autonomous",
 };
 
+// Canonical profiles: company-culture.ts CULTURE_PROFILES.
 const CULTURE_LABELS: Record<string, string> = {
   startup: "Startup",
-  scaleup: "Scale-up",
   enterprise: "Enterprise",
-  research: "Research",
+  "design-first": "Design First",
+  "performance-first": "Performance First",
+  "security-first": "Security First",
 };
 
 const DEPARTMENT_ICONS: Record<string, string> = {
@@ -74,7 +81,7 @@ export default async function CompanyPage() {
         {/* Company identity */}
         <section>
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-neutral-700 bg-neutral-800">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center border border-neutral-700 bg-neutral-800 shadow-[6px_6px_0_rgba(0,0,0,0.45)]">
               <Building2 className="h-5 w-5 text-neutral-300" />
             </div>
             <div className="flex-1 min-w-0">
@@ -108,7 +115,7 @@ export default async function CompanyPage() {
         <section className="flex flex-wrap gap-2">
           <Link
             href="/company/employees"
-            className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-2.5 text-sm text-neutral-300 hover:border-neutral-700 hover:bg-neutral-800 transition-colors"
+            className="flex items-center gap-2 border border-neutral-700 bg-neutral-900 px-3.5 py-2.5 text-sm text-neutral-200 hover:border-neutral-600 transition-colors"
           >
             <Users className="h-4 w-4 text-neutral-500" />
             View all employees
@@ -118,7 +125,7 @@ export default async function CompanyPage() {
         {/* Departments */}
         <section>
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-neutral-200">
+            <h3 className="font-mono text-[10px] uppercase tracking-widest text-neutral-500">
               Departments
             </h3>
             <span className="text-xs text-neutral-600">
@@ -162,10 +169,10 @@ function StatCard({
   icon?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3">
+    <div className="border border-neutral-800 bg-neutral-900 px-3.5 py-3">
       <div className="flex items-center gap-1.5 text-neutral-500">
         {icon}
-        <span className="text-[11px] font-medium uppercase tracking-wide">
+        <span className="font-mono text-[10px] uppercase tracking-widest">
           {label}
         </span>
       </div>
@@ -194,11 +201,11 @@ function DepartmentRow({
   return (
     <Link
       href={`/company/departments/${slug}`}
-      className="group flex items-center gap-3.5 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
+      className="group flex items-center gap-3.5 border border-neutral-800 bg-neutral-900 px-4 py-3 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
     >
       <div
         className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-xs font-bold",
+          "flex h-8 w-8 shrink-0 items-center justify-center border text-xs font-bold",
           colorClass
         )}
       >
@@ -225,7 +232,7 @@ function DepartmentRow({
 
 function EmptyDepartments() {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-neutral-800 py-10 text-center">
+    <div className="flex flex-col items-center gap-3 border border-dashed border-neutral-800 py-10 text-center">
       <Layers className="h-6 w-6 text-neutral-600" />
       <div>
         <p className="text-sm font-medium text-neutral-400">

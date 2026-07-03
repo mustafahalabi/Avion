@@ -8,6 +8,10 @@ import { UserMenu } from "@/components/nav/user-menu";
 import { BrandSplash } from "@/components/brand";
 import { LiveNotificationsProvider } from "@/components/notifications/live-notifications-provider";
 import {
+  LiveActivityBar,
+  type LiveActivitySummary,
+} from "@/components/live/live-activity-bar";
+import {
   listWorkspacesForSwitcher,
   resolveActiveWorkspaceId,
 } from "@/lib/active-workspace";
@@ -25,17 +29,51 @@ export default async function AppLayout({
     where: { ownerId: user.id },
     select: { id: true },
   });
-  const [liveNotifications, pendingApprovals, workspaces] = await Promise.all([
+  const [
+    liveNotifications,
+    pendingApprovals,
+    workspaces,
+    runningCount,
+    runningSessions,
+  ] = await Promise.all([
     loadLiveNotifications(user.id),
     company ? countPendingCheckpoints(company.id) : Promise.resolve(0),
     company ? listWorkspacesForSwitcher(company.id) : Promise.resolve([]),
+    company
+      ? prisma.executionSession.count({
+          where: { companyId: company.id, status: "running" },
+        })
+      : Promise.resolve(0),
+    company
+      ? prisma.executionSession.findMany({
+          where: { companyId: company.id, status: "running" },
+          orderBy: { startedAt: "asc" },
+          take: 6,
+          select: {
+            agentType: true,
+            startedAt: true,
+            task: { select: { title: true } },
+          },
+        })
+      : Promise.resolve([]),
   ]);
   const activeWorkspaceId = await resolveActiveWorkspaceId(workspaces);
   const navBadges: Record<string, number> = {
     // SSR seed for the bell; the provider takes over live once connected.
     "/notifications": liveNotifications.unreadNotificationCount,
     "/inbox": pendingApprovals,
-    "/control-center": pendingApprovals,
+    "/work/live": runningCount,
+  };
+
+  // Persistent activity band: the oldest running agent, seeded server-side; its
+  // timer ticks client-side, the count refreshes on navigation.
+  const oldest = runningSessions[0];
+  const activitySummary: LiveActivitySummary = {
+    count: runningCount,
+    oldestStartedAt: oldest?.startedAt ? oldest.startedAt.toISOString() : null,
+    title: oldest?.task?.title ?? null,
+    agentType: oldest?.agentType ?? null,
+    pendingApprovals,
   };
 
   return (
@@ -67,6 +105,7 @@ export default async function AppLayout({
           className="flex flex-1 flex-col overflow-hidden"
           style={{ background: "var(--av-bg)" }}
         >
+          <LiveActivityBar summary={activitySummary} />
           {children}
         </main>
       </div>

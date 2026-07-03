@@ -162,7 +162,12 @@ export function generateRepositoryTaskContext(
   }
 
   const repo = input.repository;
-  const hasAnalysis = repo.analysisStatus === "completed";
+  // The analyzer (repository-snapshot-service) writes "complete"; some older
+  // paths/fixtures use "completed". Accept both so a fully-analyzed repo isn't
+  // wrongly flagged "analysis has not completed" (mirrors the intelligence
+  // dashboard's AnalysisStatusBadge).
+  const hasAnalysis =
+    repo.analysisStatus === "complete" || repo.analysisStatus === "completed";
 
   // ── Analysis status warnings ───────────────────────────────────────────────
   if (!hasAnalysis) {

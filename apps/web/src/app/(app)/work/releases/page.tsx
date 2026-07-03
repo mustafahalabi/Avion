@@ -70,14 +70,14 @@ export default async function ReleasesPage() {
         <div className="flex items-center gap-2">
           <Link
             href="/work/releases/candidate/new"
-            className="flex items-center gap-1.5 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800 transition-colors"
+            className="inline-flex items-center gap-1.5 border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:border-neutral-600"
           >
             <Rocket className="h-3.5 w-3.5" />
             From completed tasks
           </Link>
           <Link
             href="/work/releases/new"
-            className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
+            className="inline-flex items-center gap-1.5 border border-brand-500 bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
           >
             <Plus className="h-3.5 w-3.5" />
             New release
@@ -99,7 +99,7 @@ export default async function ReleasesPage() {
         {/* Release list */}
         {releases.length === 0 ? (
           <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-neutral-800 py-14 text-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900 border border-neutral-800">
+            <div className="flex h-10 w-10 items-center justify-center border border-neutral-800 bg-neutral-900">
               <Rocket className="h-5 w-5 text-neutral-600" />
             </div>
             <div>
@@ -113,7 +113,7 @@ export default async function ReleasesPage() {
             </div>
             <Link
               href="/work/releases/new"
-              className="flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-medium text-neutral-900 hover:bg-neutral-100 transition-colors"
+              className="inline-flex items-center gap-1.5 border border-brand-500 bg-brand-500 px-4 py-2 text-xs font-semibold text-white transition hover:brightness-110"
             >
               <Plus className="h-3 w-3" />
               Create first release

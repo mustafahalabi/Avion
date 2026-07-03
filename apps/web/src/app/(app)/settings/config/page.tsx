@@ -61,7 +61,7 @@ function SectionCard({
   return (
     <section>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+        <h2 className="font-mono text-[10px] uppercase tracking-widest text-neutral-500">
           {title}
         </h2>
         {editHref && (
@@ -74,7 +74,7 @@ function SectionCard({
           </Link>
         )}
       </div>
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900 divide-y divide-neutral-800">
+      <div className="border border-neutral-800 bg-neutral-900 divide-y divide-neutral-800">
         {children}
       </div>
     </section>
@@ -110,7 +110,7 @@ function StatusDot({
   const cfg = map[status] ?? { dot: "bg-neutral-600", text: "text-neutral-500", label: status };
   return (
     <span className="flex items-center justify-end gap-1.5">
-      <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
+      <span className={cn("h-1.5 w-1.5", cfg.dot)} />
       <span className={cn("text-xs", cfg.text)}>{cfg.label}</span>
     </span>
   );
@@ -160,7 +160,9 @@ export default async function ConfigInventoryPage() {
   );
 
   const repoCount = allRepos.length;
-  const analysedCount = allRepos.filter((r) => r.analysisStatus === "completed").length;
+  const analysedCount = allRepos.filter(
+    (r) => r.analysisStatus === "complete" || r.analysisStatus === "completed"
+  ).length;
 
   // Read version from the running process so it stays accurate after upgrades
   const nextVersion = (process.env.npm_package_dependencies_next ?? "16.x").replace(/[\^~>=<]/, "").split(" ")[0];

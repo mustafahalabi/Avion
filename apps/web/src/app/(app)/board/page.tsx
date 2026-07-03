@@ -1,15 +1,11 @@
-import type { Metadata } from "next";
-import { LiveBoard } from "@/components/board/live-board";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Live Board · Avion",
-};
-
-// `/board` is the realtime **kanban board** — tasks in status columns — streamed
-// from the standalone `@avion/api` service over Socket.IO. This is intentionally
-// distinct from `/work/live` (the per-outcome **pipeline graph** over in-app SSE);
-// see the MUS-260 decision in AGENTS.md. Fully client-driven, so render the client
-// component directly inside the app shell.
+// `/board` (the standalone `@avion/api` Socket.IO kanban) and `/work/board`
+// (the plain task kanban) were three-way redundant with the live pipeline. They
+// are consolidated into **Mission Control** (`/work/live`), which carries agent
+// identity + live timers and offers a Board lens over the same data. Kept as a
+// redirect so existing links / bookmarks resolve. (The `@avion/api` backend and
+// `LiveBoard` component remain for external/embedded use — see MUS-260.)
 export default function BoardPage() {
-  return <LiveBoard />;
+  redirect("/work/live");
 }

@@ -26,10 +26,10 @@ export default async function SettingsPage() {
 
       <div className="p-6 flex flex-col gap-8">
         <section>
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          <h2 className="mb-4 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
             Account
           </h2>
-          <div className="rounded-xl border border-neutral-800 bg-neutral-900 divide-y divide-neutral-800">
+          <div className="border border-neutral-800 bg-neutral-900 divide-y divide-neutral-800">
             <div className="px-5 py-4">
               <p className="text-xs text-neutral-500 mb-0.5">Name</p>
               <p className="text-sm text-neutral-200">{user.name ?? "—"}</p>
@@ -42,7 +42,7 @@ export default async function SettingsPage() {
         </section>
 
         <section>
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          <h2 className="mb-4 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
             Company
           </h2>
           <SettingsForm
@@ -56,17 +56,17 @@ export default async function SettingsPage() {
         </section>
 
         <section>
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          <h2 className="mb-4 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
             Execution
           </h2>
           <ExecutionSettingsForm autonomyLevel={company.settings?.autonomyLevel ?? "assist"} />
         </section>
 
         <section>
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          <h2 className="mb-4 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
             System
           </h2>
-          <div className="rounded-xl border border-neutral-800 bg-neutral-900 overflow-hidden">
+          <div className="border border-neutral-800 bg-neutral-900 overflow-hidden">
             <Link
               href="/settings/config"
               className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-neutral-800/50"

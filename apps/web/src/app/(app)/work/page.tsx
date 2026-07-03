@@ -121,7 +121,7 @@ export default async function WorkPage() {
         <h1 className="text-sm font-semibold text-neutral-100">Work</h1>
         <div className="flex items-center gap-2">
           {/* List | Board toggle */}
-          <div className="flex items-center rounded-md border border-neutral-800 overflow-hidden">
+          <div className="flex items-center border border-neutral-800 overflow-hidden">
             <span className="px-3 py-1.5 text-xs font-medium text-neutral-100 bg-neutral-800 cursor-default">
               List
             </span>
@@ -135,7 +135,7 @@ export default async function WorkPage() {
           </div>
           <Link
             href="/work/projects/new"
-            className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
+            className="inline-flex items-center gap-1.5 border border-brand-500 bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
           >
             <Plus className="h-3.5 w-3.5" />
             New Project
@@ -166,7 +166,7 @@ export default async function WorkPage() {
 
         {/* Quick links */}
         <section>
-          <h2 className="mb-3 text-sm font-medium text-neutral-200">
+          <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
             Sections
           </h2>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -211,7 +211,7 @@ export default async function WorkPage() {
         {/* Projects */}
         <section>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-medium text-neutral-200">Projects</h2>
+            <h2 className="font-mono text-[10px] uppercase tracking-widest text-neutral-500">Projects</h2>
             <Link
               href="/work/projects"
               className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
@@ -281,7 +281,7 @@ export default async function WorkPage() {
         {company.tasks.length > 0 && (
           <section>
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-neutral-200">
+              <h2 className="font-mono text-[10px] uppercase tracking-widest text-neutral-500">
                 Active Tasks
               </h2>
             </div>
