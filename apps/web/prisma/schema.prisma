@@ -579,9 +579,40 @@ model ExecutionSession {
   employee      Employee?      @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict)
   planningDraft PlanningDraft? @relation(fields: [companyId, planningDraftId], references: [companyId, id], onDelete: Restrict)
   repository    Repository?    @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  logChunks     SessionLogChunk[]
 
   @@index([companyId, status])
   @@index([companyId, taskId])
+}
+
+// SessionLogChunk is the append-only live-output stream for an ExecutionSession.
+// The worker writes one row per observed agent line / lifecycle event as the
+// agent runs; the SSE endpoint tails them by `seq` and the chat UI renders a
+// humanized feed (raw `detail` behind an opt-in drawer). It is an *additive*
+// channel, independent of the poll-snapshot board — no existing surface reads it.
+model SessionLogChunk {
+  id        String @id @default(cuid())
+  sessionId String
+  companyId String // denormalized for company-scoped reads/cleanup
+
+  // Monotonic, strictly increasing within a session — the SSE cursor.
+  seq Int
+  // "status" | "text" | "tool" | "result" | "stderr" | "raw"
+  type String
+  // Short one-line content (truncated on write).
+  label String
+  // Optional full raw line / command / text (truncated on write).
+  detail String?
+  // Milliseconds since the agent run started (relative "elapsed" display).
+  atMs Int
+
+  createdAt DateTime @default(now())
+
+  session ExecutionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, seq])
+  @@index([sessionId, seq])
+  @@index([companyId, sessionId])
 }
 
 // ─── Communication / Inbox Models ─────────────────────────────────────────────

@@ -89,6 +89,8 @@ export interface WorkItemInput {
   readonly filesChangedCount?: number | null;
 
   // ── Agent identity + timing (the "which agent / how long" signals) ──
+  /** The latest execution session's id — the cursor for its live agent-output stream. */
+  readonly sessionId?: string | null;
   /** Real adapter that ran the latest session: claude_code | codex | human. */
   readonly agentType?: string | null;
   /** When the latest session started running (drives the live elapsed timer). */
@@ -131,6 +133,8 @@ export interface WorkItemView {
   readonly branchName: string | null;
   readonly prNumber: number | null;
   readonly prUrl: string | null;
+  /** Latest execution session id — opens its live agent-output SSE stream (null when none). */
+  readonly sessionId: string | null;
   /** Which real agent is/was on this item (claude_code | codex | human). */
   readonly agentType: string | null;
   /** Latest session start — the live timer counts up from here while running. */
@@ -363,6 +367,7 @@ export function buildWorkItemView(input: WorkItemInput): WorkItemView {
     branchName: input.branchName ?? null,
     prNumber: input.prNumber ?? null,
     prUrl: input.prUrl ?? null,
+    sessionId: input.sessionId ?? null,
     agentType: input.agentType ?? null,
     startedAt: input.sessionStartedAt ?? null,
     completedAt: input.sessionCompletedAt ?? null,

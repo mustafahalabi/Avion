@@ -40,6 +40,10 @@ import {
   summarizePrePushBlock,
 } from "./repo-manager";
 import { claimNextSession, releaseSession } from "./session-claimer";
+import {
+  createSessionLogStreamer,
+  type SessionLogStreamer,
+} from "./session-log-streamer";
 import { validateConfig, WORKER_CONFIG } from "./worker-config";
 import { workerLogger } from "./worker-logger";
 
@@ -169,6 +173,7 @@ async function processSession(sessionId: string): Promise<void> {
   }
 
   let cleanup: (() => Promise<void>) | null = null;
+  let streamer: SessionLogStreamer | null = null;
   const startTime = Date.now();
 
   try {
@@ -191,12 +196,20 @@ async function processSession(sessionId: string): Promise<void> {
       `Running ${adapter.agentType} agent (permission: ${permissionLevel}, timeout: ${WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS}s)`
     );
 
+    // Live-output sink (best-effort): buffers the agent's stream events and
+    // persists them for the UI to tail. It never throws or blocks the run.
+    streamer = createSessionLogStreamer({
+      sessionId: fullSession.id,
+      companyId: fullSession.companyId,
+    });
+
     const result = await adapter.run(fullSession.taskBrief, {
       repositoryPath: checkout.path,
       branchName: fullSession.branchName ?? "main",
       permissionLevel,
       timeoutSeconds: WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS,
       sessionId: fullSession.id,
+      onStream: streamer.handler,
     });
 
     const durationMs = Date.now() - startTime;
@@ -403,6 +416,11 @@ async function processSession(sessionId: string): Promise<void> {
     workerLogger.error(`Session ${fullSession.id} failed: ${message}`);
     await releaseSession(fullSession.id, "failed", message);
   } finally {
+    // Final best-effort flush of the live stream BEFORE tearing down the repo,
+    // while everything is still alive. stop() is non-throwing by contract.
+    if (streamer) {
+      await streamer.stop();
+    }
     if (cleanup) {
       await cleanup();
     }

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 
 import { getCurrentUser } from "@/lib/current-user";
@@ -57,27 +58,52 @@ export async function generatePlanningDraftForOutcome(
   });
   if (!company) return { message: "No company found." };
 
-  try {
-    const result = await createOrUpdatePlanningDraftForOutcome({
-      companyId: company.id,
-      outcomeId: parsed.data.outcomeId,
-      actorId: user.id,
-    });
+  const outcomeId = parsed.data.outcomeId;
 
-    revalidatePath("/inbox");
-    revalidatePath("/dashboard");
-    revalidatePath("/timeline");
-
+  // Generation runs a real planner (the AI provider shells out to the Claude CLI,
+  // which can take tens of seconds). Doing it inline froze the "Generating…"
+  // button for the whole call. Instead: verify we can generate, mark the outcome
+  // "planning" so the page shows a live progress state, then run the actual
+  // generation AFTER the response (never blocking the request). The outcome page
+  // auto-refreshes and shows the draft the moment it lands.
+  const latest = await prisma.planningDraft.findFirst({
+    where: { companyId: company.id, outcomeId },
+    orderBy: { version: "desc" },
+    select: { status: true },
+  });
+  const canGenerate =
+    !latest || latest.status === "failed" || latest.status === "rejected";
+  if (!canGenerate) {
     return {
-      message: result.message,
-      planningDraftId: result.planningDraftId,
-      status: result.status,
-    };
-  } catch (error: unknown) {
-    return {
-      message: error instanceof Error ? error.message : "Unable to generate planning draft.",
+      message: "A planning draft already exists for this outcome.",
+      status: latest?.status,
     };
   }
+
+  // Mark in-progress synchronously so the page renders the "Generating…" state
+  // (and hides the trigger, preventing a duplicate run) on the very next render.
+  await prisma.outcome.updateMany({
+    where: { id: outcomeId, companyId: company.id },
+    data: { status: "planning" },
+  });
+  revalidatePath(`/work/outcomes/${outcomeId}`);
+  revalidatePath("/inbox");
+  revalidatePath("/timeline");
+
+  const companyId = company.id;
+  const actorId = user.id;
+  after(async () => {
+    try {
+      await createOrUpdatePlanningDraftForOutcome({ companyId, outcomeId, actorId });
+    } catch {
+      // The service persists its own failed-draft + status on generation errors;
+      // this guard only catches an unexpected throw so the after() task never
+      // surfaces an unhandled rejection. A stuck "planning" outcome is recoverable
+      // via the driver's planning tick or a manual retry.
+    }
+  });
+
+  return { message: "Generating your plan…", status: "planning" };
 }
 
 // ─── Approve planning draft ───────────────────────────────────────────────────

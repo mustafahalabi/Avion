@@ -12,6 +12,8 @@ import {
   parseResultSummary,
   parseValidationOutput,
 } from "./agent-output-parser";
+import { createLineEmitter } from "./stream-lines";
+import type { AgentStreamEventInput } from "@/lib/agent-stream/types";
 
 // Re-export the shared stdout parsers so existing importers keep working —
 // the parsing now lives in agent-output-parser.ts, shared by every adapter.
@@ -77,18 +79,40 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let child: ChildProcessWithoutNullStreams | undefined;
 
+    const onStream = context.onStream;
+    // Best-effort live-output sink. A throwing handler is swallowed so streaming
+    // can never break the run or alter the returned result.
+    const emit = (event: AgentStreamEventInput): void => {
+      try {
+        onStream?.(event);
+      } catch {
+        // Ignored — streaming is best-effort and must never affect execution.
+      }
+    };
+    // Reassemble chunked stdout/stderr into complete lines for the live stream,
+    // WITHOUT disturbing the full buffered capture the stdout parsers depend on.
+    const stdoutLines = createLineEmitter((line) =>
+      emit({ type: "text", label: line, detail: line, atMs: Date.now() - startTime })
+    );
+    const stderrLines = createLineEmitter((line) =>
+      emit({ type: "stderr", label: line, detail: line, atMs: Date.now() - startTime })
+    );
+
     try {
       child = spawn("claude", ["-p", "--permission-mode", mode], {
         cwd: context.repositoryPath,
         stdio: ["pipe", "pipe", "pipe"],
       });
+      emit({ type: "status", label: "Agent started", detail: this.agentType, atMs: 0 });
 
       child.stdout.on("data", (chunk: Buffer) => {
         stdout += chunk.toString();
+        stdoutLines.push(chunk.toString());
       });
 
       child.stderr.on("data", (chunk: Buffer) => {
         stderr += chunk.toString();
+        stderrLines.push(chunk.toString());
       });
 
       exitCode = await new Promise<number>((resolve) => {
@@ -147,6 +171,18 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
     const filesChanged = fromGit.length > 0 ? fromGit : parseFilesChanged(stdout);
     const validationOutput = parseValidationOutput(stdout);
     const success = exitCode === 0 && !timedOut && !spawnError;
+
+    // Drain any trailing partial line, then mark the run's lifecycle end. This
+    // runs after the process has settled and `success` is known; the buffered
+    // result above is already computed and unaffected.
+    stdoutLines.flush();
+    stderrLines.flush();
+    emit({
+      type: "status",
+      label: success ? "Agent finished" : "Agent stopped",
+      detail: `exit ${exitCode}`,
+      atMs: durationMs,
+    });
 
     return {
       exitCode,
