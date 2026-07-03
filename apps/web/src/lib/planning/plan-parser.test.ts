@@ -187,6 +187,40 @@ describe("parseAiPlanningDraft", () => {
     }
   });
 
+  it("preserves an explicit task kind emitted by the model", () => {
+    const draft = validDraftObject();
+    const payload = {
+      ...draft,
+      generatedTasks: [{ ...draft.generatedTasks[0], kind: "implementation" }],
+    };
+
+    const result = parseAiPlanningDraft(JSON.stringify(payload));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.draft.generatedTasks[0].kind).toBe("implementation");
+    }
+  });
+
+  it("tolerates a task with no kind (backfilled downstream)", () => {
+    // The fixture task omits kind; it must still parse so older AI outputs are valid.
+    const result = parseAiPlanningDraft(JSON.stringify(validDraftObject()));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.draft.generatedTasks[0].kind).toBeUndefined();
+    }
+  });
+
+  it("rejects an invalid task kind value", () => {
+    const draft = validDraftObject();
+    const payload = {
+      ...draft,
+      generatedTasks: [{ ...draft.generatedTasks[0], kind: "documentation" }],
+    };
+
+    const result = parseAiPlanningDraft(JSON.stringify(payload));
+    expect(result.ok).toBe(false);
+  });
+
   it("defaults omitted nullable employee fields to null", () => {
     const draft = validDraftObject();
     const taskWithoutEmployee = { ...draft.generatedTasks[0] } as Record<

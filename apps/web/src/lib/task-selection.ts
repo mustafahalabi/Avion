@@ -1,4 +1,4 @@
-import type { GeneratedPlanningTask } from "@/lib/planning-generator";
+import type { GeneratedPlanningTask, PlanningTaskKind } from "@/lib/planning-generator";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 
 export const TASK_PRIORITIES = ["urgent", "high", "medium", "low"] as const;
@@ -59,6 +59,12 @@ export interface GeneratedTaskMetadata {
   readonly planItemId: string;
   readonly dependencies: readonly string[];
   readonly estimatedExecutionOrder: number;
+  /**
+   * The task's kind. `analysis` tasks never become executable Task rows, so a
+   * dependency on one is non-blocking — its deliverable (plan content) exists the
+   * moment the plan is applied. Absent kind is treated as `implementation`.
+   */
+  readonly kind: PlanningTaskKind;
 }
 
 export interface SelectedExecutableTask {
@@ -114,6 +120,7 @@ export function parseGeneratedTaskMetadata(
         planItemId: item.planItemId,
         dependencies: item.dependencies ?? [],
         estimatedExecutionOrder: item.estimatedExecutionOrder ?? Number.MAX_SAFE_INTEGER,
+        kind: item.kind === "analysis" ? "analysis" : "implementation",
       });
     }
   } catch {
@@ -185,7 +192,12 @@ export function isSelectableCandidate(candidate: TaskSelectionCandidate): boolea
  *
  * @param dependencies - Deterministic plan item IDs that must be complete first
  * @param completedPlanItemIds - Plan item IDs whose linked tasks are done
- * @returns True when every dependency is present in the completed set
+ * @param nonBlockingPlanItemIds - Plan item IDs that never block selection because
+ *   they will never become a completable task (e.g. `analysis` tasks, which are not
+ *   turned into executable rows). A dependency on one is satisfied the moment the
+ *   plan is applied, so the delivery task is not stranded waiting on a task that
+ *   will never run. Defaults to empty (all dependencies must be completed).
+ * @returns True when every dependency is completed or non-blocking
  * @example
  * ```ts
  * const ready = areDependenciesSatisfied(
@@ -196,14 +208,21 @@ export function isSelectableCandidate(candidate: TaskSelectionCandidate): boolea
  */
 export function areDependenciesSatisfied(
   dependencies: readonly string[],
-  completedPlanItemIds: ReadonlySet<string>
+  completedPlanItemIds: ReadonlySet<string>,
+  nonBlockingPlanItemIds: ReadonlySet<string> = EMPTY_PLAN_ITEM_SET
 ): boolean {
   if (dependencies.length === 0) {
     return true;
   }
 
-  return dependencies.every((dependency) => completedPlanItemIds.has(dependency));
+  return dependencies.every(
+    (dependency) =>
+      completedPlanItemIds.has(dependency) || nonBlockingPlanItemIds.has(dependency)
+  );
 }
+
+/** Shared empty set so the default {@link areDependenciesSatisfied} arg allocates nothing. */
+const EMPTY_PLAN_ITEM_SET: ReadonlySet<string> = new Set<string>();
 
 /**
  * Selects the next executable task from in-memory candidates.
@@ -254,12 +273,26 @@ export function selectNextExecutableTask(
     };
   }
 
+  // Analysis tasks are never created as executable rows, so a dependency on one can
+  // never be "completed" — treat those deps as non-blocking or the delivery task
+  // (which depends on the plan's design tasks) would never be selectable.
+  const nonBlockingPlanItemIds = new Set<string>();
+  for (const [planItemId, metadata] of generatedTaskMetadata) {
+    if (metadata.kind === "analysis") {
+      nonBlockingPlanItemIds.add(planItemId);
+    }
+  }
+
   const readyTasks = executableByStatus.filter((candidate) => {
     const metadata = candidate.planItemId
       ? generatedTaskMetadata.get(candidate.planItemId)
       : undefined;
     const dependencies = metadata?.dependencies ?? [];
-    return areDependenciesSatisfied(dependencies, completedPlanItemIds);
+    return areDependenciesSatisfied(
+      dependencies,
+      completedPlanItemIds,
+      nonBlockingPlanItemIds
+    );
   });
 
   if (readyTasks.length === 0) {

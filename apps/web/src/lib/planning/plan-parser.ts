@@ -67,6 +67,10 @@ const taskSchema = z.object({
   qaImpact: z.string(),
   estimatedExecutionOrder: z.number(),
   estimatePoints: z.number(),
+  // Preserved when the model tags it so the AI's explicit implementation/analysis
+  // decision is authoritative; when absent, planning-draft-service backfills it with
+  // the conservative role classifier. Optional keeps older AI outputs valid.
+  kind: z.enum(["implementation", "analysis"]).optional(),
 });
 
 const assignmentSchema = z.object({

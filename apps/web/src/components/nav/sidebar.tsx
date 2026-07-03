@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   PackageCheck,
   Link2,
+  FolderGit2,
 } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
 import { useLiveNotifications } from "@/components/notifications/live-notifications-provider";
@@ -38,34 +39,41 @@ type NavSection = {
 // surface, and every destination is one click away — no hide-everything
 // collapse. Routes were consolidated: `/board` + `/work/board` → Mission
 // Control; `/dashboard` → Home (`/control-center`); `/notifications` lives in
-// the bottom rail; duplicate entity routes were removed.
-const NAV_SECTIONS: NavSection[] = [
-  {
-    items: [
-      { label: "Chat", href: "/chat", icon: MessageSquare },
-      { label: "Mission Control", href: "/work/live", icon: Radio },
-      { label: "Home", href: "/control-center", icon: LayoutDashboard },
-    ],
-  },
-  {
-    label: "Work",
-    items: [
-      { label: "Outcomes", href: "/work/outcomes", icon: Target },
-      { label: "All work", href: "/work", icon: Layers },
-      { label: "Reviews & QA", href: "/work/quality", icon: ShieldCheck },
-      { label: "Releases", href: "/work/releases", icon: PackageCheck },
-    ],
-  },
-  {
-    label: "Company",
-    items: [
-      { label: "Needs You", href: "/inbox", icon: Inbox },
-      { label: "Company", href: "/company", icon: Building2 },
-      { label: "Timeline", href: "/timeline", icon: TrendingUp },
-      { label: "Memory", href: "/memory", icon: BookOpen },
-    ],
-  },
-];
+// the bottom rail.
+//
+// `repositoriesHref` is workspace-scoped (`/w/<slug>/repositories`) so Repositories
+// — where a repo's intelligence AND its Live Preview live — is reachable from the
+// nav and lights up as active on its detail pages.
+function buildNavSections(repositoriesHref: string): NavSection[] {
+  return [
+    {
+      items: [
+        { label: "Chat", href: "/chat", icon: MessageSquare },
+        { label: "Mission Control", href: "/work/live", icon: Radio },
+        { label: "Home", href: "/control-center", icon: LayoutDashboard },
+      ],
+    },
+    {
+      label: "Work",
+      items: [
+        { label: "Outcomes", href: "/work/outcomes", icon: Target },
+        { label: "All work", href: "/work", icon: Layers },
+        { label: "Repositories", href: repositoriesHref, icon: FolderGit2 },
+        { label: "Reviews & QA", href: "/work/quality", icon: ShieldCheck },
+        { label: "Releases", href: "/work/releases", icon: PackageCheck },
+      ],
+    },
+    {
+      label: "Company",
+      items: [
+        { label: "Needs You", href: "/inbox", icon: Inbox },
+        { label: "Company", href: "/company", icon: Building2 },
+        { label: "Timeline", href: "/timeline", icon: TrendingUp },
+        { label: "Memory", href: "/memory", icon: BookOpen },
+      ],
+    },
+  ];
+}
 
 const bottomNavItems: readonly NavItemDef[] = [
   { label: "Connections", href: "/connections", icon: Link2 },
@@ -117,6 +125,17 @@ export function Sidebar({
   const pathname = usePathname();
   const liveNotifications = useLiveNotifications();
 
+  // Point "Repositories" at the active workspace's list (falling back to the
+  // first workspace, then the legacy redirect route) so the link — and its
+  // active highlight on `/w/<slug>/repositories/*` — resolve correctly.
+  const activeSlug =
+    workspaces.find((w) => w.id === activeWorkspaceId)?.slug ??
+    workspaces[0]?.slug;
+  const repositoriesHref = activeSlug
+    ? `/w/${activeSlug}/repositories`
+    : "/work/repositories";
+  const navSections = buildNavSections(repositoriesHref);
+
   // Prefer the live unread count so the bell badge updates without a page load;
   // fall back to the SSR-seeded badge before the stream connects.
   const effectiveBadges: Record<string, number> = liveNotifications
@@ -166,7 +185,7 @@ export function Sidebar({
 
       {/* Navigation — flat, all destinations visible */}
       <nav className="flex flex-1 flex-col gap-0.5 p-3 pt-2">
-        {NAV_SECTIONS.map((section, sIdx) => (
+        {navSections.map((section, sIdx) => (
           <div key={sIdx} className="flex flex-col gap-0.5">
             {section.label && <div className="av-nav-group">{section.label}</div>}
             {section.items.map(({ label, href, icon }) => (

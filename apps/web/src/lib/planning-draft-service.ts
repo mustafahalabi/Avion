@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { getLatestRepositoryChangeIntelligence } from "@/lib/repository-change-intelligence";
 import {
+  classifyTaskKind,
   parseJsonStringArray,
   type DeterministicPlanningDraft,
+  type GeneratedPlanningTask,
   type PlanningGenerationFailure,
   type PlanningGenerationResult,
   type PlanningProvenance,
@@ -317,6 +319,19 @@ async function persistSuccessfulGeneration(
     provenanceBadge.detail ? `: ${provenanceBadge.detail}` : ""
   }]`;
 
+  // Stamp a task kind on every generated task before persistence so the stored
+  // plan JSON is the single source of truth for which tasks are implementation vs
+  // analysis. The deterministic generator already sets `kind`; an AI draft may not,
+  // so fall back to the conservative role classifier. plan-application (which tasks
+  // become rows) and task-selection (which dependencies block) both read this.
+  const normalizedGeneratedTasks: GeneratedPlanningTask[] = draft.generatedTasks.map(
+    (task) => ({
+      ...task,
+      kind: task.kind ?? classifyTaskKind(task.recommendedRole),
+    })
+  );
+  const generatedTasksJson = JSON.stringify(normalizedGeneratedTasks);
+
   const planningDraft = await prisma.$transaction(async (tx) => {
     const persistedDraft = await tx.planningDraft.upsert({
       where: {
@@ -344,7 +359,7 @@ async function persistSuccessfulGeneration(
         recommendedAssignments: JSON.stringify(draft.recommendedAssignments),
         generatedProjects: JSON.stringify(draft.generatedProjects),
         generatedFeatures: JSON.stringify(draft.generatedFeatures),
-        generatedTasks: JSON.stringify(draft.generatedTasks),
+        generatedTasks: generatedTasksJson,
         reviewPlan: JSON.stringify(draft.reviewPlan),
         qaPlan: JSON.stringify(draft.qaPlan),
         releasePlan: JSON.stringify(draft.releasePlan),
@@ -361,7 +376,7 @@ async function persistSuccessfulGeneration(
         recommendedAssignments: JSON.stringify(draft.recommendedAssignments),
         generatedProjects: JSON.stringify(draft.generatedProjects),
         generatedFeatures: JSON.stringify(draft.generatedFeatures),
-        generatedTasks: JSON.stringify(draft.generatedTasks),
+        generatedTasks: generatedTasksJson,
         reviewPlan: JSON.stringify(draft.reviewPlan),
         qaPlan: JSON.stringify(draft.qaPlan),
         releasePlan: JSON.stringify(draft.releasePlan),

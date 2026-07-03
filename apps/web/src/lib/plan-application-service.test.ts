@@ -384,6 +384,155 @@ describe("applyApprovedPlan", () => {
     expect(result.tasksUpdated).toBe(0);
   });
 
+  it("does not create Task rows for analysis-kind planning tasks", async () => {
+    // A plan with one implementation task and two analysis tasks (one explicitly
+    // tagged, one inferred from a non-authoring role). Only the implementation task
+    // should become an executable row — the analysis steps live in the plan, no PR.
+    const mixedTasks = JSON.stringify([
+      {
+        planItemId: "task:impl",
+        featurePlanItemId: "feature:f1",
+        title: "Implement the endpoint",
+        description: "Build the real change",
+        recommendedRole: "Backend Engineer",
+        recommendedEmployeeId: null,
+        recommendedEmployeeName: null,
+        dependencies: ["task:design"],
+        acceptanceCriteria: ["Endpoint returns JSON"],
+        definitionOfDone: [],
+        requiredContext: [],
+        reviewRequirements: [],
+        qaImpact: "high",
+        estimatedExecutionOrder: 2,
+        estimatePoints: 3,
+        kind: "implementation",
+      },
+      {
+        planItemId: "task:design",
+        featurePlanItemId: "feature:f1",
+        title: "Design user workflow and UI states",
+        description: "Design the workflow",
+        recommendedRole: "Frontend Engineer",
+        recommendedEmployeeId: null,
+        recommendedEmployeeName: null,
+        dependencies: [],
+        acceptanceCriteria: ["Workflow documented"],
+        definitionOfDone: [],
+        requiredContext: [],
+        reviewRequirements: [],
+        qaImpact: "low",
+        estimatedExecutionOrder: 1,
+        estimatePoints: 2,
+        kind: "analysis",
+      },
+      {
+        planItemId: "task:qa-plan",
+        featurePlanItemId: "feature:f1",
+        title: "Create QA and release verification plan",
+        description: "Plan QA",
+        recommendedRole: "QA Engineer",
+        recommendedEmployeeId: null,
+        recommendedEmployeeName: null,
+        dependencies: ["task:impl"],
+        acceptanceCriteria: ["QA plan exists"],
+        definitionOfDone: [],
+        requiredContext: [],
+        reviewRequirements: [],
+        qaImpact: "low",
+        estimatedExecutionOrder: 3,
+        estimatePoints: 2,
+      },
+    ]);
+    await prisma.planningDraft.create({
+      data: makeDraftData({
+        id: "draft-mixed",
+        status: "approved",
+        approvedAt: new Date(),
+        approvedById: "user-1",
+        generatedProjects: GENERATED_PROJECTS,
+        generatedFeatures: GENERATED_FEATURES,
+        generatedTasks: mixedTasks,
+      }),
+    });
+
+    const result = await service.applyApprovedPlan({
+      companyId: "company-1",
+      planningDraftId: "draft-mixed",
+      actorId: "user-1",
+    });
+
+    expect(result.tasksCreated).toBe(1);
+
+    const tasks = await prisma.task.findMany({
+      where: { planningDraftId: "draft-mixed" },
+      select: { planItemId: true },
+    });
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.planItemId).toBe("task:impl");
+  });
+
+  it("creates all tasks when a plan has no implementation task (never stalls the outcome)", async () => {
+    // Pathological plan: every task is analysis. Skipping them all would create zero
+    // executable work and silently stall the outcome, so the safety net keeps them.
+    const allAnalysis = JSON.stringify([
+      {
+        planItemId: "task:a1",
+        featurePlanItemId: "feature:f1",
+        title: "Write outcome brief",
+        description: "Write the brief",
+        recommendedRole: "Product Manager",
+        recommendedEmployeeId: null,
+        recommendedEmployeeName: null,
+        dependencies: [],
+        acceptanceCriteria: ["Brief exists"],
+        definitionOfDone: [],
+        requiredContext: [],
+        reviewRequirements: [],
+        qaImpact: "low",
+        estimatedExecutionOrder: 1,
+        estimatePoints: 2,
+        kind: "analysis",
+      },
+      {
+        planItemId: "task:a2",
+        featurePlanItemId: "feature:f1",
+        title: "Create QA plan",
+        description: "Plan QA",
+        recommendedRole: "QA Engineer",
+        recommendedEmployeeId: null,
+        recommendedEmployeeName: null,
+        dependencies: [],
+        acceptanceCriteria: ["QA plan exists"],
+        definitionOfDone: [],
+        requiredContext: [],
+        reviewRequirements: [],
+        qaImpact: "low",
+        estimatedExecutionOrder: 2,
+        estimatePoints: 2,
+        kind: "analysis",
+      },
+    ]);
+    await prisma.planningDraft.create({
+      data: makeDraftData({
+        id: "draft-all-analysis",
+        status: "approved",
+        approvedAt: new Date(),
+        approvedById: "user-1",
+        generatedProjects: GENERATED_PROJECTS,
+        generatedFeatures: GENERATED_FEATURES,
+        generatedTasks: allAnalysis,
+      }),
+    });
+
+    const result = await service.applyApprovedPlan({
+      companyId: "company-1",
+      planningDraftId: "draft-all-analysis",
+      actorId: "user-1",
+    });
+
+    expect(result.tasksCreated).toBe(2);
+  });
+
   it("creates a default workspace when none exists", async () => {
     await seedApprovedDraft();
 
@@ -528,7 +677,7 @@ describe("applyApprovedPlan", () => {
     expect(entry).not.toBeNull();
     expect(entry?.summary).toContain("1 project(s)");
     expect(entry?.summary).toContain("1 feature(s)");
-    expect(entry?.summary).toContain("2 task(s)");
+    expect(entry?.summary).toContain("2 implementation task(s)");
   });
 
   it("is idempotent: re-applying updates rather than duplicates", async () => {

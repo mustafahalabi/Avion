@@ -6,6 +6,7 @@ import {
 } from "@/lib/outcome-planning";
 import { OUTCOME_PLANNING_EVENT_TYPES } from "@/lib/outcome-planning-lifecycle";
 import { ensureDefaultWorkspace } from "@/lib/workspace-service";
+import { classifyTaskKind } from "@/lib/planning-generator";
 import type {
   GeneratedPlanningProject,
   GeneratedPlanningFeature,
@@ -279,6 +280,7 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
     let featuresUpdated = 0;
     let tasksCreated = 0;
     let tasksUpdated = 0;
+    let tasksSkippedAnalysis = 0;
 
     // Map planItemId → DB record id for cross-linking
     const projectIdByPlanItemId = new Map<string, string>();
@@ -390,7 +392,28 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
     }
 
     // ── Tasks ────────────────────────────────────────────────────────────────
+    // Only implementation tasks become executable Task rows. Analysis/design/QA
+    // planning tasks are captured by the plan itself (scope, feature descriptions,
+    // review/QA plans), so creating rows for them would open a docs PR per planning
+    // step. Skipping them keeps the delivery loop to one implementation PR per outcome.
+    // Safety net: if a plan somehow has NO implementation task (e.g. an AI plan that
+    // put every task under a non-authoring role), fall back to creating all of them —
+    // a plan that produces zero executable work would silently stall the outcome,
+    // which is worse than a few documentation tasks.
+    const taskKind = (gt: GeneratedPlanningTask) =>
+      gt.kind ?? classifyTaskKind(gt.recommendedRole);
+    const planHasImplementationTask = generatedTasks.some(
+      (gt) => taskKind(gt) === "implementation"
+    );
+
     for (const gt of generatedTasks) {
+      // Dependency edges pointing at skipped analysis tasks are treated as
+      // non-blocking in task-selection, so the surviving delivery task is not stranded.
+      if (planHasImplementationTask && taskKind(gt) === "analysis") {
+        tasksSkippedAnalysis++;
+        continue;
+      }
+
       const featureId = featureIdByPlanItemId.get(gt.featurePlanItemId);
 
       const trace = buildGeneratedWorkTraceData({
@@ -459,7 +482,11 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
         entityType: "planning_draft",
         entityId: draft.id,
         eventType: OUTCOME_PLANNING_EVENT_TYPES.workCreated,
-        summary: `Work created from approved plan: ${projectsCreated} project(s), ${featuresCreated} feature(s), ${tasksCreated} task(s).`,
+        summary: `Work created from approved plan: ${projectsCreated} project(s), ${featuresCreated} feature(s), ${tasksCreated} implementation task(s)${
+          tasksSkippedAnalysis > 0
+            ? ` (${tasksSkippedAnalysis} planning/analysis step(s) captured in the plan, no PR)`
+            : ""
+        }.`,
         actorId: input.actorId,
         metadata: JSON.stringify({
           planningDraftId: draft.id,
@@ -469,6 +496,7 @@ export async function applyApprovedPlan(input: ApplyPlanInput): Promise<ApplyPla
           featuresUpdated,
           tasksCreated,
           tasksUpdated,
+          tasksSkippedAnalysis,
         }),
       },
     });

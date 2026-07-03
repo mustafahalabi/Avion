@@ -94,6 +94,20 @@ describe("task-selection", () => {
     it("returns an empty map for invalid JSON", () => {
       expect(parseGeneratedTaskMetadata("not-json").size).toBe(0);
     });
+
+    it("parses the task kind, defaulting an absent kind to implementation", () => {
+      const metadata = parseGeneratedTaskMetadata(
+        JSON.stringify([
+          { planItemId: "task:design", kind: "analysis", dependencies: [] },
+          { planItemId: "task:impl", kind: "implementation", dependencies: [] },
+          { planItemId: "task:legacy", dependencies: [] },
+        ])
+      );
+
+      expect(metadata.get("task:design")?.kind).toBe("analysis");
+      expect(metadata.get("task:impl")?.kind).toBe("implementation");
+      expect(metadata.get("task:legacy")?.kind).toBe("implementation");
+    });
   });
 
   describe("guard helpers", () => {
@@ -161,6 +175,26 @@ describe("task-selection", () => {
       expect(areDependenciesSatisfied(["task:inspect-source-tree-model"], new Set())).toBe(
         false
       );
+    });
+
+    it("treats a non-blocking (analysis) dependency as satisfied even when uncompleted", () => {
+      expect(
+        areDependenciesSatisfied(
+          ["task:design-user-workflow"],
+          new Set(),
+          new Set(["task:design-user-workflow"])
+        )
+      ).toBe(true);
+    });
+
+    it("still blocks on an incomplete implementation dependency when others are non-blocking", () => {
+      expect(
+        areDependenciesSatisfied(
+          ["task:design-user-workflow", "task:build-core"],
+          new Set(),
+          new Set(["task:design-user-workflow"])
+        )
+      ).toBe(false);
     });
   });
 
@@ -309,6 +343,44 @@ describe("task-selection", () => {
 
       expect(result.task).toBeNull();
       expect(result.reasonCode).toBe("no_approved_plans");
+    });
+
+    it("selects the delivery task whose only dependencies are skipped analysis tasks", () => {
+      // Mirrors the general-engineering plan: the implementation task depends on the
+      // design tasks, which are `analysis` and were never created as rows. Without the
+      // non-blocking treatment this task would be stranded at all_blocked_by_dependencies.
+      const metadata = parseGeneratedTaskMetadata(
+        JSON.stringify([
+          {
+            planItemId: "task:design-user-workflow",
+            kind: "analysis",
+            dependencies: ["task:map-code-touchpoints"],
+            estimatedExecutionOrder: 4,
+          },
+          {
+            planItemId: "task:implement-outcome",
+            kind: "implementation",
+            dependencies: ["task:design-user-workflow"],
+            estimatedExecutionOrder: 5,
+          },
+        ])
+      );
+
+      const result = selectNextExecutableTask(
+        [
+          {
+            ...BASE_CANDIDATE,
+            id: "task-impl",
+            title: "Implement the requested change",
+            planItemId: "task:implement-outcome",
+          },
+        ],
+        new Set(),
+        metadata
+      );
+
+      expect(result.reasonCode).toBe("selected");
+      expect(result.task?.id).toBe("task-impl");
     });
 
     it("returns a clear reason when no approved or applied plan tasks exist", () => {
