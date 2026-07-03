@@ -58,6 +58,7 @@ model Company {
   repositoryAnalysisSnapshots RepositoryAnalysisSnapshot[]
   providerConnections         ProviderConnection[]
   healthSnapshots             CompanyHealthSnapshot[]
+  previewSessions             PreviewSession[]
 }
 
 model Department {
@@ -147,9 +148,10 @@ model Workspace {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  projects     Project[]
-  repositories Repository[]
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  projects        Project[]
+  repositories    Repository[]
+  previewSessions PreviewSession[]
 
   @@unique([companyId, slug])
   @@unique([companyId, id])
@@ -179,6 +181,7 @@ model Repository {
   executionSessions ExecutionSession[]
   outcomes          Outcome[]
   projects          Project[]
+  previewSessions   PreviewSession[]
 }
 
 model RepositoryAnalysisSnapshot {
@@ -214,6 +217,58 @@ model RepositoryAnalysisSnapshot {
 
   @@index([repositoryId, createdAt])
   @@index([companyId, createdAt])
+}
+
+// ─── Live Preview ─────────────────────────────────────────────────────────────
+// Durable state AND the intent channel between the web app and the out-of-process
+// `pnpm preview` service (which polls this table, claims `queued` rows, and runs
+// the repo's dev server on the host). LOCAL-DEV ONLY — see docs. `status` is what
+// the service observes/produces; `desiredState` is what the web app wants, and the
+// service reconciles toward it (Stop just sets `desiredState = "stopped"`).
+model PreviewSession {
+  id           String @id @default(cuid())
+  companyId    String
+  workspaceId  String
+  repositoryId String
+
+  // "queued" | "starting" | "installing" | "running" | "stopping" | "stopped" | "failed" | "crashed"
+  status       String @default("queued")
+  // "running" | "stopped" — the web app's intent; the service reconciles toward it.
+  desiredState String @default("running")
+
+  // ── Resolved run parameters (filled by the service) ───────────────────────
+  branch         String? // resolved default branch actually checked out
+  packageManager String? // "pnpm" | "yarn" | "npm" | "bun"
+  command        String? // dev command actually run, e.g. "pnpm run dev -- -p 4100"
+  port           Int?
+  previewUrl     String? // http://127.0.0.1:<port>
+  pid            Int? // child shell pid; killed as a process GROUP
+  claimedByHost  String? // hostname:pid of the service instance that owns the child
+
+  // ── Secrets & logs ────────────────────────────────────────────────────────
+  // Encrypted (credentials-crypto) KEY=VALUE map applied at startup. Never
+  // plaintext, never returned to the client.
+  envVars      String?
+  // Capped, tail-truncated combined stdout/stderr of the dev server.
+  logs         String  @default("")
+  errorMessage String?
+
+  // ── Lifecycle timestamps ──────────────────────────────────────────────────
+  startedAt       DateTime? // when claimed
+  readyAt         DateTime? // when the dev server was spawned / reported ready
+  stoppedAt       DateTime?
+  lastHeartbeatAt DateTime? // service touches this while the child is alive
+  expiresAt       DateTime? // max-lifetime auto-stop
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workspace  Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([repositoryId])
+  @@index([status])
 }
 
 model Project {

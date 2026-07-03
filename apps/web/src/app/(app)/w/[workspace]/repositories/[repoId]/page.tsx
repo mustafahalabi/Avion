@@ -6,6 +6,10 @@ import { getRepositoryValidationView } from "@/lib/repository-validation-service
 import { analyzeRepositoryFromGitHub } from "@/app/actions/repository";
 import { RepositoryIntelligenceDashboard } from "@/components/repositories/repository-intelligence-dashboard";
 import { RepositoryValidationPanel } from "@/components/repositories/repository-validation-panel";
+import { AnalysisAutoRefresh } from "@/components/repositories/analysis-auto-refresh";
+import { PreviewPanel } from "@/components/repositories/preview-panel";
+import { getLatestPreviewForRepository } from "@/app/actions/preview";
+import { isPreviewEnabled } from "@/worker/preview-config";
 import {
   RepositoryTabs,
   type RepositoryTab,
@@ -23,6 +27,7 @@ import {
   ExternalLink,
   FileCode,
   LayoutGrid,
+  MonitorPlay,
   RefreshCw,
   Route,
   ShieldCheck,
@@ -91,6 +96,8 @@ export default async function WorkspaceRepositoryDetailPage({ params }: Props) {
     repositoryId: repo.id,
     companyId: company.id,
   });
+  const latestPreview = await getLatestPreviewForRepository(repo.id);
+  const previewEnabled = isPreviewEnabled();
   const comparison = changeIntelligence.comparison;
   const impact = changeIntelligence.impact;
   const comparisonResult = comparison && !("error" in comparison) ? comparison : null;
@@ -234,7 +241,7 @@ export default async function WorkspaceRepositoryDetailPage({ params }: Props) {
             </p>
             <p className="mt-1 truncate text-xs text-neutral-500">
               {repo.url
-                ? `Clones ${repo.url} and analyzes its code.`
+                ? "Runs automatically on connect. Re-run to refresh intelligence."
                 : "Add a repository URL to enable analysis."}
             </p>
           </div>
@@ -244,7 +251,7 @@ export default async function WorkspaceRepositoryDetailPage({ params }: Props) {
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 px-4 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw className="h-4 w-4" />
-            Analyze
+            {repo.analysisStatus === "complete" ? "Re-analyze" : "Analyze"}
           </button>
         </div>
       </form>
@@ -347,6 +354,18 @@ export default async function WorkspaceRepositoryDetailPage({ params }: Props) {
       content: overviewContent,
     },
   ];
+  tabs.push({
+    id: "preview",
+    label: "Preview",
+    icon: <MonitorPlay className={tabIconClass} />,
+    content: (
+      <PreviewPanel
+        repositoryId={repo.id}
+        initial={latestPreview}
+        enabled={previewEnabled}
+      />
+    ),
+  });
   if (intelligenceView) {
     tabs.push({
       id: "intelligence",
@@ -372,6 +391,7 @@ export default async function WorkspaceRepositoryDetailPage({ params }: Props) {
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
+      <AnalysisAutoRefresh status={repo.analysisStatus} />
       <header className="flex h-12 items-center border-b border-neutral-800 px-6">
         <Breadcrumbs
           items={[

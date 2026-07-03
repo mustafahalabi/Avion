@@ -5,16 +5,13 @@ import { getCurrentUser } from "@/lib/current-user";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
+import { after } from "next/server";
 import {
   ACTIVE_WORKSPACE_COOKIE,
   ACTIVE_WORKSPACE_COOKIE_MAX_AGE,
 } from "@/lib/active-workspace-constants";
 import { createRepositoryRecord, csvToArray } from "@/lib/repository-write";
-import { getGitHubConnectionStatus } from "@/lib/github-connection-service";
-import {
-  cloneRepositoryToTempDir,
-  type RepositoryCloneResult,
-} from "@/lib/repository-clone";
+import { runRepositoryAnalysis } from "@/lib/repository-analysis-runner";
 
 const addRepositorySchema = z.object({
   name: z.string().min(1).max(200).trim(),
@@ -102,6 +99,14 @@ export async function addRepository(
     importantFiles: csvToArray(parsed.data.importantFiles),
   });
 
+  // Kick off analysis automatically on connect. `after()` runs the clone +
+  // analysis after the response is sent (same Node process under next
+  // dev/start), so the redirect below isn't blocked by the clone. The repo
+  // page auto-refreshes while `analysisStatus` is pending/analyzing.
+  if (repo.url) {
+    after(() => runRepositoryAnalysis({ repositoryId: repo.id, companyId: company.id }));
+  }
+
   // Select the new repo's workspace (so the sidebar switcher reflects it) and
   // navigate straight to the repo inside its workspace.
   const workspace = await prisma.workspace.findUnique({
@@ -131,10 +136,9 @@ export async function addRepository(
 /**
  * Analyzes a repository straight from its GitHub URL — no local path required.
  *
- * Clones the repository (using the company's stored GitHub token for private
- * repos) into a temp directory, runs the analyzer against that checkout, then
- * deletes it. Clone failures are recorded on the repository so they surface in
- * the same "analysis notes" area as analyzer failures.
+ * Thin wrapper over the shared `runRepositoryAnalysis` core (which clones into a
+ * controlled temp dir, runs the analyzer, and cleans up). This action is the
+ * manual "Analyze" button; the same core also runs automatically on connect.
  */
 export async function analyzeRepositoryFromGitHub(
   _prev: RepositoryAnalysisActionState,
@@ -146,53 +150,24 @@ export async function analyzeRepositoryFromGitHub(
   const repositoryId = String(formData.get("repositoryId") ?? "");
   if (!repositoryId) return { message: "Repository id is required." };
 
-  const repository = await prisma.repository.findFirst({
-    where: { id: repositoryId, workspace: { companyId: company.id } },
-    select: { id: true, url: true },
+  const result = await runRepositoryAnalysis({
+    repositoryId,
+    companyId: company.id,
   });
-  if (!repository) return { message: "Repository not found." };
-  if (!repository.url) {
+
+  // Preserve the friendlier manual-button message for the no-URL case.
+  if (result.status === "skipped") {
     return {
       message: "This repository has no URL. Add a GitHub URL before analyzing.",
+      status: result.status,
     };
   }
 
-  const status = await getGitHubConnectionStatus(company.id);
-  const token = status.raw?.tokens.accessToken ?? null;
-
-  let clone: RepositoryCloneResult | null = null;
-  try {
-    clone = await cloneRepositoryToTempDir({ url: repository.url, token });
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to clone repository.";
-    await prisma.repository.update({
-      where: { id: repositoryId },
-      data: { analysisStatus: "failed", analysisNotes: message },
-    });
-    return { message, status: "failed" };
-  }
-
-  try {
-    const { createRepositoryAnalysisSnapshot } = await import(
-      "@/lib/repository-snapshot-service"
-    );
-    const snapshot = await createRepositoryAnalysisSnapshot({
-      repositoryId,
-      companyId: company.id,
-      localPath: clone.path,
-    });
-    return {
-      message:
-        snapshot.status === "failed"
-          ? snapshot.error ?? "Repository analysis failed."
-          : "Repository analysis complete.",
-      snapshotId: snapshot.id,
-      status: snapshot.status,
-    };
-  } finally {
-    clone.cleanup();
-  }
+  return {
+    message: result.message,
+    snapshotId: result.snapshotId,
+    status: result.status,
+  };
 }
 
 export async function compareLatestRepositorySnapshots(

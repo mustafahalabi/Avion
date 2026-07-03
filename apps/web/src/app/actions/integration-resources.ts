@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 
 import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { runRepositoryAnalysis } from "@/lib/repository-analysis-runner";
 import {
   getProviderConnection,
   recordProviderConnectionError,
@@ -193,6 +195,11 @@ export async function importRepository(input: {
     description: input.description ?? null,
     primaryLanguage: input.primaryLanguage ?? null,
   });
+  // Auto-analyze newly imported repos (not the reused/idempotent path above).
+  // `after()` runs the clone + analysis once the response is sent.
+  if (repo.url) {
+    after(() => runRepositoryAnalysis({ repositoryId: repo.id, companyId }));
+  }
   revalidateConnectionSurfaces();
   return { success: true, repositoryId: repo.id, reused: false };
 }

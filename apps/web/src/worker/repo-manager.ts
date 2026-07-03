@@ -190,6 +190,55 @@ export async function checkoutRepository(
   };
 }
 
+/** Result of a default-branch checkout used by the live preview service. */
+export interface DefaultBranchCheckoutResult extends RepoCheckoutResult {
+  /** The remote's default branch name (main/master/…) that was checked out. */
+  branch: string;
+}
+
+/**
+ * Clones a repository at its remote default branch into a scoped directory.
+ *
+ * Unlike {@link checkoutRepository}, this creates no session branch — a plain
+ * `git clone` already checks out the remote's default branch, so we just record
+ * which branch that is. The live preview runs the project exactly as it exists
+ * on the default branch. Reuses the hardened, non-interactive {@link runGit}.
+ *
+ * @param repo - Repository URL and optional encrypted credentials.
+ * @param baseDir - Parent directory for preview checkouts.
+ * @param id - Preview session id used as the checkout folder name.
+ * @returns Checkout path, resolved branch, base SHA, and a cleanup function.
+ */
+export async function checkoutDefaultBranch(
+  repo: CheckoutRepositoryInput,
+  baseDir: string,
+  id: string
+): Promise<DefaultBranchCheckoutResult> {
+  const cloneUrl = buildAuthenticatedCloneUrl(repo.url, repo.credentials);
+  const checkoutPath = path.join(baseDir, id);
+
+  fs.mkdirSync(checkoutPath, { recursive: true });
+
+  runGit(`git clone ${cloneUrl} .`, {
+    cwd: checkoutPath,
+    timeoutMs: GIT_NETWORK_TIMEOUT_MS,
+  });
+
+  const branch = runGit("git rev-parse --abbrev-ref HEAD", {
+    cwd: checkoutPath,
+    timeoutMs: GIT_LOCAL_TIMEOUT_MS,
+  }).trim();
+
+  return {
+    path: checkoutPath,
+    branch,
+    baseCommitSha: getHeadSha(checkoutPath),
+    cleanup: async () => {
+      fs.rmSync(checkoutPath, { recursive: true, force: true });
+    },
+  };
+}
+
 /**
  * Builds a deterministic commit message for agent-produced changes.
  *
