@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { PriorityBadge } from "@/components/ui/badge";
+import { PriorityBadge, AdapterBadge, adapterLabel } from "@/components/ui/badge";
+import { ElapsedTime } from "@/components/ui/elapsed-time";
 import { StatusDot, isTaskStatus } from "@/components/ui/status-indicator";
 import { TaskStatusSelect } from "./task-status-select";
 import { TaskBriefSection } from "./task-brief-section";
@@ -27,7 +28,7 @@ import { TaskRepositoryContextPanel } from "@/components/task-repository-context
 import { buildGithubWorkflowPhaseStates } from "@/lib/github-workflow-status";
 import {
   buildTaskRepositoryContext,
-  resolveTaskRepository,
+  pickTaskRepository,
 } from "@/lib/task-repository-context";
 
 interface Props {
@@ -77,43 +78,49 @@ export default async function TaskDetailPage({ params }: Props) {
   });
   if (!company) redirect("/onboarding");
 
+  // Leaf select for a repository row (matches TaskRepositoryRow). Reused for the
+  // project's explicit link and the workspace "first repo" fallback, on both the
+  // direct project AND the feature's project.
+  const repoFields = {
+    id: true,
+    name: true,
+    url: true,
+    primaryLanguage: true,
+    frameworks: true,
+    techStack: true,
+    importantFiles: true,
+    analysisStatus: true,
+  } as const;
+  const repoSourceSelect = {
+    repository: { select: repoFields },
+    workspace: {
+      select: {
+        repositories: {
+          take: 1,
+          orderBy: { updatedAt: "desc" as const },
+          select: repoFields,
+        },
+      },
+    },
+  };
+
   const task = await prisma.task.findFirst({
     where: { id, companyId: company.id },
     include: {
       assignee: {
         select: { id: true, name: true, role: { select: { name: true } } },
       },
+      // AI-planned tasks attach to a feature (no direct project), so the repo must
+      // also be resolvable via the feature's project — otherwise the panel wrongly
+      // reads "No repository attached" (see pickTaskRepository precedence).
       feature: {
         select: {
           id: true,
           title: true,
-          project: { select: { id: true, name: true } },
+          project: { select: { id: true, name: true, ...repoSourceSelect } },
         },
       },
-      project: {
-        select: {
-          id: true,
-          name: true,
-          workspace: {
-            select: {
-              repositories: {
-                take: 1,
-                orderBy: { updatedAt: "desc" },
-                select: {
-                  id: true,
-                  name: true,
-                  url: true,
-                  primaryLanguage: true,
-                  frameworks: true,
-                  techStack: true,
-                  importantFiles: true,
-                  analysisStatus: true,
-                },
-              },
-            },
-          },
-        },
-      },
+      project: { select: { id: true, name: true, ...repoSourceSelect } },
       planningDraft: { select: { generatedTasks: true } },
     },
   });
@@ -259,12 +266,49 @@ export default async function TaskDetailPage({ params }: Props) {
     }),
   ]);
 
+  // Every session for this task → total time on task (a task may span retries /
+  // rework), which agent ran each, and how long. The real duration is
+  // completedAt − startedAt; a running session counts up to now.
+  const allSessions = await prisma.executionSession.findMany({
+    where: { companyId: company.id, taskId: id },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      agentType: true,
+      status: true,
+      startedAt: true,
+      completedAt: true,
+    },
+  });
+  const nowMs = Date.now();
+  const sessionSpanMs = (s: {
+    startedAt: Date | null;
+    completedAt: Date | null;
+    status: string;
+  }): number => {
+    if (!s.startedAt) return 0;
+    const end = s.completedAt
+      ? s.completedAt.getTime()
+      : s.status === "running"
+      ? nowMs
+      : s.startedAt.getTime();
+    return Math.max(0, end - s.startedAt.getTime());
+  };
+  const totalActiveMs = allSessions.reduce((sum, s) => sum + sessionSpanMs(s), 0);
+  const hasRunningSession = allSessions.some((s) => s.status === "running");
+  const latestAgentType =
+    allSessions.length > 0 ? allSessions[allSessions.length - 1].agentType : null;
+
   const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG["todo"];
   const Icon = cfg.icon;
 
-  const attachedRepository = resolveTaskRepository(
-    task.project?.workspace?.repositories
-  );
+  const attachedRepository = pickTaskRepository({
+    projectRepository: task.project?.repository ?? null,
+    featureProjectRepository: task.feature?.project?.repository ?? null,
+    projectWorkspaceRepositories: task.project?.workspace?.repositories ?? null,
+    featureProjectWorkspaceRepositories:
+      task.feature?.project?.workspace?.repositories ?? null,
+  });
   const repositoryContext = buildTaskRepositoryContext({
     taskId: task.id,
     taskTitle: task.title,
@@ -330,6 +374,65 @@ export default async function TaskDetailPage({ params }: Props) {
             <GithubWorkflowProgress phases={workflowPhases} />
           </div>
         </section>
+
+        {/* Time on task — total across sessions, which agent, and per-session spans */}
+        {allSessions.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between">
+              <SectionLabel>Time on task</SectionLabel>
+              {latestAgentType && <AdapterBadge agentType={latestAgentType} />}
+            </div>
+            <div className="mt-3 border border-neutral-800 bg-neutral-900">
+              <div className="flex items-end justify-between border-b border-neutral-800 px-4 py-3.5">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-neutral-500">
+                    Total{hasRunningSession ? " so far" : ""} · {allSessions.length}{" "}
+                    session{allSessions.length === 1 ? "" : "s"}
+                  </p>
+                  <ElapsedTime
+                    ms={totalActiveMs}
+                    mode="clock"
+                    className="mt-1 block text-2xl font-bold text-brand-400"
+                  />
+                </div>
+                {hasRunningSession && (
+                  <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-brand-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-brand-500 animate-pulse" />
+                    running
+                  </span>
+                )}
+              </div>
+              <ul>
+                {allSessions.map((s, i) => (
+                  <li
+                    key={s.id}
+                    className="flex items-center gap-3 border-b border-neutral-800/60 px-4 py-2.5 last:border-b-0"
+                  >
+                    <span className="font-mono text-[11px] tabular-nums text-neutral-500">
+                      #{i + 1}
+                    </span>
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                      {adapterLabel(s.agentType)}
+                    </span>
+                    <span className="text-xs capitalize text-neutral-500">
+                      {s.status.replace(/_/g, " ")}
+                    </span>
+                    <span className="ml-auto">
+                      {s.status === "running" && s.startedAt ? (
+                        <ElapsedTime
+                          startedAt={s.startedAt}
+                          className="text-xs font-semibold text-brand-400"
+                        />
+                      ) : (
+                        <ElapsedTime ms={sessionSpanMs(s)} className="text-xs text-neutral-400" />
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
 
         <TaskRepositoryContextPanel context={repositoryContext} />
 

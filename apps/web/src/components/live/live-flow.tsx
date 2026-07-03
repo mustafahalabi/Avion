@@ -24,12 +24,13 @@ const STAGE_STYLE: Record<
   WorkStage,
   { dot: string; ring: string; text: string }
 > = {
-  planning: { dot: "bg-violet-400", ring: "ring-violet-900/60", text: "text-violet-300" },
+  planning: { dot: "bg-neutral-400", ring: "ring-neutral-700", text: "text-neutral-400" },
   queued: { dot: "bg-neutral-500", ring: "ring-neutral-700", text: "text-neutral-400" },
-  building: { dot: "bg-blue-400", ring: "ring-blue-900/60", text: "text-blue-300" },
-  review: { dot: "bg-amber-400", ring: "ring-amber-900/60", text: "text-amber-300" },
-  qa: { dot: "bg-cyan-400", ring: "ring-cyan-900/60", text: "text-cyan-300" },
-  done: { dot: "bg-emerald-400", ring: "ring-emerald-900/60", text: "text-emerald-300" },
+  // Building = live now → vermilion accent, matching the rest of the app.
+  building: { dot: "bg-brand-500", ring: "ring-brand-900/60", text: "text-brand-300" },
+  review: { dot: "bg-warning-500", ring: "ring-warning-900/60", text: "text-warning-300" },
+  qa: { dot: "bg-info-400", ring: "ring-info-900/60", text: "text-info-300" },
+  done: { dot: "bg-success-500", ring: "ring-success-900/60", text: "text-success-300" },
 };
 
 const STAGE_LABEL: Record<WorkStage, string> = {
@@ -63,8 +64,8 @@ function WorkflowNode({ data }: NodeProps) {
   return (
     <div className="w-[260px] rounded-xl border border-neutral-700 bg-neutral-900 px-3.5 py-3 shadow-lg">
       <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/15 ring-1 ring-violet-800/60">
-          <Sparkles className="h-3.5 w-3.5 text-violet-300" aria-hidden />
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center bg-neutral-800 ring-1 ring-neutral-700">
+          <Sparkles className="h-3.5 w-3.5 text-neutral-300" aria-hidden />
         </span>
         <p className="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-100">
           {d.title}
@@ -74,9 +75,9 @@ function WorkflowNode({ data }: NodeProps) {
         Workflow{d.planStatus ? ` · plan ${d.planStatus}` : ""}
       </p>
       <div className="mt-2 flex items-center gap-2">
-        <div className="h-1.5 flex-1 rounded-full bg-neutral-800">
+        <div className="h-1.5 flex-1 bg-neutral-800">
           <div
-            className="h-1.5 rounded-full bg-emerald-600 transition-all"
+            className="h-1.5 bg-success-600 transition-all"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -85,8 +86,8 @@ function WorkflowNode({ data }: NodeProps) {
         </span>
       </div>
       {d.liveCount > 0 && (
-        <p className="mt-1.5 flex items-center gap-1 text-[10px] text-emerald-400">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+        <p className="mt-1.5 flex items-center gap-1 text-[10px] text-brand-400">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
           {d.liveCount} working now
         </p>
       )}
@@ -105,9 +106,9 @@ function TaskNode({ data }: NodeProps) {
       className={cn(
         "w-[230px] cursor-pointer rounded-lg border bg-neutral-900 px-3 py-2.5 shadow-md ring-1 transition-colors hover:bg-neutral-800/80",
         item.isBlocked
-          ? "border-amber-900 ring-amber-900/50"
+          ? "border-danger-900 ring-danger-900/50"
           : item.isLive
-            ? "border-emerald-800 ring-emerald-900/50"
+            ? "border-brand-800 ring-brand-900/50"
             : `border-neutral-800 ${style.ring}`
       )}
     >
@@ -124,7 +125,7 @@ function TaskNode({ data }: NodeProps) {
           {STAGE_LABEL[item.stage]}
         </span>
         {item.awaitingApproval && (
-          <span className="ml-auto rounded bg-amber-500/15 px-1.5 text-[9px] font-medium text-amber-300">
+          <span className="ml-auto bg-warning-500/15 px-1.5 text-[9px] font-medium text-warning-300">
             needs you
           </span>
         )}
@@ -254,7 +255,7 @@ function buildGraph(groups: WorkflowGroup[]): { nodes: Node[]; edges: Edge[] } {
         target: taskNodeId,
         animated: task.isLive,
         style: {
-          stroke: task.isLive ? "#34d399" : "#3f3f46",
+          stroke: task.isLive ? "#FF4A1C" : "#46443A",
           strokeWidth: task.isLive ? 2 : 1.5,
         },
       });

@@ -15,14 +15,15 @@ interface LiveStreamProps {
 
 /** Maps an event type to a dot colour, mirroring the timeline's language. */
 function streamDot(type: string): string {
-  if (type.startsWith("execution.") || type === "executing") return "bg-emerald-400";
-  if (type.startsWith("review.") || type === "in_review") return "bg-amber-400";
+  // Building/execution = live now → vermilion accent.
+  if (type.startsWith("execution.") || type === "executing") return "bg-brand-500";
+  if (type.startsWith("review.") || type === "in_review") return "bg-warning-500";
   if (type.startsWith("qa.") || type === "in_qa") return "bg-neutral-400";
   if (type.startsWith("plan.") || type === "planning") return "bg-neutral-400";
   if (type.startsWith("release.") || type === "complete" || type.startsWith("outcome."))
-    return "bg-emerald-500";
-  if (type === "blocked") return "bg-red-400";
-  if (type === "intake") return "bg-blue-400";
+    return "bg-success-500";
+  if (type === "blocked") return "bg-danger-500";
+  if (type === "intake") return "bg-neutral-400";
   return "bg-neutral-500";
 }
 
@@ -61,7 +62,7 @@ export function LiveStream({ items, viewAllHref, className }: LiveStreamProps) {
     >
       <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <Radio className="h-3.5 w-3.5 text-emerald-400" aria-hidden />
+          <Radio className="h-3.5 w-3.5 text-brand-400" aria-hidden />
           <span className="text-xs font-semibold uppercase tracking-wide text-neutral-300">
             Live Now
           </span>

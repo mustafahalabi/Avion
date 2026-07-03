@@ -78,7 +78,7 @@ export default async function OutcomesPage() {
         </div>
         <Link
           href="/work/outcomes/new"
-          className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
+          className="inline-flex items-center gap-1.5 border border-brand-500 bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
         >
           <Plus className="h-3.5 w-3.5" />
           New outcome
@@ -121,7 +121,7 @@ export default async function OutcomesPage() {
             </div>
             <Link
               href="/work/outcomes/new"
-              className="flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-medium text-neutral-900 hover:bg-neutral-100 transition-colors"
+              className="inline-flex items-center gap-1.5 border border-brand-500 bg-brand-500 px-4 py-2 text-xs font-semibold text-white transition hover:brightness-110"
             >
               <Plus className="h-3 w-3" />
               Submit first outcome

@@ -88,6 +88,16 @@ export interface WorkItemInput {
   readonly branchName?: string | null;
   readonly filesChangedCount?: number | null;
 
+  // ── Agent identity + timing (the "which agent / how long" signals) ──
+  /** Real adapter that ran the latest session: claude_code | codex | human. */
+  readonly agentType?: string | null;
+  /** When the latest session started running (drives the live elapsed timer). */
+  readonly sessionStartedAt?: Date | null;
+  /** When the latest session finished, if it has. */
+  readonly sessionCompletedAt?: Date | null;
+  /** Sum of active time across ALL of this task's sessions (ms) — total on task. */
+  readonly totalActiveMs?: number | null;
+
   // ── Plan-derived ──
   readonly planStatus?: string | null;
 
@@ -114,11 +124,21 @@ export interface WorkItemView {
   readonly isBlocked: boolean;
   /** Specifically waiting on a CEO decision (a softer "needs you"). */
   readonly awaitingApproval: boolean;
+  /** Live/running but the session has run far longer than expected (may be stuck). */
+  readonly isStale: boolean;
   readonly context: string | null;
   readonly assigneeName: string | null;
   readonly branchName: string | null;
   readonly prNumber: number | null;
   readonly prUrl: string | null;
+  /** Which real agent is/was on this item (claude_code | codex | human). */
+  readonly agentType: string | null;
+  /** Latest session start — the live timer counts up from here while running. */
+  readonly startedAt: Date | null;
+  /** Latest session completion, if finished. */
+  readonly completedAt: Date | null;
+  /** Total active time across all sessions for this item, in ms. */
+  readonly totalActiveMs: number | null;
   readonly updatedAt: Date;
   /** The outcome/plan this item belongs to (the "workflow" it's part of). */
   readonly workflowId: string | null;
@@ -217,6 +237,22 @@ export function isWorkItemLive(input: WorkItemInput): boolean {
   if (input.sessionStatus === "completed") return true; // wrapping up → PR
   if (input.taskStatus === "in-progress") return true;
   return false;
+}
+
+/**
+ * A running session that has been going far longer than a normal build takes —
+ * a signal it may be stuck or its worker died. Surfaced so the UI can flag it
+ * (amber) instead of pulsing "working now" forever.
+ */
+export const STALE_SESSION_AFTER_MS = 30 * 60 * 1000; // 30 minutes
+
+export function isWorkItemStale(
+  input: WorkItemInput,
+  now: number = Date.now()
+): boolean {
+  if (input.sessionStatus !== "running") return false;
+  if (!input.sessionStartedAt) return false;
+  return now - input.sessionStartedAt.getTime() > STALE_SESSION_AFTER_MS;
 }
 
 /**
@@ -321,11 +357,16 @@ export function buildWorkItemView(input: WorkItemInput): WorkItemView {
     isLive: isWorkItemLive(input),
     isBlocked: isWorkItemBlocked(input),
     awaitingApproval: isAwaitingApproval(input, stage),
+    isStale: isWorkItemStale(input),
     context: input.context ?? null,
     assigneeName: input.assigneeName ?? null,
     branchName: input.branchName ?? null,
     prNumber: input.prNumber ?? null,
     prUrl: input.prUrl ?? null,
+    agentType: input.agentType ?? null,
+    startedAt: input.sessionStartedAt ?? null,
+    completedAt: input.sessionCompletedAt ?? null,
+    totalActiveMs: input.totalActiveMs ?? null,
     updatedAt: input.updatedAt,
     workflowId: input.workflowId ?? null,
     workflowTitle: input.workflowTitle ?? null,

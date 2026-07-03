@@ -100,7 +100,7 @@ export default async function InboxPage() {
               {pendingCheckpoints.map((cp) => (
                 <div
                   key={`${cp.kind}-${cp.id}`}
-                  className="flex items-center gap-3 rounded-lg border border-amber-900/60 bg-amber-950/20 px-4 py-3.5"
+                  className="flex items-center gap-3 border border-amber-900/60 bg-amber-950/20 px-4 py-3.5"
                 >
                   <div className="min-w-0 flex-1">
                     <Link
@@ -123,7 +123,7 @@ export default async function InboxPage() {
         {/* Active requests */}
         {active.length > 0 && (
           <section>
-            <div className="mb-3 text-sm font-medium text-neutral-200">
+            <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
               Active ({active.length})
             </div>
             <div className="grid gap-2">
@@ -135,7 +135,7 @@ export default async function InboxPage() {
                   <Link
                     key={req.id}
                     href={`/inbox/requests/${req.id}`}
-                    className="group flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3.5 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
+                    className="group flex items-center gap-3 border border-neutral-800 bg-neutral-900 px-4 py-3.5 transition-colors hover:border-neutral-700 hover:bg-neutral-800"
                   >
                     <Icon className={cn("h-3.5 w-3.5 shrink-0", cfg.color)} />
                     <div className="flex-1 min-w-0">
@@ -168,7 +168,7 @@ export default async function InboxPage() {
         {/* Completed */}
         {completed.length > 0 && (
           <section>
-            <div className="mb-3 text-sm font-medium text-neutral-500">
+            <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
               Completed ({completed.length})
             </div>
             <div className="grid gap-2">
@@ -176,7 +176,7 @@ export default async function InboxPage() {
                 <Link
                   key={req.id}
                   href={`/inbox/requests/${req.id}`}
-                  className="group flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-500 transition-colors hover:border-neutral-700"
+                  className="group flex items-center gap-3 border border-neutral-800 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-500 transition-colors hover:border-neutral-700"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
                   <span className="flex-1 truncate">{req.title}</span>
@@ -191,7 +191,7 @@ export default async function InboxPage() {
 
         {/* Empty state */}
         {company.runtimeRequests.length === 0 && (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-neutral-800 py-10 text-center">
+          <div className="flex flex-col items-center gap-3 border border-dashed border-neutral-800 py-10 text-center">
             <Inbox className="h-5 w-5 text-neutral-600" />
             <div>
               <p className="text-sm font-medium text-neutral-400">

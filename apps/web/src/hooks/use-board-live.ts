@@ -78,6 +78,13 @@ export function useBoardLive() {
 
     socket.on("connect", () => setConnection("connected"));
     socket.on("disconnect", () => setConnection("disconnected"));
+    // `disconnect` only fires AFTER a successful connect. When the backend is
+    // down from the start (e.g. @avion/api not running on :4000), Socket.IO only
+    // emits `connect_error` on each failed attempt — without this handler the UI
+    // would sit on "Connecting…" forever instead of surfacing the offline state.
+    socket.on("connect_error", () =>
+      setConnection((prev) => (prev === "connected" ? prev : "disconnected"))
+    );
     socket.io.on("reconnect_attempt", () => setConnection("connecting"));
     socket.on(BOARD_EVENTS.snapshot, (snap) => setSnapshot(snap));
     socket.on(BOARD_EVENTS.tick, (tick) => setLastTick(tick));

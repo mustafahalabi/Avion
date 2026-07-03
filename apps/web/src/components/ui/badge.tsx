@@ -72,7 +72,7 @@ function SemanticBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-none border px-2 py-0.5 text-xs font-medium",
         colorClasses,
         className
       )}
@@ -393,6 +393,50 @@ const ANALYSIS_STATUS_BADGE_CONFIG: Record<
     dotColor: "bg-neutral-600",
   },
 };
+
+// ---------------------------------------------------------------------------
+// AdapterBadge — WHICH real agent ran the work (claude_code | codex | human).
+// Distinct from AgentTypeBadge (org role). A sharp mono chip with a colored
+// glyph so Claude Code vs Codex reads at a glance across the whole app.
+// ---------------------------------------------------------------------------
+
+const ADAPTER_CONFIG: Record<string, { label: string; glyph: string }> = {
+  claude_code: { label: "Claude Code", glyph: "bg-[#C98A3E]" },
+  "claude-code": { label: "Claude Code", glyph: "bg-[#C98A3E]" },
+  claude: { label: "Claude Code", glyph: "bg-[#C98A3E]" },
+  codex: { label: "Codex", glyph: "bg-[#3E8E7E]" },
+  human: { label: "Human", glyph: "bg-neutral-400" },
+};
+
+/** Human label for a raw agentType, e.g. "claude_code" → "Claude Code". */
+export function adapterLabel(agentType: string): string {
+  return ADAPTER_CONFIG[agentType.toLowerCase()]?.label ?? agentType;
+}
+
+export function AdapterBadge({
+  agentType,
+  className,
+}: {
+  agentType: string;
+  className?: string;
+}) {
+  const cfg = ADAPTER_CONFIG[agentType.toLowerCase()] ?? {
+    label: agentType,
+    glyph: "bg-neutral-400",
+  };
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-none border border-neutral-600 bg-neutral-900 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-neutral-100",
+        className
+      )}
+      aria-label={`Agent: ${cfg.label}`}
+    >
+      <span className={cn("h-2 w-2 shrink-0", cfg.glyph)} aria-hidden="true" />
+      {cfg.label}
+    </span>
+  );
+}
 
 export function AnalysisStatusBadge({
   status,

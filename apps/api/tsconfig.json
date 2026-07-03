@@ -12,7 +12,12 @@
     "lib": ["ES2021"],
     "sourceMap": true,
     "outDir": "./dist",
-    "incremental": true,
+    // NOTE: `incremental` is deliberately OFF. Nest builds with `deleteOutDir: true`
+    // (see nest-cli.json), which wipes `dist/` on every build but leaves the
+    // `.tsbuildinfo` cache in place. With `incremental: true`, tsc then trusts that
+    // stale cache ("nothing changed"), emits ZERO files, and `node dist/main` fails
+    // with "Cannot find module dist/main" — silently taking the board backend (:4000)
+    // offline. A full rebuild each time is cheap for this app and can't desync.
     "skipLibCheck": true,
     "strict": true,
     "strictNullChecks": true,

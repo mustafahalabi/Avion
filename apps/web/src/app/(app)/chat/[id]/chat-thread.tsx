@@ -8,7 +8,6 @@ import {
   Circle,
   Clock,
   GitPullRequest,
-  Loader2,
   ShieldAlert,
   Zap,
   type LucideIcon,
@@ -17,6 +16,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { LivePipeline } from "@/lib/live-pipeline-data";
 import type { TimelineItem } from "@/components/timeline-entry";
+import { ElapsedTime } from "@/components/ui/elapsed-time";
+import { AdapterBadge } from "@/components/ui/badge";
 import { useLivePipeline } from "@/components/live/use-live-pipeline";
 import { useLiveNotifications } from "@/components/notifications/live-notifications-provider";
 import {
@@ -75,10 +76,11 @@ export function ChatThread({
     return filterConversationDecisions(source, scope);
   }, [liveNotifications, scope]);
 
-  // The current "working now" line — the most-recently-updated in-flight item
-  // belonging to this conversation's outcomes.
-  const liveStatus = useMemo(
-    () => pickLiveStatus(pipeline.board.columns.flatMap((c) => c.items), scope),
+  // Every in-flight item on this conversation's outcomes — so concurrent agents
+  // are all visible, each with its real adapter and a live timer (not collapsed
+  // to a single line).
+  const liveItems = useMemo(
+    () => pickLiveItems(pipeline.board.columns.flatMap((c) => c.items), scope),
     [pipeline.board, scope]
   );
 
@@ -91,7 +93,7 @@ export function ChatThread({
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [feed.length, liveStatus?.statusLine]);
+  }, [feed.length, liveItems.length]);
 
   const isEmpty = feed.length === 0;
 
@@ -125,7 +127,7 @@ export function ChatThread({
         }
         return <ActivityBubble key={node.id} item={node.item} />;
       })}
-      {liveStatus && <LiveStatusBubble status={liveStatus} />}
+      {liveItems.length > 0 && <WorkingNowPanel items={liveItems} />}
       <div ref={bottomRef} />
     </div>
   );
@@ -181,11 +183,11 @@ function buildFeed(
   return nodes.sort((a, b) => a.sortKey - b.sortKey);
 }
 
-/** Picks the most-recently-updated in-flight item for the conversation. */
-function pickLiveStatus(
+/** Every in-flight item for the conversation, ordered live → blocked → recent. */
+function pickLiveItems(
   items: readonly WorkItemView[],
   scope: ConversationScope
-): WorkItemView | null {
+): WorkItemView[] {
   const set = new Set(scope.outcomeIds);
   const scoped = items.filter(
     (i) => i.workflowId != null && set.has(i.workflowId)
@@ -193,10 +195,11 @@ function pickLiveStatus(
   const active = scoped.filter(
     (i) => i.stage !== "done" && (i.isLive || i.isBlocked || i.awaitingApproval)
   );
-  if (active.length === 0) return null;
-  return active.reduce((latest, i) =>
-    i.updatedAt.getTime() > latest.updatedAt.getTime() ? i : latest
-  );
+  return active.slice().sort((a, b) => {
+    if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
+    if (a.isBlocked !== b.isBlocked) return a.isBlocked ? -1 : 1;
+    return b.updatedAt.getTime() - a.updatedAt.getTime();
+  });
 }
 
 // ─── Bubbles ──────────────────────────────────────────────────────────────────
@@ -317,34 +320,69 @@ function DecisionBubble({ decision }: { decision: DecisionData }) {
   );
 }
 
-function LiveStatusBubble({ status }: { status: WorkItemView }) {
-  const tone = status.isBlocked
-    ? "border-red-500/40 bg-red-950/20 text-red-300"
-    : status.awaitingApproval
-      ? "border-amber-500/40 bg-amber-950/20 text-amber-200"
-      : "border-emerald-500/30 bg-emerald-950/15 text-emerald-200";
-  const Spinner = status.isBlocked || status.awaitingApproval ? AlertCircle : Loader2;
+/**
+ * "Working now" — a compact panel listing EVERY in-flight item on the thread,
+ * each with its real adapter (Claude Code / Codex) and a live-ticking timer, so
+ * concurrent agents are all visible rather than collapsed to a single line.
+ */
+function WorkingNowPanel({ items }: { items: readonly WorkItemView[] }) {
+  const liveCount = items.filter((i) => i.isLive).length;
   return (
     <div className="av-fade-in-up flex flex-row gap-3">
       <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-neutral-700 bg-neutral-800 text-[10px] font-bold text-neutral-400">
         E
       </div>
-      <div
-        className={cn(
-          "inline-flex items-center gap-2 rounded-2xl rounded-tl-sm border px-4 py-2.5 text-sm",
-          tone
-        )}
-      >
-        <Spinner
-          className={cn(
-            "h-3.5 w-3.5 shrink-0",
-            !status.isBlocked && !status.awaitingApproval && "animate-spin"
-          )}
-        />
-        <span>{status.statusLine}</span>
-        {status.prNumber != null && (
-          <span className="text-xs opacity-70">· PR #{status.prNumber}</span>
-        )}
+      <div className="min-w-0 flex-1 border border-neutral-800 bg-neutral-950/60">
+        <div className="flex items-center gap-2 border-b border-neutral-800 px-3 py-1.5">
+          <span
+            className={cn(
+              "h-1.5 w-1.5 shrink-0 rounded-full",
+              liveCount > 0 ? "bg-brand-500 animate-pulse" : "bg-warning-500"
+            )}
+          />
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+            {liveCount > 0 ? `Working now · ${liveCount} agent${liveCount === 1 ? "" : "s"}` : "Waiting on you"}
+          </span>
+        </div>
+        {items.map((item) => (
+          <WorkingNowRow key={item.id} item={item} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkingNowRow({ item }: { item: WorkItemView }) {
+  const dot = item.isBlocked
+    ? "bg-danger-500"
+    : item.awaitingApproval || item.isStale
+    ? "bg-warning-500"
+    : "bg-brand-500 animate-pulse";
+  const clockColor = item.isBlocked
+    ? "text-danger-400"
+    : item.awaitingApproval || item.isStale
+    ? "text-warning-400"
+    : "text-brand-400";
+  return (
+    <div className="flex items-center gap-2.5 border-b border-neutral-800/70 px-3 py-2 last:border-b-0">
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-medium text-neutral-200">{item.title}</p>
+        <p className="truncate font-mono text-[10px] text-neutral-500">
+          {item.statusLine}
+          {item.prNumber != null ? ` · PR #${item.prNumber}` : ""}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {item.agentType && <AdapterBadge agentType={item.agentType} />}
+        {item.isLive && item.startedAt ? (
+          <ElapsedTime
+            startedAt={item.startedAt}
+            className={cn("text-[11px] font-semibold", clockColor)}
+          />
+        ) : item.totalActiveMs ? (
+          <ElapsedTime ms={item.totalActiveMs} className="text-[11px] text-neutral-500" />
+        ) : null}
       </div>
     </div>
   );

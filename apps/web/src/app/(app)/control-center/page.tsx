@@ -223,15 +223,13 @@ export default async function ControlCenterPage() {
   return (
     <div className="flex flex-1 flex-col overflow-auto">
       <header className="flex h-12 items-center justify-between border-b border-neutral-800 px-6">
-        <h1 className="text-sm font-semibold text-neutral-100">
-          Control Center
-        </h1>
+        <h1 className="text-sm font-semibold text-neutral-100">Home</h1>
         <Link
-          href="/inbox"
-          className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
+          href="/work/live"
+          className="flex items-center gap-1.5 border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:border-brand-500 hover:text-brand-400 transition-colors"
         >
           <Activity className="h-3.5 w-3.5" />
-          Open inbox
+          Mission Control
         </Link>
       </header>
 
@@ -280,6 +278,13 @@ export default async function ControlCenterPage() {
 
         {/* Company state */}
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <StatCard
+            label="Agents Running"
+            value={execByStatus["running"] ?? 0}
+            icon={<Zap className="h-3.5 w-3.5" />}
+            href="/work/live"
+            accent
+          />
           <StatCard
             label="Active Employees"
             value={vm.companyState.activeEmployees}
@@ -372,21 +377,45 @@ function StatCard({
   value,
   icon,
   href,
+  accent = false,
 }: {
   label: string;
   value: number;
   icon?: React.ReactNode;
   href?: string;
+  accent?: boolean;
 }) {
+  const live = accent && value > 0;
   const inner = (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-3 transition-colors hover:border-neutral-700">
-      <div className="flex items-center gap-1.5 text-neutral-500">
-        {icon}
+    <div
+      className={cn(
+        "border bg-neutral-900 px-3.5 py-3 transition-colors",
+        live
+          ? "border-brand-500/60 bg-brand-500/5 hover:border-brand-500"
+          : "border-neutral-800 hover:border-neutral-700"
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center gap-1.5",
+          live ? "text-brand-400" : "text-neutral-500"
+        )}
+      >
+        {live ? (
+          <span className="h-2 w-2 shrink-0 rounded-full bg-brand-500 animate-pulse" />
+        ) : (
+          icon
+        )}
         <span className="text-[11px] font-medium uppercase tracking-wide">
           {label}
         </span>
       </div>
-      <p className="mt-1.5 text-2xl font-semibold tabular-nums text-neutral-200">
+      <p
+        className={cn(
+          "mt-1.5 text-2xl font-semibold tabular-nums",
+          live ? "text-brand-400" : "text-neutral-200"
+        )}
+      >
         {value}
       </p>
     </div>

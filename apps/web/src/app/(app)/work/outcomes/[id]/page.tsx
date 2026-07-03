@@ -159,7 +159,7 @@ export default async function OutcomeDetailPage({
         {/* Status badge */}
         <div
           className={cn(
-            "inline-flex items-center gap-1.5 self-start rounded-full border px-2.5 py-1 text-[11px] font-medium",
+            "inline-flex items-center gap-1.5 self-start border px-2.5 py-1 text-[11px] font-medium",
             statusCfg.border,
             statusCfg.bg,
             statusCfg.text
@@ -206,12 +206,12 @@ export default async function OutcomeDetailPage({
 
         {/* Planning draft */}
         <section>
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-600">
+          <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
             Planning Draft
           </h3>
 
           {latestDraft ? (
-            <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-4">
+            <div className="border border-neutral-800 bg-neutral-900 px-4 py-4 shadow-[6px_6px_0_rgba(0,0,0,0.45)]">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
@@ -243,7 +243,7 @@ export default async function OutcomeDetailPage({
                 </div>
                 <Link
                   href={buildPlanningReviewUrl(latestDraft.id)}
-                  className="shrink-0 rounded-md border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 transition-colors hover:bg-neutral-800"
+                  className="inline-flex shrink-0 items-center border border-brand-500 bg-brand-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:brightness-110"
                 >
                   Review plan
                 </Link>
@@ -269,7 +269,7 @@ export default async function OutcomeDetailPage({
 
         {planningTimeline.length > 0 && (
           <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-600">
+            <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-neutral-500">
               Planning Lifecycle
             </h3>
             <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-4">
