@@ -64,7 +64,7 @@ describe("ClaudeCliLlmClient", () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       "claude",
-      ["-p", "--permission-mode", "default"],
+      ["-p", "--output-format", "json", "--permission-mode", "default"],
       { stdio: ["pipe", "pipe", "pipe"] }
     );
 
@@ -74,11 +74,39 @@ describe("ClaudeCliLlmClient", () => {
     const result = await promise;
 
     expect(child.writtenToStdin).toBe("SYS\n\nPROMPT");
+    // Non-JSON stdout falls back to plain text with no usage (older CLI / surprise).
     expect(result).toEqual({
       ok: true,
       text: "model output",
       durationMs: expect.any(Number),
+      usage: null,
     });
+  });
+
+  it("parses assistant text + real usage from --output-format json (Goal 3)", async () => {
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+
+    const client = new ClaudeCliLlmClient();
+    const promise = client.complete({ prompt: "plan it" });
+
+    child.stdout.write(
+      JSON.stringify({
+        type: "result",
+        result: "THE PLAN",
+        total_cost_usd: 0.42,
+        usage: { input_tokens: 1000, output_tokens: 200 },
+      })
+    );
+    child.emit("close", 0);
+
+    const result = await promise;
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.text).toBe("THE PLAN");
+      expect(result.usage?.costUsd).toBe(0.42);
+      expect(result.usage?.inputTokens).toBe(1000);
+    }
   });
 
   it("omits the system block when no system prompt is given", async () => {

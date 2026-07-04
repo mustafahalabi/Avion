@@ -94,6 +94,7 @@ on Vercel and api on Fly:
 | `WORKER_REPO_BASE_DIR` | worker | image default `/data/worker` | `/tmp/eos-worker` | persistent volume mount |
 | `WORKER_SESSION_TIMEOUT_SECONDS` | worker | tuning knob | 1800 | sizes the liveness window too (see below) |
 | `WORKER_MAX_RETRIES`, `WORKER_INSTALL_TIMEOUT_SECONDS`, `WORKER_POLL_INTERVAL_MS`, `WORKER_PERMISSION_MODE` | worker/driver | tuning knobs | defaults in `worker-config.ts` | optional |
+| `WORKER_SANDBOX`, `WORKER_SANDBOX_*`, `WORKER_ALLOW_UNSANDBOXED_FULL` | worker | agent host-isolation (see "Sandboxing the execution worker") | `none` / off | recommended `docker` in prod |
 | `DRIVER_TICK_INTERVAL_MS` | driver | tuning knob | 15000 | optional |
 | `WORKER_HEARTBEAT_FILE` / `DRIVER_HEARTBEAT_FILE` | worker / driver | liveness (MUS-269) | default `<WORKER_REPO_BASE_DIR>/{worker,driver}.heartbeat` | compose sets the driver's explicitly |
 | `HEARTBEAT_FILE`, `HEARTBEAT_MAX_AGE_SECONDS` | container HEALTHCHECK probe | image defaults | — | worker 3600s window, driver 300s |
@@ -136,6 +137,58 @@ itself — it only talks to Postgres and the GitHub API (PR feedback ingestion).
 
 ---
 
+## Sandboxing the execution worker (Goal 1)
+
+At full autonomy the agent runs with `--permission-mode bypassPermissions` — it
+can run **arbitrary shell commands**. The git guardrails only protect what gets
+*pushed*, not what the agent *runs*. Running it directly on the host is
+dangerous (it once SIGTERM'd the local dev server). Two knobs govern this:
+
+**`WORKER_SANDBOX`** (`none` | `docker`, default `none`) — when `docker`, every
+host-shell surface of a session (the agent CLI **and** the dependency-install +
+validation shells) runs inside an ephemeral `docker run --rm` container that
+bind-mounts **only** the checkout at `/workspace`. The container gets its own PID
+namespace, so the agent cannot see or signal host processes; edits still land on
+the host checkout (bind mount), so the host-side git commit/push after the run is
+unchanged. Verified: inside the sandbox `ps` shows a handful of PIDs, never the
+host's hundreds. Build the image once:
+
+```
+docker build -f apps/web/Dockerfile.sandbox -t avion-agent-sandbox:latest .
+```
+
+Tunables (all optional): `WORKER_SANDBOX_IMAGE` (default
+`avion-agent-sandbox:latest`), `WORKER_SANDBOX_NETWORK` (default `bridge` — the
+agent needs the model API; `none` for offline), `WORKER_SANDBOX_MEMORY`,
+`WORKER_SANDBOX_CPUS`, `WORKER_SANDBOX_PIDS_LIMIT` (resource caps),
+`WORKER_SANDBOX_USER` (default the worker's `uid:gid`, so files stay host-owned;
+`""` uses the image default), `WORKER_SANDBOX_ENV` (comma list of env names to
+forward for agent auth — defaults forward `ANTHROPIC_API_KEY` /
+`CLAUDE_CODE_OAUTH_TOKEN` / `OPENAI_API_KEY` when present),
+`WORKER_SANDBOX_MOUNTS` (extra `-v` mounts, e.g. an authenticated `~/.claude`).
+
+> pnpm caveat: install and validation run in separate per-command containers,
+> so a `pnpm`-repo store built by the install container is not visible to the
+> validation container (npm's flat `node_modules` is). For pnpm targets, mount a
+> persistent store via `WORKER_SANDBOX_MOUNTS` or run validation host-side. The
+> agent's own in-run installs/tests are unaffected (one container per agent run).
+
+**`WORKER_PERMISSION_MODE`** — the host-safety cap, now **unsandboxed-dev-only**.
+Setting it (e.g. `=execute`) forces that level in every mode. It exists so you
+can run the worker on a real machine *without* a sandbox and still deny the agent
+Bash. Inside a `docker` sandbox you should **leave it unset** and let the agent
+run at full power safely. When it is unset **and** the session is un-sandboxed, a
+`full` level is now automatically capped to `execute` for host safety (set
+`WORKER_ALLOW_UNSANDBOXED_FULL=1` to opt back into un-sandboxed `bypassPermissions`).
+
+| Setup | `WORKER_SANDBOX` | `WORKER_PERMISSION_MODE` | Effect |
+|---|---|---|---|
+| Isolated worker (prod) | `docker` | *(unset)* | Agent runs at full autonomy, safely isolated |
+| Un-sandboxed dev host | `none` | `execute` | Agent edits allowed, Bash denied |
+| Un-sandboxed, no cap | `none` | *(unset)* | `full`→`execute` auto-cap unless `WORKER_ALLOW_UNSANDBOXED_FULL=1` |
+
+---
+
 ## Health / liveness
 
 | Process | Signal | Probe |
@@ -162,6 +215,39 @@ install and validation time. Hence the image's default worker window of
 `HEARTBEAT_MAX_AGE_SECONDS` with it, or healthy long sessions will be
 reported as dead (and a restart-on-unhealthy policy would kill mid-run
 agents). A finer-grained mid-session heartbeat is possible follow-up work.
+
+---
+
+## Supervision & single-instance (Goal 4)
+
+Running the loop as loose background processes led to a stray-process pileup
+(two workers + three drivers alive at once), which double-claimed work and
+corrupted the driver's live/prepared accounting. Two mechanisms now prevent it:
+
+**Single-instance lock.** On startup the worker and driver each acquire a
+**Postgres session-level advisory lock** keyed to their role on a dedicated
+connection (`src/worker/single-instance-lock.ts`). A second worker (or driver)
+finds the lock held, logs "another instance is already running", and exits `0`.
+Because the lock lives on the process's own DB connection, a **crash
+auto-releases it** (the socket closes) — no manual cleanup, so a supervisor can
+restart cleanly. Disable with `WORKER_SINGLE_INSTANCE=0` (not recommended).
+
+**Supervisor.** `pnpm supervise` (`apps/web/scripts/supervise.mjs`) brings up
+exactly one worker + one driver (add the web dev server with
+`SUPERVISE_INCLUDE_DEV=1`, or pick a subset with `SUPERVISE_SERVICES=worker`).
+It loads `apps/web/.env` itself (children inherit `DATABASE_URL` +
+`CREDENTIALS_ENCRYPTION_KEY`), prefixes each service's logs, restarts a crashed
+child with exponential backoff (capped 30s), and runs a **heartbeat watchdog**:
+a hung-but-alive process whose heartbeat file goes stale past its window
+(`SUPERVISE_WORKER_HEARTBEAT_MAX_MS`, default `max(1h, 2×session-timeout)`;
+`SUPERVISE_DRIVER_HEARTBEAT_MAX_MS`, default 300s) is SIGTERM'd and restarted.
+`SIGINT`/`SIGTERM` to the supervisor forwards a graceful stop to all children
+(then SIGKILL after 10s). Local dev stays easy — `pnpm dev`, `pnpm worker`,
+`pnpm driver` still run standalone; `supervise` is the one-command option.
+
+The container path is unchanged: `docker-compose.prod.yml` runs one worker + one
+driver with `restart: unless-stopped` and the heartbeat `HEALTHCHECK` above; the
+single-instance lock is a belt-and-braces guard there too.
 
 ---
 

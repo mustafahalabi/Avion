@@ -306,7 +306,31 @@ describe("AiPlanningAdapter", () => {
       provider: "ai",
       providerAttempted: "ai",
       fallbackReason: null,
+      usage: null,
     });
+  });
+
+  it("carries real LLM usage into ai provenance (Goal 3)", async () => {
+    const adapter = new AiPlanningAdapter({
+      llm: stubLlm({
+        ok: true,
+        text: JSON.stringify(validDraft()),
+        durationMs: 5,
+        usage: {
+          model: "claude-opus-4-8",
+          inputTokens: 1000,
+          outputTokens: 200,
+          cachedInputTokens: 5000,
+          costUsd: 0.42,
+        },
+      }),
+      fallback: stubSuccessfulFallback().adapter,
+    });
+
+    const result = await adapter.generate(INPUT);
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+    expect(result.provenance?.usage?.costUsd).toBe(0.42);
   });
 
   it("stamps deterministic-fallback provenance with the reason when the AI path fails (MUS-271)", async () => {

@@ -11,6 +11,7 @@ import {
   parseResultSummary,
   parseValidationOutput,
 } from "./claude-code-adapter";
+import { DockerSandboxRunner } from "./sandbox-runner";
 
 const mockSpawn = vi.fn();
 const mockExecSync = vi.fn();
@@ -125,7 +126,7 @@ describe("ClaudeCodeAdapter", () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       "claude",
-      ["-p", "--permission-mode", "acceptEdits"],
+      ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"],
       {
         cwd: "/tmp/repo",
         stdio: ["pipe", "pipe", "pipe"],
@@ -157,7 +158,7 @@ describe("ClaudeCodeAdapter", () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       "claude",
-      ["-p", "--permission-mode", "bypassPermissions"],
+      ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"],
       expect.any(Object)
     );
 
@@ -182,7 +183,7 @@ describe("ClaudeCodeAdapter", () => {
 
       expect(mockSpawn).toHaveBeenLastCalledWith(
         "claude",
-        ["-p", "--permission-mode", mode],
+        ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode],
         expect.any(Object)
       );
 
@@ -277,5 +278,114 @@ describe("ClaudeCodeAdapter", () => {
 
     expect(result.stdout).toBe("stdout line");
     expect(result.stderr).toBe("stderr line");
+  });
+
+  it("runs the agent inside a docker sandbox when one is injected (Goal 1)", async () => {
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+
+    const adapter = new ClaudeCodeAdapter({
+      sandbox: new DockerSandboxRunner({ image: "avion-agent-sandbox:latest" }, {}),
+    });
+    const runPromise = adapter.run("brief", {
+      ...BASE_CONTEXT,
+      permissionLevel: "full",
+    });
+
+    // Spawns `docker run …` (not `claude`), mounts only the checkout, and the
+    // original agent command is preserved verbatim after the image.
+    const [command, args] = mockSpawn.mock.calls[0];
+    expect(command).toBe("docker");
+    expect(args).toContain("/tmp/repo:/workspace");
+    const imageIdx = (args as string[]).indexOf("avion-agent-sandbox:latest");
+    expect((args as string[]).slice(imageIdx)).toEqual([
+      "avion-agent-sandbox:latest",
+      "claude",
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
+    ]);
+    // The brief is still delivered on stdin, unchanged.
+    child.emit("close", 0);
+    await runPromise;
+    expect(child.writtenToStdin).toBe("brief");
+  });
+
+  it("captures real usage + summary from a stream-json result event (Goal 3)", async () => {
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+
+    const adapter = new ClaudeCodeAdapter();
+    const runPromise = adapter.run("brief", BASE_CONTEXT);
+
+    // A realistic stream-json stream: an assistant text event, then the terminal
+    // result event carrying the final text + real usage/cost.
+    child.stdout.write(
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "text", text: "Working on it" }] },
+      }) + "\n"
+    );
+    child.stdout.write(
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "## Summary\n\nAdded endpoint.\n\nModified: src/api.ts",
+        total_cost_usd: 0.1234,
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 2000,
+          cache_creation_input_tokens: 300,
+        },
+        modelUsage: { "claude-opus-4-8": { costUSD: 0.1234 } },
+      }) + "\n"
+    );
+    child.emit("close", 0);
+
+    const result = await runPromise;
+
+    expect(result.success).toBe(true);
+    // Parsers run on the RECONSTRUCTED text from the result event.
+    expect(result.resultSummary).toBe("Added endpoint.");
+    expect(result.filesChanged).toEqual(["src/api.ts"]);
+    // Real usage captured, never estimated.
+    expect(result.usage).toEqual({
+      model: "claude-opus-4-8",
+      inputTokens: 100,
+      outputTokens: 50,
+      cachedInputTokens: 2300,
+      costUsd: 0.1234,
+    });
+  });
+
+  it("fails the run when the result event flags an error (Goal 3)", async () => {
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+
+    const adapter = new ClaudeCodeAdapter();
+    const runPromise = adapter.run("brief", BASE_CONTEXT);
+
+    child.stdout.write(
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "model refused",
+        total_cost_usd: 0.01,
+        usage: { input_tokens: 5, output_tokens: 0 },
+      }) + "\n"
+    );
+    child.emit("close", 0);
+
+    const result = await runPromise;
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toBe("model refused");
+    // Usage is still captured even on a failed run (we still paid for it).
+    expect(result.usage?.costUsd).toBe(0.01);
   });
 });

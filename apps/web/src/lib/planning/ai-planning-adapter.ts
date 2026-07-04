@@ -74,15 +74,20 @@ export class AiPlanningAdapter implements PlanningAdapter {
         timeoutSeconds: AI_PLANNING_TIMEOUT_SECONDS,
       });
 
+      // Real usage is captured whether or not the draft is ultimately trusted —
+      // a completion that then fails validation still cost tokens (Goal 3).
+      const usage = completion.ok ? completion.usage ?? null : null;
+
       if (!completion.ok) {
-        return this.fallbackWith(input, `LLM completion failed: ${completion.error}`);
+        return this.fallbackWith(input, `LLM completion failed: ${completion.error}`, usage);
       }
 
       const parsed = parseAiPlanningDraft(completion.text);
       if (!parsed.ok) {
         return this.fallbackWith(
           input,
-          `AI output did not parse into a valid plan: ${parsed.error}`
+          `AI output did not parse into a valid plan: ${parsed.error}`,
+          usage
         );
       }
 
@@ -96,18 +101,19 @@ export class AiPlanningAdapter implements PlanningAdapter {
         ];
         return this.fallbackWith(
           input,
-          `AI plan failed validation: ${reasons.slice(0, 3).join("; ")}`
+          `AI plan failed validation: ${reasons.slice(0, 3).join("; ")}`,
+          usage
         );
       }
 
       return {
         status: "success",
         draft: parsed.draft,
-        provenance: { provider: "ai", providerAttempted: "ai", fallbackReason: null },
+        provenance: { provider: "ai", providerAttempted: "ai", fallbackReason: null, usage },
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      return this.fallbackWith(input, `AI planning threw: ${message}`);
+      return this.fallbackWith(input, `AI planning threw: ${message}`, null);
     }
   }
 
@@ -122,7 +128,8 @@ export class AiPlanningAdapter implements PlanningAdapter {
    */
   private async fallbackWith(
     input: OutcomePlanningInput,
-    reason: string
+    reason: string,
+    usage: import("@/lib/adapters/agent-usage").AgentUsage | null
   ): Promise<PlanningGenerationResult> {
     const result = await this.deps.fallback.generate(input);
     if (result.status !== "success") {
@@ -134,6 +141,7 @@ export class AiPlanningAdapter implements PlanningAdapter {
         provider: "deterministic",
         providerAttempted: "ai",
         fallbackReason: truncateReason(reason),
+        usage,
       },
     };
   }

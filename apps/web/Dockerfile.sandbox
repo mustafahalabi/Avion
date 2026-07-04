@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+# Avion agent execution SANDBOX image (Goal 1 — sandbox the execution worker).
+#
+# The execution worker resolves this image when WORKER_SANDBOX=docker and runs
+# ONE ephemeral `docker run --rm` per session/command, bind-mounting only the
+# checkout at /workspace. The AI agent (`claude -p`, optionally `codex exec`)
+# and the repo's install/validation shells run INSIDE the container, so at full
+# autonomy the agent has arbitrary shell — but only over the mounted checkout,
+# never the host. This is what lets us safely remove the WORKER_PERMISSION_MODE
+# host-safety cap (see docs/DEPLOYMENT.md → "Sandboxing the execution worker").
+#
+# Build (from the repo root or anywhere — no build context needed):
+#   docker build -f apps/web/Dockerfile.sandbox -t avion-agent-sandbox:latest .
+#
+# ── Runtime requirements the image can NOT bake in ─────────────────────────
+# 1. Agent AUTH — provided at run time via env passthrough (WORKER_SANDBOX_ENV,
+#    default forwards ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN / OPENAI_API_KEY
+#    when present) or a mounted config dir (WORKER_SANDBOX_MOUNTS). Never baked in.
+# 2. The container runs as the host UID:GID (WORKER_SANDBOX_USER, default
+#    `<uid>:<gid>` of the worker process) so files the agent writes into the
+#    bind-mounted checkout stay owned by the host user — the host-side git
+#    commit/push after the run is then not blocked by root-owned files. HOME is
+#    /tmp (world-writable) so an arbitrary UID can still write CLI cache/config.
+
+ARG NODE_VERSION=24
+
+FROM node:${NODE_VERSION}-bookworm-slim
+
+# git: the checkout is a git repo and the agent may inspect it. ca-certificates:
+# TLS to the model API. Installed globally so ANY --user uid can run them.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    npm install -g @anthropic-ai/claude-code
+
+# Optional: uncomment to also run the Codex adapter inside the sandbox.
+# RUN npm install -g @openai/codex
+
+# /tmp is world-writable, so an arbitrary --user uid (with no /home entry) still
+# has a writable HOME for the CLI's config/cache. The checkout mounts at
+# /workspace (the runner sets -w /workspace).
+ENV HOME=/tmp \
+    NODE_ENV=production
+
+WORKDIR /workspace
+
+# No CMD / ENTRYPOINT: the worker appends the exact command per invocation
+# (`claude -p …`, `codex exec …`, or `/bin/sh -c "<install|validation>"`).

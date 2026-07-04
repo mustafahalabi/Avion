@@ -18,6 +18,7 @@ import {
   PackageCheck,
   Link2,
   FolderGit2,
+  Coins,
 } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
 import { useLiveNotifications } from "@/components/notifications/live-notifications-provider";
@@ -50,6 +51,7 @@ function buildNavSections(repositoriesHref: string): NavSection[] {
       items: [
         { label: "Chat", href: "/chat", icon: MessageSquare },
         { label: "Mission Control", href: "/work/live", icon: Radio },
+        { label: "Spend & Activity", href: "/work/spend", icon: Coins },
         { label: "Home", href: "/control-center", icon: LayoutDashboard },
       ],
     },

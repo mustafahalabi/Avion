@@ -255,3 +255,62 @@ describe("formatMemoryForPrompt", () => {
     );
   });
 });
+
+describe("getRelevantCompanyMemory — semantic recall (Goal 5c)", () => {
+  beforeAll(async () => {
+    await prisma.memory.create({
+      data: {
+        id: "bank-semantic",
+        companyId: "company-1",
+        title: "Semantic lessons",
+        category: "learnings",
+      },
+    });
+    // Three lessons on distinct topics, all same confidence so ONLY relevance
+    // (not confidence/recency) can change the order.
+    await prisma.memoryRecord.createMany({
+      data: [
+        {
+          id: "rec-auth",
+          memoryId: "bank-semantic",
+          content: "Always hash passwords and rate-limit the login authentication flow.",
+          confidence: 0.5,
+        },
+        {
+          id: "rec-images",
+          memoryId: "bank-semantic",
+          content: "Cache resized image thumbnails on a CDN for fast media loads.",
+          confidence: 0.5,
+        },
+        {
+          id: "rec-billing",
+          memoryId: "bank-semantic",
+          content: "Make Stripe billing webhook handlers idempotent against retries.",
+          confidence: 0.5,
+        },
+      ],
+    });
+  });
+
+  it("ranks the topically-relevant lesson first for a query", async () => {
+    const items = await service.getRelevantCompanyMemory({
+      companyId: "company-1",
+      categories: ["learnings"],
+      query: "build a secure user login and authentication screen",
+      limit: 3,
+    });
+    // The auth lesson is most relevant to a login/auth query.
+    expect(items[0]?.id).toBe("rec-auth");
+    expect(items.map((i) => i.id)).toContain("rec-billing");
+  });
+
+  it("without a query, falls back to confidence/recency ordering (unchanged)", async () => {
+    const items = await service.getRelevantCompanyMemory({
+      companyId: "company-1",
+      categories: ["learnings"],
+      limit: 20,
+    });
+    // No throw, returns records; ordering is the pre-existing confidence/recency.
+    expect(items.length).toBeGreaterThan(0);
+  });
+});

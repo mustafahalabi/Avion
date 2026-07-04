@@ -7,6 +7,20 @@ import {
   teardownTestSchema,
 } from "@/lib/test-utils/pg-test-db";
 
+// Pin the planner to the DETERMINISTIC adapter so plan generation never shells
+// out to the real `claude -p` CLI. Without this, sourcing `.env` (which may set
+// `EOS_PLANNING_PROVIDER=ai`) before the suite makes these tests invoke the live
+// AI planner and time out — a run-harness footgun, not a product bug.
+vi.mock("@/lib/planning/planning-provider", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/planning/planning-provider")>();
+  return {
+    ...actual,
+    resolvePlanningAdapter: () =>
+      actual.resolvePlanningAdapter({ provider: "deterministic" }),
+  };
+});
+
 // The actions layer resolves the caller through Clerk; tests stand in a fake
 // authenticated owner so the ownership logic runs against the real DB.
 const mockGetCurrentUser = vi.fn();

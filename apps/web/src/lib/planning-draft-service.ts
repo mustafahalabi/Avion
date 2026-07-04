@@ -13,13 +13,33 @@ import {
 import { resolvePlanningAdapter } from "@/lib/planning/planning-provider";
 import { describePlanProvenance } from "@/lib/planning/plan-provenance";
 import { getRelevantCompanyMemory } from "@/lib/memory/memory-retrieval-service";
+import { recordAgentUsage } from "@/lib/agent-usage-service";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 import {
   OUTCOME_PLANNING_EVENT_TYPES,
   PENDING_PLAN_REVIEW_STATUSES,
+  recordPlanningProgressEvent,
 } from "@/lib/outcome-planning-lifecycle";
 
 const INITIAL_DRAFT_VERSION = 1;
+
+/**
+ * Emits a live planning-progress heartbeat (Goal 2), swallowing any failure so
+ * the actual plan generation is never affected by a logging write.
+ */
+async function emitPlanningProgress(input: {
+  companyId: string;
+  outcomeId: string;
+  phase: string;
+  summary: string;
+  actorId: string | null;
+}): Promise<void> {
+  try {
+    await recordPlanningProgressEvent(input);
+  } catch {
+    // Best-effort: the live indicator is cosmetic; never break planning for it.
+  }
+}
 
 export interface PlanningDraftGenerationInput {
   readonly companyId: string;
@@ -131,6 +151,16 @@ export async function createOrUpdatePlanningDraftForOutcome(
     throw new Error("Outcome not found for this company.");
   }
 
+  // Live planning feedback (Goal 2): a heartbeat the moment real generation
+  // starts, so the chat shows "drafting your plan…" instead of a silent gap.
+  await emitPlanningProgress({
+    companyId: input.companyId,
+    outcomeId: outcome.id,
+    phase: "reviewing",
+    summary: "Product Manager is reviewing your request…",
+    actorId: input.actorId,
+  });
+
   const [employees, repositories, companySettings] = await Promise.all([
     prisma.employee.findMany({
       where: { companyId: input.companyId, status: "active" },
@@ -172,7 +202,22 @@ export async function createOrUpdatePlanningDraftForOutcome(
   // Surface durable company memory (promoted standards + lessons) so the planner
   // compounds prior experience: the AI planner renders it into its prompt, and the
   // deterministic generator renders the top items as explicit plan assumptions.
-  const companyMemory = await getRelevantCompanyMemory({ companyId: input.companyId });
+  // Semantic recall (Goal 5c): rank by relevance to THIS outcome's request, not
+  // just recency, so the most applicable lessons surface.
+  const companyMemory = await getRelevantCompanyMemory({
+    companyId: input.companyId,
+    query: `${outcome.title}\n${outcome.rawRequest}`,
+  });
+
+  // Second heartbeat: context is loaded, the (slow) AI draft is now being
+  // written. This is the ~1–2 min window that used to sit silent.
+  await emitPlanningProgress({
+    companyId: input.companyId,
+    outcomeId: outcome.id,
+    phase: "drafting",
+    summary: "Drafting your plan — grounding in your codebase and past work…",
+    actorId: input.actorId,
+  });
 
   // Per-company provider override (MUS-262): a stored CompanySettings.planningProvider
   // wins; null falls through to the EOS_PLANNING_PROVIDER environment default. Only the
@@ -201,12 +246,26 @@ export async function createOrUpdatePlanningDraftForOutcome(
     cultureProfile: companySettings?.cultureProfile ?? null,
   });
 
-  return persistPlanningGeneration({
+  const persisted = await persistPlanningGeneration({
     actorId: input.actorId,
     generation,
     outcome,
     version: draftVersion,
   });
+
+  // Record REAL planning spend (Goal 3): the AI path surfaces usage in its
+  // provenance even when it then fell back (the attempt still cost tokens).
+  if (generation.status === "success" && generation.provenance?.usage) {
+    await recordAgentUsage({
+      companyId: input.companyId,
+      outcomeId: outcome.id,
+      phase: "planning",
+      provider: "claude-cli",
+      usage: generation.provenance.usage,
+    });
+  }
+
+  return persisted;
 }
 
 /**

@@ -13,6 +13,20 @@ export interface WorkerConfig {
   readonly WORKER_INSTALL_TIMEOUT_SECONDS: number;
   /** Interval between driver ticks (the scheduler that enqueues/advances work). */
   readonly DRIVER_TICK_INTERVAL_MS: number;
+  /**
+   * Max sessions one worker runs concurrently (Goal 5a — parallel execution).
+   * Default 1 (single-threaded, unchanged). Raise to run a pool. Each session
+   * still gets its own live feed. STRONGLY prefer `WORKER_SANDBOX=docker` when
+   * >1 — parallel full-permission agents on the host would be catastrophic.
+   */
+  readonly WORKER_CONCURRENCY: number;
+  /**
+   * Opt back into running the agent at `full` (bypassPermissions) on an
+   * UN-SANDBOXED host. Off by default: without a sandbox, `full` is capped to
+   * `execute` for host safety (see worker-effective-permission.ts). Only set
+   * this when you accept arbitrary host shell access from the agent.
+   */
+  readonly WORKER_ALLOW_UNSANDBOXED_FULL: boolean;
 }
 
 /**
@@ -30,6 +44,10 @@ export const WORKER_CONFIG: WorkerConfig = {
     process.env.WORKER_INSTALL_TIMEOUT_SECONDS ?? 600
   ),
   DRIVER_TICK_INTERVAL_MS: Number(process.env.DRIVER_TICK_INTERVAL_MS ?? 15000),
+  WORKER_ALLOW_UNSANDBOXED_FULL: ["1", "true", "yes", "on"].includes(
+    (process.env.WORKER_ALLOW_UNSANDBOXED_FULL ?? "").trim().toLowerCase()
+  ),
+  WORKER_CONCURRENCY: Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 1) || 1),
 };
 
 /**

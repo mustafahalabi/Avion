@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { LiveNotification } from "@/lib/live-pipeline-data";
 import type { TimelineItem } from "@/components/timeline-entry";
 import {
+  derivePlanningActivity,
   filterConversationDecisions,
   filterStreamToScope,
   mergeActivityById,
+  stripPlanningProgress,
+  PLANNING_PROGRESS_EVENT_TYPE,
   type ConversationScope,
 } from "./chat-activity";
 
@@ -99,5 +102,93 @@ describe("filterConversationDecisions", () => {
       scope
     );
     expect(kept).toHaveLength(0);
+  });
+});
+
+const progress = (over: Partial<TimelineItem> = {}): TimelineItem =>
+  item({ type: PLANNING_PROGRESS_EVENT_TYPE, ...over });
+
+describe("derivePlanningActivity", () => {
+  it("reports an outcome as drafting from its latest progress heartbeat", () => {
+    const states = derivePlanningActivity(
+      [
+        progress({
+          id: "p1",
+          description: "Reviewing your request…",
+          createdAt: new Date("2026-07-02T12:00:00Z"),
+        }),
+        progress({
+          id: "p2",
+          description: "Drafting your plan…",
+          createdAt: new Date("2026-07-02T12:00:30Z"),
+        }),
+      ],
+      scope.outcomeIds
+    );
+    expect(states).toHaveLength(1);
+    // Latest phase wins (it advances) but `since` is the first heartbeat.
+    expect(states[0]).toMatchObject({
+      outcomeId: "o1",
+      phase: "Drafting your plan…",
+      since: new Date("2026-07-02T12:00:00Z"),
+    });
+  });
+
+  it("stops drafting once a terminal planning event lands", () => {
+    const states = derivePlanningActivity(
+      [
+        progress({ id: "p1", createdAt: new Date("2026-07-02T12:00:00Z") }),
+        item({
+          id: "g1",
+          type: "plan.generated",
+          description: "Plan ready",
+          createdAt: new Date("2026-07-02T12:01:00Z"),
+        }),
+      ],
+      scope.outcomeIds
+    );
+    expect(states).toHaveLength(0);
+  });
+
+  it("keeps drafting when a stale terminal precedes a fresh re-plan", () => {
+    const states = derivePlanningActivity(
+      [
+        item({
+          id: "g0",
+          type: "plan.rejected",
+          createdAt: new Date("2026-07-02T11:00:00Z"),
+        }),
+        progress({
+          id: "p1",
+          description: "Re-drafting…",
+          createdAt: new Date("2026-07-02T12:00:00Z"),
+        }),
+      ],
+      scope.outcomeIds
+    );
+    expect(states.map((s) => s.outcomeId)).toEqual(["o1"]);
+    expect(states[0].phase).toBe("Re-drafting…");
+  });
+
+  it("ignores outcomes out of scope and those with no progress", () => {
+    const states = derivePlanningActivity(
+      [
+        progress({ id: "p1", workflowId: "oX" }),
+        item({ id: "q", type: "qa_passed", workflowId: "o1" }),
+      ],
+      scope.outcomeIds
+    );
+    expect(states).toHaveLength(0);
+  });
+});
+
+describe("stripPlanningProgress", () => {
+  it("removes only the planning heartbeats, keeping real activity", () => {
+    const kept = stripPlanningProgress([
+      progress({ id: "p1" }),
+      item({ id: "a", type: "plan.generated" }),
+      item({ id: "b", type: "pr_merged" }),
+    ]);
+    expect(kept.map((i) => i.id)).toEqual(["a", "b"]);
   });
 });

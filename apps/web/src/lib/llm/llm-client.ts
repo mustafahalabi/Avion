@@ -24,6 +24,11 @@ export interface LlmCompletionSuccess {
   /** Raw model text output (callers extract/validate any structured payload). */
   readonly text: string;
   readonly durationMs: number;
+  /**
+   * Real token/cost usage the provider reported for this completion (Goal 3), or
+   * null when the provider didn't surface it. Never estimated.
+   */
+  readonly usage?: import("@/lib/adapters/agent-usage").AgentUsage | null;
 }
 
 /** A failed completion (timeout, non-zero exit, transport error). */

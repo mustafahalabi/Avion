@@ -21,10 +21,13 @@ import { AdapterBadge } from "@/components/ui/badge";
 import { useLivePipeline } from "@/components/live/use-live-pipeline";
 import { useLiveNotifications } from "@/components/notifications/live-notifications-provider";
 import {
+  derivePlanningActivity,
   filterConversationDecisions,
   filterStreamToScope,
   mergeActivityById,
+  stripPlanningProgress,
   type ConversationScope,
+  type PlanningActivityState,
 } from "@/lib/chat-activity";
 import type { WorkItemView } from "@/lib/work-lifecycle";
 import { SessionStream } from "./SessionStream";
@@ -71,6 +74,16 @@ export function ChatThread({
     return mergeActivityById(seedActivity, live);
   }, [pipeline.stream, seedActivity, scope.outcomeIds]);
 
+  // Live planning feedback (Goal 2): outcomes whose plan is being drafted right
+  // now → a pulsing "Avion is drafting your plan…" indicator that advances
+  // through phases and disappears when the draft lands. The heartbeats
+  // themselves are stripped from the permanent feed.
+  const planningStates = useMemo(
+    () => derivePlanningActivity(activity, scope.outcomeIds),
+    [activity, scope.outcomeIds]
+  );
+  const feedActivity = useMemo(() => stripPlanningProgress(activity), [activity]);
+
   // Inline "needs your input" bubbles for decisions/blockers on this thread.
   const decisions = useMemo(() => {
     const source = liveNotifications?.notifications ?? [];
@@ -95,10 +108,11 @@ export function ChatThread({
     [liveItems]
   );
 
-  // Interleave messages + activity + decisions chronologically.
+  // Interleave messages + activity + decisions chronologically (planning
+  // heartbeats excluded — they drive the live indicator, not the feed).
   const feed = useMemo(
-    () => buildFeed(messages, activity, decisions),
-    [messages, activity, decisions]
+    () => buildFeed(messages, feedActivity, decisions),
+    [messages, feedActivity, decisions]
   );
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -138,6 +152,9 @@ export function ChatThread({
         }
         return <ActivityBubble key={node.id} item={node.item} />;
       })}
+      {planningStates.map((state) => (
+        <PlanningIndicator key={`planning-${state.outcomeId}`} state={state} />
+      ))}
       {liveItems.length > 0 && <WorkingNowPanel items={liveItems} />}
       {liveSessionIds.map((sid) => (
         <SessionStream key={sid} sessionId={sid} />
@@ -329,6 +346,36 @@ function DecisionBubble({ decision }: { decision: DecisionData }) {
         <span className="px-1 text-[10px] text-neutral-700">
           {formatTime(decision.createdAt)}
         </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Live "Avion is drafting your plan…" indicator (Goal 2). Shown while a plan is
+ * being generated so the ~1–2 min planning window is never a silent gap: a
+ * pulsing dot, the current phase line (which advances as phases arrive), and a
+ * ticking elapsed timer. It disappears the moment the plan lands (a terminal
+ * planning event), handing off to the "Plan ready" activity bubble.
+ */
+function PlanningIndicator({ state }: { state: PlanningActivityState }) {
+  return (
+    <div className="av-fade-in-up flex flex-row gap-3">
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-neutral-700 bg-neutral-800 text-[10px] font-bold text-neutral-400">
+        E
+      </div>
+      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm border border-neutral-800 bg-neutral-900 px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand-500" aria-hidden />
+          <span className="text-sm font-medium text-neutral-200">
+            Avion is drafting your plan…
+          </span>
+          <ElapsedTime
+            startedAt={state.since}
+            className="ml-auto text-[11px] font-semibold text-brand-400"
+          />
+        </div>
+        <p className="mt-1 pl-3.5 text-xs text-neutral-500">{state.phase}</p>
       </div>
     </div>
   );

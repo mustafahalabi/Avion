@@ -334,6 +334,12 @@ export interface PlanningProvenance {
   readonly providerAttempted: "ai" | null;
   /** Why the AI path fell back to deterministic, or null (genuine AI / plain deterministic). */
   readonly fallbackReason: string | null;
+  /**
+   * Real token/cost usage the LLM reported for the planning completion (Goal 3),
+   * or null (deterministic-only, or the CLI surfaced no usage). Present even when
+   * the AI path fell back — the failed attempt still cost tokens.
+   */
+  readonly usage?: import("@/lib/adapters/agent-usage").AgentUsage | null;
 }
 
 export interface PlanningGenerationSuccess {

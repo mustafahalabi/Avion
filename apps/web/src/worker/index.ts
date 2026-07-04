@@ -3,6 +3,8 @@ import type {
   ExecutionAdapter,
   PermissionLevel,
 } from "@/lib/adapters/execution-adapter";
+import { resolveSandboxRunner } from "@/lib/adapters/sandbox-runner";
+import { resolveEffectivePermissionLevel } from "@/lib/worker-effective-permission";
 import { getCommandsForRepo } from "@/lib/check-command-profile";
 import {
   runValidationCommands,
@@ -25,6 +27,11 @@ import { prisma } from "@/lib/prisma";
 import { getProviderConnection } from "@/lib/provider-connection-service";
 import { createWorkerAuditLog } from "@/lib/worker-audit-log";
 import { getWorkerPermissions } from "@/lib/worker-permissions";
+import {
+  recordAgentUsage,
+  resolveOutcomeIdForTask,
+} from "@/lib/agent-usage-service";
+import { enforceOutcomeSpendCeiling } from "@/lib/execution-spend-guard";
 
 import {
   ensureDependenciesInstalled,
@@ -41,14 +48,25 @@ import {
 } from "./repo-manager";
 import { claimNextSession, releaseSession } from "./session-claimer";
 import {
+  acquireSingleInstanceLock,
+  singleInstanceEnabled,
+  type InstanceLock,
+} from "./single-instance-lock";
+import {
   createSessionLogStreamer,
   type SessionLogStreamer,
 } from "./session-log-streamer";
+import { runWorkerPool } from "./worker-pool";
+import { createSandboxedCommandSpawn } from "./sandbox-command-spawn";
 import { validateConfig, WORKER_CONFIG } from "./worker-config";
 import { workerLogger } from "./worker-logger";
 
 let isShuttingDown = false;
-let activeCleanup: (() => Promise<void>) | null = null;
+// Idempotent checkout cleanups for every in-flight session (Goal 5a — a pool may
+// run several at once). Each session adds its guarded cleanup and removes it when
+// done; shutdown runs whatever remains so no checkout is left on disk.
+const activeCleanups = new Set<() => Promise<void>>();
+let instanceLock: InstanceLock | null = null;
 
 /**
  * Sleeps for the given number of milliseconds.
@@ -112,8 +130,12 @@ async function handleShutdown(): Promise<void> {
   }
   isShuttingDown = true;
   workerLogger.info("Shutting down gracefully...");
-  if (activeCleanup) {
-    await activeCleanup();
+  for (const cleanup of [...activeCleanups]) {
+    await cleanup().catch(() => {});
+  }
+  activeCleanups.clear();
+  if (instanceLock) {
+    await instanceLock.release();
   }
   process.exit(0);
 }
@@ -144,9 +166,26 @@ async function processSession(sessionId: string): Promise<void> {
 
   const autonomyLevel = fullSession.company?.settings?.autonomyLevel ?? "assist";
   const permissions = getWorkerPermissions(autonomyLevel);
-  const permissionLevel: PermissionLevel = WORKER_CONFIG.WORKER_PERMISSION_MODE_OVERRIDE
-    ? (WORKER_CONFIG.WORKER_PERMISSION_MODE_OVERRIDE as PermissionLevel)
-    : permissions.permissionLevel;
+
+  // Host-isolation sandbox (Goal 1): resolved once per session and threaded
+  // through the agent adapter AND the install/validation shells so nothing the
+  // session runs can touch the host. `none` (default) preserves prior behavior.
+  const sandbox = resolveSandboxRunner();
+
+  // Effective permission (Goal 1): an explicit WORKER_PERMISSION_MODE override
+  // wins; inside a docker sandbox the agent runs at full autonomy safely; on an
+  // un-sandboxed host, `full` (bypassPermissions) is capped to `execute` unless
+  // WORKER_ALLOW_UNSANDBOXED_FULL is set.
+  const permissionDecision = resolveEffectivePermissionLevel({
+    autonomyPermission: permissions.permissionLevel,
+    override: WORKER_CONFIG.WORKER_PERMISSION_MODE_OVERRIDE,
+    sandboxKind: sandbox.kind,
+    allowUnsandboxedFull: WORKER_CONFIG.WORKER_ALLOW_UNSANDBOXED_FULL,
+  });
+  const permissionLevel = permissionDecision.level as PermissionLevel;
+  workerLogger.info(
+    `Sandbox: ${sandbox.describe()}. Permission: ${permissionLevel} (${permissionDecision.reason}).`
+  );
 
   const repo = fullSession.repository;
   if (!repo?.url) {
@@ -164,11 +203,37 @@ async function processSession(sessionId: string): Promise<void> {
   // ingested as failed, the worker keeps polling.
   let adapter: ExecutionAdapter;
   try {
-    adapter = resolveExecutionAdapter(fullSession.agentType);
+    adapter = resolveExecutionAdapter(fullSession.agentType, { sandbox });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     workerLogger.error(message);
     await releaseSession(fullSession.id, "failed", message);
+    return;
+  }
+
+  // Spend ceiling (Goal 3): halt BEFORE running if this task's outcome has
+  // already spent at/over its ceiling. Blocks the task + escalates the outcome +
+  // notifies the CEO, so a runaway outcome can't keep burning money.
+  try {
+    const ceiling = await enforceOutcomeSpendCeiling({
+      companyId: fullSession.companyId,
+      taskId: fullSession.taskId,
+      sessionId: fullSession.id,
+      companyCeilingSetting: fullSession.company?.settings?.spendCeilingUsd ?? null,
+    });
+    if (ceiling.halted) {
+      workerLogger.error(ceiling.reason ?? "Spend ceiling reached.");
+      await releaseSession(fullSession.id, "failed", ceiling.reason ?? "Spend ceiling reached.");
+      return;
+    }
+  } catch (error: unknown) {
+    // The spend ceiling is a money-safety gate: FAIL CLOSED. If the check itself
+    // errors (e.g. a transient DB read fault) we must NOT run the agent — that
+    // could spend past the ceiling unbounded. Fail just this session (the worker
+    // keeps polling others; the driver's bounded retry re-attempts it).
+    const message = error instanceof Error ? error.message : String(error);
+    workerLogger.error(`Spend-ceiling check failed — not running (fail-closed): ${message}`);
+    await releaseSession(fullSession.id, "failed", `Spend-ceiling check failed: ${message}`);
     return;
   }
 
@@ -189,8 +254,15 @@ async function processSession(sessionId: string): Promise<void> {
       WORKER_CONFIG.WORKER_REPO_BASE_DIR,
       fullSession.id
     );
-    cleanup = checkout.cleanup;
-    activeCleanup = cleanup;
+    // Idempotent guard so the checkout is torn down exactly once whether the
+    // finally below or a concurrent shutdown gets there first.
+    let cleaned = false;
+    cleanup = async (): Promise<void> => {
+      if (cleaned) return;
+      cleaned = true;
+      await checkout.cleanup();
+    };
+    activeCleanups.add(cleanup);
 
     workerLogger.info(
       `Running ${adapter.agentType} agent (permission: ${permissionLevel}, timeout: ${WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS}s)`
@@ -232,10 +304,14 @@ async function processSession(sessionId: string): Promise<void> {
         if (commands.length === 0) {
           // No validation commands detected for this repository profile.
         } else {
+          // Route install + validation through the same sandbox as the agent so
+          // they never run on the host either (Goal 1). `none` → `/bin/sh -c`.
+          const sandboxedSpawn = createSandboxedCommandSpawn(sandbox);
           const install = await ensureDependenciesInstalled({
             repoPath: checkout.path,
             permissions,
             timeoutSeconds: WORKER_CONFIG.WORKER_INSTALL_TIMEOUT_SECONDS,
+            spawn: sandboxedSpawn,
           });
           if (install.attempted || !install.ok) {
             combinedValidationOutput = appendValidation(
@@ -250,6 +326,7 @@ async function processSession(sessionId: string): Promise<void> {
               commands,
               timeoutSeconds: WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS,
               permissions,
+              spawn: sandboxedSpawn,
             });
             combinedValidationOutput = appendValidation(
               combinedValidationOutput,
@@ -411,6 +488,26 @@ async function processSession(sessionId: string): Promise<void> {
     workerLogger.info(
       `Result ingested. Task status: ${outcome.newTaskStatus ?? "unchanged"}`
     );
+
+    // Record REAL execution spend (Goal 3) from the agent's reported usage.
+    // Best-effort; attributed to the task's outcome for the per-outcome meter.
+    if (result.usage) {
+      const outcomeId = fullSession.taskId
+        ? await resolveOutcomeIdForTask(fullSession.taskId).catch(() => null)
+        : null;
+      await recordAgentUsage({
+        companyId: fullSession.companyId,
+        outcomeId,
+        taskId: fullSession.taskId,
+        sessionId: fullSession.id,
+        phase: "execution",
+        provider: adapter.agentType,
+        usage: result.usage,
+      });
+      workerLogger.info(
+        `Usage: $${result.usage.costUsd.toFixed(4)} (${result.usage.inputTokens}+${result.usage.outputTokens} tok).`
+      );
+    }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     workerLogger.error(`Session ${fullSession.id} failed: ${message}`);
@@ -422,9 +519,9 @@ async function processSession(sessionId: string): Promise<void> {
       await streamer.stop();
     }
     if (cleanup) {
+      activeCleanups.delete(cleanup);
       await cleanup();
     }
-    activeCleanup = null;
     workerLogger.info(
       `Cleaned up ${WORKER_CONFIG.WORKER_REPO_BASE_DIR}/${fullSession.id}`
     );
@@ -432,7 +529,8 @@ async function processSession(sessionId: string): Promise<void> {
 }
 
 /**
- * Polls for prepared sessions and executes them until shutdown.
+ * Polls for prepared sessions and executes them (up to WORKER_CONCURRENCY at
+ * once) until shutdown.
  */
 async function startPollingLoop(): Promise<void> {
   // Liveness signal (MUS-269): touch the heartbeat file once per iteration so
@@ -441,34 +539,37 @@ async function startPollingLoop(): Promise<void> {
   // liveness checks must allow for that (see docs/DEPLOYMENT.md).
   const heartbeat = createHeartbeat("worker", process.env.WORKER_HEARTBEAT_FILE);
 
-  while (!isShuttingDown) {
-    heartbeat.beat();
-
-    // Crash recovery (MUS-280): release any session left `running` past the
-    // session timeout by a worker that died mid-run, so an orphan can't stall the
-    // driver (findLiveSessionForTask + concurrency) for its task forever.
-    try {
-      const reaped = await reapStaleRunningSessions({
-        timeoutSeconds: WORKER_CONFIG.WORKER_SESSION_TIMEOUT_SECONDS,
-      });
-      if (reaped > 0) {
-        workerLogger.info(`Reaped ${reaped} stale running session(s) (crash recovery).`);
+  await runWorkerPool({
+    concurrency: WORKER_CONFIG.WORKER_CONCURRENCY,
+    shouldStop: () => isShuttingDown,
+    beforeCycle: async () => {
+      heartbeat.beat();
+      // Crash recovery (MUS-280): release any session left `running` past the
+      // session timeout by a worker that died mid-run, so an orphan can't stall
+      // the driver (findLiveSessionForTask + concurrency) for its task forever.
+      // Use the reaper's FULL-runtime grace (staleSessionTimeoutSeconds, ~4500s),
+      // NOT the agent-only WORKER_SESSION_TIMEOUT_SECONDS: with a worker pool
+      // (WORKER_CONCURRENCY>1) this beforeCycle runs while OTHER sessions of this
+      // same worker are still legitimately in flight (agent + install + validation
+      // can exceed the agent timeout), and the short value would reap them mid-run
+      // (MUS-285). Matches the driver caller.
+      try {
+        const reaped = await reapStaleRunningSessions();
+        if (reaped > 0) {
+          workerLogger.info(`Reaped ${reaped} stale running session(s) (crash recovery).`);
+        }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        workerLogger.error(`Stale-session reaper failed: ${message}`);
       }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      workerLogger.error(`Stale-session reaper failed: ${message}`);
-    }
-
-    const session = await claimNextSession();
-
-    if (!session) {
+    },
+    claim: () => claimNextSession(),
+    process: (sessionId) => processSession(sessionId),
+    onIdle: async () => {
       workerLogger.info("No sessions queued. Waiting...");
       await sleep(WORKER_CONFIG.WORKER_POLL_INTERVAL_MS);
-      continue;
-    }
-
-    await processSession(session.id);
-  }
+    },
+  });
 }
 
 /**
@@ -476,8 +577,37 @@ async function startPollingLoop(): Promise<void> {
  */
 async function main(): Promise<void> {
   validateConfig();
+
+  // Single-instance guard (Goal 4): refuse to start a second worker so two
+  // workers can't double-claim / double-spend. Auto-released on process death.
+  instanceLock = await acquireSingleInstanceLock("worker", {
+    enabled: singleInstanceEnabled(),
+  });
+  if (!instanceLock.acquired) {
+    workerLogger.error(
+      "Another worker instance is already running (single-instance lock held). Exiting. " +
+        "Set WORKER_SINGLE_INSTANCE=0 to allow multiple (not recommended)."
+    );
+    await instanceLock.release();
+    process.exit(0);
+  }
+
+  // Parallel-execution safety (Goal 5a): a pool of full-permission agents on an
+  // un-sandboxed host would be catastrophic. Loudly warn (the effective-permission
+  // cap still applies, but docker isolation is the right answer).
+  if (
+    WORKER_CONFIG.WORKER_CONCURRENCY > 1 &&
+    resolveSandboxRunner().kind === "none"
+  ) {
+    workerLogger.warn(
+      `WORKER_CONCURRENCY=${WORKER_CONFIG.WORKER_CONCURRENCY} on an UN-SANDBOXED host. ` +
+        "Strongly set WORKER_SANDBOX=docker so each parallel agent is isolated."
+    );
+  }
+
   workerLogger.info(
-    `Worker started. Polling every ${WORKER_CONFIG.WORKER_POLL_INTERVAL_MS}ms.`
+    `Worker started. Polling every ${WORKER_CONFIG.WORKER_POLL_INTERVAL_MS}ms ` +
+      `(concurrency ${WORKER_CONFIG.WORKER_CONCURRENCY}).`
   );
 
   process.on("SIGINT", () => {
