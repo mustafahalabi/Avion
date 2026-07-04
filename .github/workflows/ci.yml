@@ -75,6 +75,12 @@ jobs:
       - name: Typecheck @avion/web
         run: pnpm --filter @avion/web exec tsc --noEmit
 
+      - name: Lint @avion/web
+        # eslint exits non-zero on ERRORS only (advisory warnings don't fail the
+        # build), so this gates against new lint errors without churning on the
+        # React-Compiler-era advisory rules kept as warnings in eslint.config.mjs.
+        run: pnpm --filter @avion/web lint
+
       - name: Typecheck and build @avion/api
         run: pnpm --filter @avion/api build
 

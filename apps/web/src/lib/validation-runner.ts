@@ -123,16 +123,6 @@ const defaultSpawn: CommandSpawn = (command, cwd, timeoutMs) =>
     let output = "";
     let timedOut = false;
     let settled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-    const finish = (exitCode: number) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId);
-      }
-      resolve({ exitCode, output, timedOut });
-    };
 
     const child = nodeSpawn("/bin/sh", ["-c", command], {
       cwd,
@@ -146,10 +136,17 @@ const defaultSpawn: CommandSpawn = (command, cwd, timeoutMs) =>
       output += chunk.toString();
     });
 
-    timeoutId = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
     }, timeoutMs);
+
+    const finish = (exitCode: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve({ exitCode, output, timedOut });
+    };
 
     child.on("close", (code) => finish(code ?? 1));
     child.on("error", (err) => {
