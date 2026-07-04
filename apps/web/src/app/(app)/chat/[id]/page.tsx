@@ -8,7 +8,10 @@ import {
   loadConversationActivity,
   resolveConversationScope,
 } from "@/lib/chat-activity-server";
+import { summarizeOutcomeUsageMany } from "@/lib/agent-usage-service";
+import { resolveSpendCeilingUsd } from "@/lib/spend-ceiling";
 import { ChatSurface } from "./chat-surface";
+import { OutcomeSpendChip } from "./outcome-spend-chip";
 import type { ChatThreadMessage } from "./chat-thread";
 
 interface Props {
@@ -52,10 +55,24 @@ export default async function ChatThreadPage({ params }: Props) {
   // Scope the company-wide live stream down to this conversation's work, then
   // seed the thread with its authoritative activity history + the current board.
   const scope = await resolveConversationScope(company.id, id);
-  const [seedActivity, initialPipeline] = await Promise.all([
+  const [seedActivity, initialPipeline, usageMap, settings] = await Promise.all([
     loadConversationActivity(company.id, scope),
     loadLivePipeline(company.id, { userId: user.id }),
+    summarizeOutcomeUsageMany(company.id, scope.outcomeIds),
+    prisma.companySettings.findUnique({
+      where: { companyId: company.id },
+      select: { spendCeilingUsd: true },
+    }),
   ]);
+
+  // Per-outcome spend meter (Goal 3): real dollars this conversation has spent,
+  // against the effective ceiling. Server-rendered; refreshes as work advances.
+  const outcomeCosts = [...usageMap.values()].map((u) => u.costUsd);
+  const totalSpendUsd = outcomeCosts.reduce((s, c) => s + c, 0);
+  // The ceiling is PER-OUTCOME, so the over-budget tone is driven by the most
+  // expensive single outcome, not the cross-outcome sum.
+  const maxOutcomeSpendUsd = outcomeCosts.length > 0 ? Math.max(...outcomeCosts) : 0;
+  const ceilingUsd = resolveSpendCeilingUsd(settings?.spendCeilingUsd ?? null);
 
   const messages: ChatThreadMessage[] = conv.messages.map((m) => ({
     id: m.id,
@@ -81,6 +98,13 @@ export default async function ChatThreadPage({ params }: Props) {
         <h1 className="truncate text-sm font-medium text-neutral-300">
           {conv.title ?? "New conversation"}
         </h1>
+        <div className="ml-auto">
+          <OutcomeSpendChip
+            spentUsd={totalSpendUsd}
+            ceilingUsd={ceilingUsd}
+            ratioBasisUsd={maxOutcomeSpendUsd}
+          />
+        </div>
       </header>
 
       {/* Live thread + composer (optimistic send) */}

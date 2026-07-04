@@ -13,6 +13,15 @@ import {
   parseValidationOutput,
 } from "./agent-output-parser";
 import { createLineEmitter } from "./stream-lines";
+import {
+  resolveSandboxRunner,
+  type SandboxRunner,
+} from "./sandbox-runner";
+import {
+  createClaudeStreamJsonParser,
+  type StreamJsonEvent,
+} from "./claude-stream-json";
+import type { AgentUsage } from "./agent-usage";
 import type { AgentStreamEventInput } from "@/lib/agent-stream/types";
 
 // Re-export the shared stdout parsers so existing importers keep working —
@@ -36,6 +45,12 @@ const PERMISSION_MODE_MAP: Record<PermissionLevel, string> = {
 export interface ClaudeCodeAdapterOptions {
   /** When set, overrides the permission mode derived from context.permissionLevel. */
   permissionModeOverride?: string;
+  /**
+   * Sandbox that wraps the agent spawn (Goal 1). Defaults to the env-resolved
+   * runner ({@link resolveSandboxRunner}); the `none` runner spawns `claude`
+   * directly (unchanged), the `docker` runner isolates it in a container.
+   */
+  sandbox?: SandboxRunner;
 }
 
 /**
@@ -48,14 +63,16 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
   readonly agentType = "claude_code" as const;
 
   private readonly permissionModeOverride: string | undefined;
+  private readonly sandbox: SandboxRunner;
 
   /**
    * Creates a Claude Code adapter.
    *
-   * @param options - Optional overrides for permission mode.
+   * @param options - Optional overrides for permission mode and sandbox.
    */
   constructor(options?: ClaudeCodeAdapterOptions) {
     this.permissionModeOverride = options?.permissionModeOverride;
+    this.sandbox = options?.sandbox ?? resolveSandboxRunner();
   }
 
   /**
@@ -89,18 +106,42 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
         // Ignored — streaming is best-effort and must never affect execution.
       }
     };
-    // Reassemble chunked stdout/stderr into complete lines for the live stream,
-    // WITHOUT disturbing the full buffered capture the stdout parsers depend on.
-    const stdoutLines = createLineEmitter((line) =>
-      emit({ type: "text", label: line, detail: line, atMs: Date.now() - startTime })
+    // stdout is `--output-format stream-json`: newline-delimited JSON events.
+    // The parser folds them into live feed events (text/tool), the reconstructed
+    // final assistant text (fed to the stdout parsers), and REAL usage/cost. Raw
+    // JSONL lines are reassembled first, WITHOUT disturbing the full capture.
+    const streamJson = createClaudeStreamJsonParser((event: StreamJsonEvent) =>
+      emit({
+        type: event.type,
+        label: event.label,
+        detail: event.detail ?? event.label,
+        atMs: Date.now() - startTime,
+      })
     );
+    const stdoutLines = createLineEmitter((line) => streamJson.push(line));
     const stderrLines = createLineEmitter((line) =>
       emit({ type: "stderr", label: line, detail: line, atMs: Date.now() - startTime })
     );
 
     try {
-      child = spawn("claude", ["-p", "--permission-mode", mode], {
-        cwd: context.repositoryPath,
+      // Wrap the host invocation through the sandbox. `none` → spawn `claude`
+      // directly (unchanged); `docker` → spawn `docker run … claude -p …` so the
+      // agent is isolated from the host and can safely run at full power.
+      // `--output-format stream-json --verbose` gives a live feed AND real usage.
+      const invocation = this.sandbox.wrap({
+        command: "claude",
+        args: [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          mode,
+        ],
+        repositoryPath: context.repositoryPath,
+      });
+      child = spawn(invocation.command, invocation.args, {
+        cwd: invocation.cwd,
         stdio: ["pipe", "pipe", "pipe"],
       });
       emit({ type: "status", label: "Agent started", detail: this.agentType, atMs: 0 });
@@ -156,27 +197,36 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
 
     const durationMs = Date.now() - startTime;
 
+    // Drain any trailing partial line into the parser before folding.
+    stdoutLines.flush();
+    stderrLines.flush();
+    const folded = streamJson.result();
+    // The reconstructed assistant text is what the section parsers expect; raw
+    // JSONL never reaches them. When no stream-json result was seen (older CLI /
+    // plain text), fall back to the raw stdout so parsing still works.
+    const parseText = folded.sawResult ? folded.text : stdout;
+    const usage: AgentUsage | null = folded.usage;
+
     if (spawnError) {
       errorMessage = `Agent process error: ${(spawnError as Error).message}`;
     } else if (timedOut) {
       errorMessage = `Agent timed out after ${context.timeoutSeconds}s`;
     } else if (exitCode !== 0) {
       errorMessage = stderr.trim() || `Process exited with code ${exitCode}`;
+    } else if (folded.isError) {
+      errorMessage = folded.text.trim() || "Agent reported an error";
     }
 
-    const resultSummary = parseResultSummary(stdout);
+    const resultSummary = parseResultSummary(parseText);
     // On-disk git truth is authoritative for what actually changed; the stdout
     // parse is only a fallback when this is not a git repo (MUS-278).
     const fromGit = parseFilesChangedFromGit(context.repositoryPath);
-    const filesChanged = fromGit.length > 0 ? fromGit : parseFilesChanged(stdout);
-    const validationOutput = parseValidationOutput(stdout);
-    const success = exitCode === 0 && !timedOut && !spawnError;
+    const filesChanged = fromGit.length > 0 ? fromGit : parseFilesChanged(parseText);
+    const validationOutput = parseValidationOutput(parseText);
+    const success = exitCode === 0 && !timedOut && !spawnError && !folded.isError;
 
-    // Drain any trailing partial line, then mark the run's lifecycle end. This
-    // runs after the process has settled and `success` is known; the buffered
-    // result above is already computed and unaffected.
-    stdoutLines.flush();
-    stderrLines.flush();
+    // Mark the run's lifecycle end. This runs after the process has settled and
+    // `success` is known; the folded result above is already computed.
     emit({
       type: "status",
       label: success ? "Agent finished" : "Agent stopped",
@@ -186,7 +236,7 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
 
     return {
       exitCode,
-      stdout,
+      stdout: parseText,
       stderr,
       success,
       resultSummary,
@@ -194,6 +244,7 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
       validationOutput,
       errorMessage,
       durationMs,
+      usage,
     };
   }
 }

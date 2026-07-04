@@ -210,6 +210,58 @@ describe("createOrUpdatePlanningDraftForOutcome — draft versioning (MUS-259)",
   });
 });
 
+describe("createOrUpdatePlanningDraftForOutcome — live planning feedback (Goal 2)", () => {
+  it("emits outcome-scoped plan.progress heartbeats while drafting", async () => {
+    const outcomeId = await seedOutcome();
+
+    await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+
+    const progress = await prisma.timelineEntry.findMany({
+      where: {
+        entityType: "outcome",
+        entityId: outcomeId,
+        eventType: "plan.progress",
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    // Two phases: "reviewing" then "drafting" — the chat advances through them.
+    expect(progress.length).toBeGreaterThanOrEqual(2);
+    const phases = progress.map(
+      (e) => JSON.parse(e.metadata).phase as string
+    );
+    expect(phases).toContain("reviewing");
+    expect(phases).toContain("drafting");
+  });
+
+  it("does NOT emit progress when a live draft is reused (no generation)", async () => {
+    const outcomeId = await seedOutcome();
+    await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM "TimelineEntry" WHERE "eventType" = 'plan.progress'`
+    );
+
+    // Second call reuses the existing draft → no generation → no heartbeats.
+    await service.createOrUpdatePlanningDraftForOutcome({
+      companyId: "company-1",
+      outcomeId,
+      actorId: "user-1",
+    });
+
+    const progress = await prisma.timelineEntry.count({
+      where: { entityId: outcomeId, eventType: "plan.progress" },
+    });
+    expect(progress).toBe(0);
+  });
+});
+
 describe("createOrUpdatePlanningDraftForOutcome — per-company planning provider (MUS-262)", () => {
   it("passes a stored CompanySettings override through to the provider resolver", async () => {
     await prisma.companySettings.create({

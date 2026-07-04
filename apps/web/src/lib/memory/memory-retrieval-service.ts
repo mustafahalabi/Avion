@@ -3,6 +3,11 @@ import {
   PLANNING_MEMORY_CATEGORIES,
   type CompanyMemoryItem,
 } from "./memory-types";
+import {
+  cosineSimilarity,
+  resolveEmbeddingProvider,
+  type EmbeddingProvider,
+} from "./embedding-provider";
 
 /** Input for {@link getRelevantCompanyMemory}. */
 export interface GetRelevantCompanyMemoryInput {
@@ -11,9 +16,25 @@ export interface GetRelevantCompanyMemoryInput {
   readonly categories?: readonly string[];
   /** Maximum records to return; defaults to 20. */
   readonly limit?: number;
+  /**
+   * When provided, recall is SEMANTIC (Goal 5c): candidates are ranked by
+   * embedding cosine similarity to this query (typically the outcome's request)
+   * instead of pure recency, so the most RELEVANT lessons surface. Omit for the
+   * original confidence/recency ordering.
+   */
+  readonly query?: string;
+  /** Injected embedding provider (tests); defaults to the env-resolved one. */
+  readonly embeddingProvider?: EmbeddingProvider;
 }
 
 const DEFAULT_LIMIT = 20;
+
+/**
+ * Candidate pool size for semantic recall — the most-recent N records are
+ * embedded and re-ranked by relevance, then the top `limit` are returned. Bounds
+ * how many records are embedded per recall.
+ */
+const SEMANTIC_CANDIDATE_POOL = 200;
 
 /**
  * Retrieves the most relevant durable memory for a company, highest-confidence and most
@@ -30,6 +51,8 @@ export async function getRelevantCompanyMemory(
     input.categories && input.categories.length > 0
       ? [...input.categories]
       : [...PLANNING_MEMORY_CATEGORIES];
+  const limit = input.limit ?? DEFAULT_LIMIT;
+  const query = input.query?.trim();
 
   const records = await prisma.memoryRecord.findMany({
     where: {
@@ -44,10 +67,12 @@ export async function getRelevantCompanyMemory(
       memory: { select: { category: true, title: true } },
     },
     orderBy: [{ confidence: "desc" }, { createdAt: "desc" }],
-    take: input.limit ?? DEFAULT_LIMIT,
+    // Semantic recall re-ranks a larger candidate pool; keyword recall takes
+    // exactly `limit` as before (unchanged behavior).
+    take: query ? SEMANTIC_CANDIDATE_POOL : limit,
   });
 
-  return records.map((record) => ({
+  const toItem = (record: (typeof records)[number]): CompanyMemoryItem => ({
     id: record.id,
     category: record.memory.category,
     bankTitle: record.memory.title,
@@ -55,7 +80,28 @@ export async function getRelevantCompanyMemory(
     source: record.source,
     confidence: record.confidence,
     createdAt: record.createdAt,
-  }));
+  });
+
+  if (!query) {
+    return records.map(toItem);
+  }
+
+  // Semantic ranking (Goal 5c): embed the query + each candidate and rank by
+  // cosine similarity, tie-broken by the original confidence/recency order.
+  const provider = input.embeddingProvider ?? resolveEmbeddingProvider();
+  const queryVec = await provider.embed(query);
+  const scored = await Promise.all(
+    records.map(async (record, index) => ({
+      record,
+      index,
+      score: cosineSimilarity(queryVec, await provider.embed(record.content)),
+    }))
+  );
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.index - b.index; // stable fallback to confidence/recency order
+  });
+  return scored.slice(0, limit).map((s) => toItem(s.record));
 }
 
 /**

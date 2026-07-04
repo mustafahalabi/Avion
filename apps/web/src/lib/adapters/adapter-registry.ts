@@ -5,6 +5,16 @@ import {
 } from "./execution-adapter";
 import { ClaudeCodeAdapter } from "./claude-code-adapter";
 import { CodexAdapter } from "./codex-adapter";
+import type { SandboxRunner } from "./sandbox-runner";
+
+/** Options forwarded to the constructed adapter. */
+export interface ResolveAdapterOptions {
+  /**
+   * Host-isolation sandbox to inject into the adapter (Goal 1). Omit to let the
+   * adapter resolve one from the environment itself.
+   */
+  sandbox?: SandboxRunner;
+}
 
 /**
  * Registry mapping `ExecutionSession.agentType` values to execution adapters.
@@ -16,9 +26,12 @@ import { CodexAdapter } from "./codex-adapter";
  * the worker or silently running the wrong agent.
  */
 
-const ADAPTER_FACTORIES: Record<ExecutionAdapterAgentType, () => ExecutionAdapter> = {
-  claude_code: () => new ClaudeCodeAdapter(),
-  codex: () => new CodexAdapter(),
+const ADAPTER_FACTORIES: Record<
+  ExecutionAdapterAgentType,
+  (options?: ResolveAdapterOptions) => ExecutionAdapter
+> = {
+  claude_code: (options) => new ClaudeCodeAdapter({ sandbox: options?.sandbox }),
+  codex: (options) => new CodexAdapter({ sandbox: options?.sandbox }),
 };
 
 /**
@@ -37,15 +50,19 @@ export function isRunnableAgentType(
  * Resolves a fresh execution adapter for a session's agent type.
  *
  * @param agentType - Raw `ExecutionSession.agentType` value.
+ * @param options - Optional adapter options (e.g. a host-isolation sandbox).
  * @returns The adapter instance for the agent type.
  * @throws Error with an explicit message when no adapter is registered.
  */
-export function resolveExecutionAdapter(agentType: string): ExecutionAdapter {
+export function resolveExecutionAdapter(
+  agentType: string,
+  options?: ResolveAdapterOptions
+): ExecutionAdapter {
   if (!isRunnableAgentType(agentType)) {
     throw new Error(
       `No execution adapter registered for agent type "${agentType}". ` +
         `Supported agent types: ${EXECUTION_ADAPTER_AGENT_TYPES.join(", ")}.`
     );
   }
-  return ADAPTER_FACTORIES[agentType]();
+  return ADAPTER_FACTORIES[agentType](options);
 }

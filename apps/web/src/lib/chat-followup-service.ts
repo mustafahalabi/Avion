@@ -31,6 +31,8 @@ import { parseJsonStringArray } from "@/lib/planning-generator";
 import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
 import { TERMINAL_OUTCOME_STATUSES } from "@/lib/outcome-completion-service";
 import { resolveChatReplyAdapter } from "@/lib/chat/chat-reply-provider";
+import { routeSteeringToInFlightWork } from "@/lib/mid-flight-steering";
+import { selectSteerableTask } from "@/lib/mid-flight-steering-select";
 import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 
 /** Runtime request statuses after which a conversation has no active request. */
@@ -84,6 +86,12 @@ export interface FollowUpReplyContext {
    * inline, so no `/inbox` visit is needed (MUS-304). Defaults to 0.
    */
   readonly openChangeRequests?: number;
+  /**
+   * When the CEO's message redirected in-flight work (Goal 5b), the title of the
+   * task it was routed to for rework. The reply confirms the steer landed in the
+   * running loop. Null when nothing was steered (no active task, or plan pending).
+   */
+  readonly steeredTaskTitle?: string | null;
 }
 
 /** What `handleConversationFollowUp` did with the message. */
@@ -269,7 +277,10 @@ export async function handleConversationFollowUp(
   // Reply from the current records — the note is already durable on the brief +
   // constraints, so the CEO gets an immediate answer. `planRegenerated` tells the
   // reply the note is being folded into the plan; the regenerated plan surfaces
-  // via the live activity stream when the deferred generation below lands.
+  // via the live activity stream when the deferred generation below lands. When
+  // the plan is applied (work in flight), the reply also reflects mid-flight
+  // steering (Goal 5b) from the tasks it already loaded — the change request is
+  // opened off the response path in the after() below.
   const context = await loadFollowUpReplyContext({
     companyId: input.companyId,
     requestId: active.requestId,
@@ -311,6 +322,22 @@ export async function handleConversationFollowUp(
         // this guard only stops an unexpected throw becoming an unhandled rejection.
       }
     });
+  } else {
+    // Plan applied → route the steer into the running loop off the response path
+    // (opening a change request touches review/QA state, so keep it out of the
+    // send). Best-effort; the note is already durable on the outcome (MUS-304).
+    after(async () => {
+      try {
+        await routeSteeringToInFlightWork({
+          companyId: input.companyId,
+          outcomeId: active.outcomeId,
+          content,
+          actorId: input.actorId,
+        });
+      } catch {
+        // Steering is additive; a failure never loses the note.
+      }
+    });
   }
 
   return {
@@ -341,6 +368,13 @@ export function buildFollowUpReply(context: FollowUpReplyContext): string {
     context.openCeoQuestions.forEach((question, index) => {
       lines.push(`${index + 1}. ${question}`);
     });
+  }
+
+  if (context.steeredTaskTitle) {
+    lines.push(
+      "",
+      `**Steering the work in flight:** I've routed this into **${context.steeredTaskTitle}** — it will re-work with your change and re-loop through review/QA.`
+    );
   }
 
   const openChangeRequests = context.openChangeRequests ?? 0;
@@ -383,9 +417,18 @@ async function loadFollowUpReplyContext(input: {
         companyId: input.companyId,
         OR: [{ outcomeId: input.outcomeId }, { planningDraft: { outcomeId: input.outcomeId } }],
       },
-      select: { id: true, status: true },
+      select: { id: true, title: true, status: true, updatedAt: true },
     }),
   ]);
+
+  // Mid-flight steering (Goal 5b): when the plan is applied (work in flight),
+  // the CEO's note redirects the active task. We pick the task from the rows
+  // already loaded here (no extra query on the response path); the change request
+  // is opened off-path in the caller's after(). Nothing steers while the plan is
+  // still pending — regeneration handles that case.
+  const steeredTaskTitle = input.planRegenerated
+    ? null
+    : (selectSteerableTask(tasks)?.title ?? null);
 
   const taskIds = tasks.map((t) => t.id);
   // A pending decision the CEO's message may be answering: a changes-requested
@@ -422,6 +465,7 @@ async function loadFollowUpReplyContext(input: {
       : [],
     taskCounts: countTasks(tasks),
     openChangeRequests,
+    steeredTaskTitle,
   };
 }
 

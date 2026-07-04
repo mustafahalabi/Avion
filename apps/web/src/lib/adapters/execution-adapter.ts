@@ -6,6 +6,7 @@
  */
 
 import type { AgentStreamHandler } from "@/lib/agent-stream/types";
+import type { AgentUsage } from "./agent-usage";
 
 /** Capability tier controlling how much autonomy the agent has during execution. */
 export type PermissionLevel = "read_only" | "suggest" | "execute" | "full";
@@ -63,6 +64,11 @@ export interface ExecutionResult {
   errorMessage: string | null;
   /** Wall-clock duration in milliseconds. */
   durationMs: number;
+  /**
+   * Real token/cost usage the agent CLI reported for this run (Goal 3), or null
+   * when the provider/output-format didn't surface it. Never estimated.
+   */
+  usage?: AgentUsage | null;
 }
 
 /** Contract implemented by provider-specific execution adapters. */

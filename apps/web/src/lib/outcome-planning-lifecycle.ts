@@ -4,12 +4,64 @@ import type { PlanningDraftStatus } from "@/lib/outcome-planning";
 /** Timeline event types for the outcome planning vertical slice. */
 export const OUTCOME_PLANNING_EVENT_TYPES = {
   outcomeSubmitted: "outcome.submitted",
+  /**
+   * A live progress heartbeat emitted WHILE a plan is being drafted (Goal 2).
+   * Outcome-scoped, so it reaches the conversation's live stream; the chat uses
+   * it to drive an "Avion is drafting your plan…" indicator that advances
+   * through phases, and strips it from the permanent feed. Terminal planning
+   * events (below) end the indicator.
+   */
+  planProgress: "plan.progress",
   planGenerated: "plan.generated",
   planApproved: "plan.approved",
   planRejected: "plan.rejected",
   workCreated: "work.created",
   planFailed: "plan.failed",
 } as const;
+
+/**
+ * Planning event types that END the "drafting" phase — once one of these is the
+ * newest planning event for an outcome, the live indicator stops.
+ */
+export const PLANNING_TERMINAL_EVENT_TYPES: readonly string[] = [
+  OUTCOME_PLANNING_EVENT_TYPES.planGenerated,
+  OUTCOME_PLANNING_EVENT_TYPES.planApproved,
+  OUTCOME_PLANNING_EVENT_TYPES.planRejected,
+  OUTCOME_PLANNING_EVENT_TYPES.workCreated,
+  OUTCOME_PLANNING_EVENT_TYPES.planFailed,
+];
+
+/**
+ * Records a live planning-progress heartbeat for an outcome (Goal 2).
+ *
+ * Outcome-scoped so it flows into the conversation's live activity stream. The
+ * chat renders it as a live "drafting your plan…" indicator rather than a
+ * permanent bubble. Best-effort by intent — callers wrap it so a logging
+ * failure never breaks plan generation.
+ *
+ * @param input - Company, outcome, machine `phase`, human `summary`, actor.
+ */
+export async function recordPlanningProgressEvent(input: {
+  readonly companyId: string;
+  readonly outcomeId: string;
+  readonly phase: string;
+  readonly summary: string;
+  readonly actorId: string | null;
+}): Promise<void> {
+  await prisma.timelineEntry.create({
+    data: {
+      entityType: "outcome",
+      entityId: input.outcomeId,
+      eventType: OUTCOME_PLANNING_EVENT_TYPES.planProgress,
+      summary: input.summary,
+      actorId: input.actorId,
+      metadata: JSON.stringify({
+        companyId: input.companyId,
+        phase: input.phase,
+      }),
+    },
+  });
+}
 
 export const PENDING_PLAN_REVIEW_STATUSES: readonly PlanningDraftStatus[] = [
   "draft",

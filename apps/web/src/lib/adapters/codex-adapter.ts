@@ -13,6 +13,10 @@ import {
   parseValidationOutput,
 } from "./agent-output-parser";
 import { createLineEmitter } from "./stream-lines";
+import {
+  resolveSandboxRunner,
+  type SandboxRunner,
+} from "./sandbox-runner";
 import type { AgentStreamEventInput } from "@/lib/agent-stream/types";
 
 /**
@@ -34,6 +38,12 @@ const SANDBOX_MODE_MAP: Record<PermissionLevel, string> = {
 export interface CodexAdapterOptions {
   /** When set, overrides the sandbox mode derived from context.permissionLevel. */
   sandboxModeOverride?: string;
+  /**
+   * Host-isolation sandbox that wraps the agent spawn (Goal 1). Distinct from
+   * `sandboxModeOverride`, which is Codex's in-CLI `--sandbox` flag. Defaults to
+   * the env-resolved runner ({@link resolveSandboxRunner}).
+   */
+  sandbox?: SandboxRunner;
 }
 
 /**
@@ -48,14 +58,16 @@ export class CodexAdapter implements ExecutionAdapter {
   readonly agentType = "codex" as const;
 
   private readonly sandboxModeOverride: string | undefined;
+  private readonly sandbox: SandboxRunner;
 
   /**
    * Creates a Codex adapter.
    *
-   * @param options - Optional overrides for sandbox mode.
+   * @param options - Optional overrides for sandbox mode and host isolation.
    */
   constructor(options?: CodexAdapterOptions) {
     this.sandboxModeOverride = options?.sandboxModeOverride;
+    this.sandbox = options?.sandbox ?? resolveSandboxRunner();
   }
 
   /**
@@ -100,8 +112,15 @@ export class CodexAdapter implements ExecutionAdapter {
 
     try {
       // "-" makes codex exec read the entire prompt from stdin (headless mode).
-      child = spawn("codex", ["exec", "--sandbox", mode, "-"], {
-        cwd: context.repositoryPath,
+      // Wrap through the host-isolation sandbox: `none` spawns `codex` directly;
+      // `docker` isolates it in a container mounting only the checkout.
+      const invocation = this.sandbox.wrap({
+        command: "codex",
+        args: ["exec", "--sandbox", mode, "-"],
+        repositoryPath: context.repositoryPath,
+      });
+      child = spawn(invocation.command, invocation.args, {
+        cwd: invocation.cwd,
         stdio: ["pipe", "pipe", "pipe"],
       });
       emit({ type: "status", label: "Agent started", detail: this.agentType, atMs: 0 });
@@ -197,6 +216,11 @@ export class CodexAdapter implements ExecutionAdapter {
       validationOutput,
       errorMessage,
       durationMs,
+      // usage: not captured yet (Goal 3). `codex exec` output isn't parsed for
+      // token/cost here, so codex sessions record no execution cost and the spend
+      // ceiling doesn't bound them. No company runs codex today (MUS-276); wire
+      // usage parsing when it ships. Claude sessions capture real usage.
+      usage: null,
     };
   }
 }

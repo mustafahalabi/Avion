@@ -133,6 +133,11 @@ model CompanySettings {
   // Default agent type for new execution sessions: "claude_code" | "codex".
   // Null (or an unrecognized value) falls back to "claude_code".
   defaultAgentType String?
+  /// Per-outcome spend ceiling in USD (Goal 3). When set, an outcome whose real
+  /// agent spend reaches this halts before running the next session and
+  /// escalates to the CEO. Null → use the EOS_OUTCOME_SPEND_CEILING_USD env
+  /// default (also null → no ceiling).
+  spendCeilingUsd Float?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -613,6 +618,39 @@ model SessionLogChunk {
   @@unique([sessionId, seq])
   @@index([sessionId, seq])
   @@index([companyId, sessionId])
+}
+
+// A single REAL token/cost usage sample from one agent CLI run (Goal 3 —
+// observability). Written by the worker after each execution session and by the
+// planner after each AI planning completion, so per-outcome spend is a SUM over
+// real usage (never estimated). Denormalized links (outcome/task/session) make
+// the per-outcome and "running now" aggregations cheap.
+model UsageRecord {
+  id        String @id @default(cuid())
+  companyId String
+
+  // ── Aggregation links (all optional; a planning sample has no task/session) ──
+  outcomeId String?
+  taskId    String?
+  sessionId String?
+
+  // "planning" | "execution"
+  phase String
+  // "claude_code" | "claude-cli" | "codex"
+  provider String
+  // Model id the run billed against, when reported.
+  model String?
+
+  inputTokens       Int   @default(0)
+  outputTokens      Int   @default(0)
+  cachedInputTokens Int   @default(0)
+  costUsd           Float @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, outcomeId])
+  @@index([companyId, createdAt])
+  @@index([sessionId])
 }
 
 // ─── Communication / Inbox Models ─────────────────────────────────────────────

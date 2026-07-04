@@ -18,10 +18,16 @@ import {
 import { prisma } from "@/lib/prisma";
 
 import { createHeartbeat } from "./heartbeat";
+import {
+  acquireSingleInstanceLock,
+  singleInstanceEnabled,
+  type InstanceLock,
+} from "./single-instance-lock";
 import { validateConfig, WORKER_CONFIG } from "./worker-config";
 import { workerLogger } from "./worker-logger";
 
 let isShuttingDown = false;
+let instanceLock: InstanceLock | null = null;
 
 /**
  * Sleeps for the given number of milliseconds.
@@ -86,6 +92,21 @@ async function driverLoop(): Promise<void> {
  */
 async function main(): Promise<void> {
   validateConfig();
+
+  // Single-instance guard (Goal 4): one driver only — several drivers ticking
+  // in parallel corrupt the live/prepared concurrency accounting.
+  instanceLock = await acquireSingleInstanceLock("driver", {
+    enabled: singleInstanceEnabled(),
+  });
+  if (!instanceLock.acquired) {
+    workerLogger.error(
+      "[driver] Another driver instance is already running (single-instance lock held). Exiting. " +
+        "Set WORKER_SINGLE_INSTANCE=0 to allow multiple (not recommended)."
+    );
+    await instanceLock.release();
+    process.exit(0);
+  }
+
   workerLogger.info(
     `[driver] Started. Ticking every ${WORKER_CONFIG.DRIVER_TICK_INTERVAL_MS}ms.`
   );
@@ -94,6 +115,9 @@ async function main(): Promise<void> {
   process.on("SIGTERM", handleShutdown);
 
   await driverLoop();
+  if (instanceLock) {
+    await instanceLock.release();
+  }
   process.exit(0);
 }
 

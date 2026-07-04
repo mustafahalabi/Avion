@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 
+import { parseClaudeResultUsage, type AgentUsage } from "@/lib/adapters/agent-usage";
 import type {
   LlmClient,
   LlmCompletion,
@@ -8,6 +9,22 @@ import type {
 
 /** Default wall-clock budget (seconds) when a request omits `timeoutSeconds`. */
 const DEFAULT_TIMEOUT_SECONDS = 120;
+
+/**
+ * Extracts the assistant text + real usage from a Claude CLI `--output-format
+ * json` payload. Falls back to treating the whole output as plain text (older
+ * CLI / unexpected shape) so planning never breaks on a format surprise.
+ */
+function parseClaudeJsonOutput(stdout: string): { text: string; usage: AgentUsage | null } {
+  try {
+    const parsed = JSON.parse(stdout.trim()) as Record<string, unknown>;
+    const text =
+      typeof parsed.result === "string" ? parsed.result : stdout;
+    return { text, usage: parseClaudeResultUsage(parsed) };
+  } catch {
+    return { text: stdout, usage: null };
+  }
+}
 
 /**
  * {@link LlmClient} implementation that shells out to the Claude CLI (`claude -p`).
@@ -42,9 +59,13 @@ export class ClaudeCliLlmClient implements LlmClient {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {
-      const activeChild = spawn("claude", ["-p", "--permission-mode", "default"], {
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      // `--output-format json` returns a single JSON object with the assistant
+      // text under `result` plus real `total_cost_usd` / `usage` (Goal 3).
+      const activeChild = spawn(
+        "claude",
+        ["-p", "--output-format", "json", "--permission-mode", "default"],
+        { stdio: ["pipe", "pipe", "pipe"] }
+      );
 
       activeChild.stdout.on("data", (chunk: Buffer) => {
         stdout += chunk.toString();
@@ -106,6 +127,7 @@ export class ClaudeCliLlmClient implements LlmClient {
       };
     }
 
-    return { ok: true, text: stdout, durationMs };
+    const { text, usage } = parseClaudeJsonOutput(stdout);
+    return { ok: true, text, durationMs, usage };
   }
 }
