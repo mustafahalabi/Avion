@@ -24,6 +24,8 @@
  * latest linked message naturally becomes the active request.
  */
 
+import { after } from "next/server";
+
 import { prisma } from "@/lib/prisma";
 import { parseJsonStringArray } from "@/lib/planning-generator";
 import { createOrUpdatePlanningDraftForOutcome } from "@/lib/planning-draft-service";
@@ -188,8 +190,10 @@ export async function resolveActiveConversationRequest(input: {
  *
  * When active: records the user message (linked to the request), appends the
  * text to the outcome brief + constraints, records a `follow_up` RuntimeEvent,
- * regenerates a not-yet-approved planning draft, and replies with a
- * deterministic status answer built from the post-update records.
+ * and replies with a deterministic status answer from the current records. A
+ * not-yet-approved planning draft is regenerated in a deferred `after()` task so
+ * the send never blocks on the AI planner; the updated plan surfaces via the
+ * live stream.
  *
  * When there is no active request, nothing is written — the caller starts a
  * new request from the message instead.
@@ -250,12 +254,10 @@ export async function handleConversationFollowUp(
     });
   });
 
-  // Plans that are not yet approved absorb the note now: pending drafts
-  // regenerate in place, failed drafts retry, rejected drafts re-plan at the
-  // next version (all inside createOrUpdatePlanningDraftForOutcome, which is
-  // idempotent per outcome+version). Approved/applied plans are never
-  // regenerated — the appended constraints reach rework and execution briefs
-  // through the outcome instead.
+  // Plans that are not yet approved absorb the note: pending drafts regenerate
+  // in place, failed drafts retry, rejected drafts re-plan at the next version.
+  // Approved/applied plans are never regenerated — the appended constraints
+  // reach rework and execution briefs through the outcome instead.
   const latestDraft = await prisma.planningDraft.findFirst({
     where: { companyId: input.companyId, outcomeId: active.outcomeId },
     orderBy: { version: "desc" },
@@ -263,17 +265,11 @@ export async function handleConversationFollowUp(
   });
   const planRegenerated =
     latestDraft?.status !== "approved" && latestDraft?.status !== "applied";
-  if (planRegenerated) {
-    await createOrUpdatePlanningDraftForOutcome({
-      companyId: input.companyId,
-      outcomeId: active.outcomeId,
-      actorId: input.actorId,
-      regeneratePendingDraft: true,
-    });
-  }
 
-  // Reply from the post-update records so the CEO sees the state their
-  // follow-up produced (e.g. the regenerated plan's open questions).
+  // Reply from the current records — the note is already durable on the brief +
+  // constraints, so the CEO gets an immediate answer. `planRegenerated` tells the
+  // reply the note is being folded into the plan; the regenerated plan surfaces
+  // via the live activity stream when the deferred generation below lands.
   const context = await loadFollowUpReplyContext({
     companyId: input.companyId,
     requestId: active.requestId,
@@ -296,6 +292,26 @@ export async function handleConversationFollowUp(
       content: reply.text,
     },
   });
+
+  // Regeneration shells out to the AI planner (up to 120s) — NEVER block the send
+  // on it or the composer freezes (same reason the first-message path defers). Run
+  // it past the response; it's idempotent per outcome+version and persists its own
+  // failed-draft/status on error.
+  if (planRegenerated) {
+    after(async () => {
+      try {
+        await createOrUpdatePlanningDraftForOutcome({
+          companyId: input.companyId,
+          outcomeId: active.outcomeId,
+          actorId: input.actorId,
+          regeneratePendingDraft: true,
+        });
+      } catch {
+        // A stuck draft is recoverable via the driver's planning tick / a retry;
+        // this guard only stops an unexpected throw becoming an unhandled rejection.
+      }
+    });
+  }
 
   return {
     kind: "attached",

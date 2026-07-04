@@ -20,6 +20,21 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => undefined }),
 }));
+// `after()` defers plan generation past the HTTP response in production. Under
+// vitest there is no request lifecycle to run it, so capture the callbacks and
+// let the `send()` helper drain them — mirroring "the response returned, then the
+// deferred work ran" so the existing synchronous assertions still hold.
+const afterCallbacks: Array<() => void | Promise<void>> = [];
+vi.mock("next/server", () => ({
+  after: (cb: () => void | Promise<void>) => {
+    afterCallbacks.push(cb);
+  },
+}));
+async function flushAfter(): Promise<void> {
+  while (afterCallbacks.length > 0) {
+    await afterCallbacks.shift()!();
+  }
+}
 
 let prisma: typeof PrismaSingleton;
 let schema: string;
@@ -37,6 +52,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   vi.clearAllMocks();
+  afterCallbacks.length = 0;
   await prisma.$executeRawUnsafe(`DELETE FROM "Message"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Conversation"`);
   await prisma.$executeRawUnsafe(`DELETE FROM "TimelineEntry"`);
@@ -66,7 +82,11 @@ async function newConversation(): Promise<string> {
 async function send(conversationId: string, content: string) {
   const formData = new FormData();
   formData.set("content", content);
-  return actions.sendMessage(conversationId, undefined, formData);
+  const result = await actions.sendMessage(conversationId, undefined, formData);
+  // Drain deferred plan generation so assertions observe the settled state,
+  // exactly as the request lifecycle runs after() once the response is sent.
+  await flushAfter();
+  return result;
 }
 
 async function latestCompanyMessage(conversationId: string) {

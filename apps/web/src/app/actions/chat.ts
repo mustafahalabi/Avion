@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod/v4";
 import { resolveDefaultRepositoryId } from "@/lib/active-workspace";
 import { REQUEST_ROUTING } from "@/lib/request-routing";
@@ -176,13 +177,32 @@ export async function sendMessage(
     return { outcomeId: outcome.id };
   });
 
-  await createOrUpdatePlanningDraftForOutcome({
-    companyId: company.id,
-    outcomeId: planningTarget.outcomeId,
-    actorId: user.id,
+  // Plan generation shells out to the AI planner (up to 120s) — NEVER block the
+  // send on it or the composer sits disabled and looks frozen. Mark the outcome
+  // "planning" synchronously so the thread reflects the generating state, then
+  // defer the slow generation past the response (same pattern as the plan
+  // action). The live chat stream surfaces the plan the moment it lands.
+  await prisma.outcome.updateMany({
+    where: { id: planningTarget.outcomeId, companyId: company.id },
+    data: { status: "planning" },
   });
 
   revalidateChatPaths(conversationId);
+
+  const companyId = company.id;
+  const actorId = user.id;
+  const outcomeId = planningTarget.outcomeId;
+  after(async () => {
+    try {
+      await createOrUpdatePlanningDraftForOutcome({ companyId, outcomeId, actorId });
+      revalidateChatPaths(conversationId);
+    } catch {
+      // The service persists its own failed-draft + status on generation errors;
+      // this guard only stops an unexpected throw from surfacing as an unhandled
+      // rejection. A stuck "planning" outcome is recoverable via the driver's
+      // planning tick or a manual retry.
+    }
+  });
 
   return { conversationId };
 }
